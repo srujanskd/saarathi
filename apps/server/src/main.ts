@@ -94,15 +94,27 @@ await kernel.start();
 await app.listen({ port: Number(process.env.PORT) || SERVER_PORT, host: "0.0.0.0" });
 
 let shuttingDown = false;
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    void (async () => {
-      await io.close();
-      await kernel.stop();
-      await app.close();
-      process.exit(0);
-    })();
-  });
+function shutdown(): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  void (async () => {
+    await io.close();
+    // kernel.stop flushes the store, so anything that skips this path loses
+    // whatever the debounce was still holding.
+    await kernel.stop();
+    await app.close();
+    process.exit(0);
+  })();
 }
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, shutdown);
+
+// Windows has no signal worth the name: a parent that wants this process gone
+// terminates it, and the pending write dies with it. So a parent that spawned
+// us with an IPC channel -- the e2e harness today, the Electron tray tomorrow
+// -- asks over that instead, and gets the same clean stop on every platform.
+process.on("message", (message: unknown) => {
+  if (typeof message === "object" && message !== null && "type" in message) {
+    if ((message as { type?: unknown }).type === "shutdown") shutdown();
+  }
+});

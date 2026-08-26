@@ -105,7 +105,9 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
         YT_CHANNEL_ID: "",
         YT_LIVE_ID: "",
       },
-      stdio: ["ignore", "pipe", "pipe"],
+      // The fourth slot is the IPC channel stop() asks over, because on
+      // Windows a signal is not a request.
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
     },
   );
 
@@ -193,7 +195,11 @@ async function waitForHealth(
 async function stopChild(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode) return;
   const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
-  child.kill("SIGTERM");
+  // Ask over IPC first. SIGTERM never reaches a Node process on Windows, so a
+  // run that relied on it would lose the state a restart test is about to
+  // assert on. SIGKILL stays as the backstop for a server that ignores both.
+  if (child.connected) child.send({ type: "shutdown" });
+  else child.kill("SIGTERM");
   const forced = setTimeout(() => child.kill("SIGKILL"), 5_000);
   await exited;
   clearTimeout(forced);
