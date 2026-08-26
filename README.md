@@ -107,7 +107,14 @@ AGENTS.md              how to work in this repo
 .github/workflows      ci.yml on every PR, release.yml on every v* tag
 ```
 
-## Contributing
+## Contributions
+
+Closed for now. The repo is public and MIT, so read it, fork it, lift whatever is useful — but
+outside pull requests are not being taken while this is still one person building for one
+streamer. Issues are welcome if something here is wrong or broken.
+
+That may change once the shape settles. Until it does, what follows is how the people with
+commit rights work in it, not an invitation.
 
 Trunk based. `main` is always green and always releasable. Short-lived branches off it, one
 concern each, squash merged through a PR with a conventional commit title. Nothing else is
