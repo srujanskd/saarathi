@@ -1,0 +1,52 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+# The tag is the trigger, so nothing here decides a version.
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Refuse a tag that is not on main
+        run: |
+          git fetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::${GITHUB_REF_NAME} is not an ancestor of main. Releases are cut from the trunk."; exit 1; }
+
+      - name: Refuse a tag whose version does not match package.json
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          declared=$(node -p "require('./package.json').version")
+          [ "$tagged" = "$declared" ] \
+            || { echo "::error::tag ${GITHUB_REF_NAME} vs package.json ${declared}. Use pnpm release:* so they cannot drift."; exit 1; }
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A tag with a hyphen (v0.3.0-rc.1) is a pre-release: it exists so it
+          # can be installed deliberately, never handed to her by auto-update.
+          case "$GITHUB_REF_NAME" in
+            *-*) prerelease=--prerelease ;;
+            *)   prerelease= ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            $prerelease
+
+      # Phase 4: a windows-latest job builds the Electron installer and uploads
+      # it plus latest.yml onto this release, which is what electron-updater
+      # polls. Nothing above changes when it lands.

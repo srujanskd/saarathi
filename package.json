@@ -1,0 +1,33 @@
+{
+  "name": "saarathi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open-source stream tools for a fitness streamer on YouTube: chat-driven challenge wheel, overlays, phone stream deck, and more.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @saarathi/server dev",
+    "build": "pnpm --filter @saarathi/overlays build",
+    "start": "pnpm --filter @saarathi/server start",
+    "release:patch": "pnpm version patch -m \"chore(release): v%s\"",
+    "release:minor": "pnpm version minor -m \"chore(release): v%s\"",
+    "release:major": "pnpm version major -m \"chore(release): v%s\"",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "test:fast": "vitest run --project unit --project integration",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:e2e": "vitest run --project e2e",
+    "test:watch": "vitest --project unit --project integration"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.11"
+  },
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  }
+}

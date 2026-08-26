@@ -1,0 +1,13 @@
+node_modules/
+dist/
+data/
+*.log
+.DS_Store
+.env
+
+# local-only design doc, deliberately untracked
+docs/plan.html
+
+# npm, if someone slips and runs it here
+package-lock.json
+yarn.lock

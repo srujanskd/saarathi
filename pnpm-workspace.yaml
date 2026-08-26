@@ -1,0 +1,7 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+allowBuilds:
+  # esbuild's postinstall links its prebuilt binary; tsx will not run without it.
+  esbuild: true
