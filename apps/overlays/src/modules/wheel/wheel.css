@@ -133,3 +133,37 @@
   font: 500 clamp(16px, 2.6vh, 32px)/1.2 system-ui, sans-serif;
   color: rgb(253 253 251 / 0.72);
 }
+
+/* Spins paid for and still waiting. Top left, because the pointer owns the top
+   middle and the connection status owns the bottom left corner. Opacity is the
+   only thing that changes here: it appears while the wheel is already turning,
+   and a card that reflowed anything at that moment would repaint the whole
+   browser source mid-spin. */
+.queue {
+  position: fixed;
+  top: 2.4vh;
+  left: 2.4vh;
+  padding: 0.9vh 2vh 1.1vh;
+  border-radius: 1.2vh;
+  background: rgb(14 15 20 / 0.72);
+  box-shadow: 0 0.4vh 1.4vh rgb(0 0 0 / 0.45);
+  opacity: 0;
+  transition: opacity 350ms ease;
+  pointer-events: none;
+}
+
+.queue[data-visible="true"] {
+  opacity: 1;
+}
+
+.queue-title {
+  margin: 0;
+  font: 700 clamp(15px, 2.4vh, 30px)/1.15 system-ui, sans-serif;
+  color: #fdfdfb;
+}
+
+.queue-detail {
+  margin: 0.25em 0 0;
+  font: 500 clamp(12px, 1.8vh, 22px)/1.2 system-ui, sans-serif;
+  color: rgb(253 253 251 / 0.72);
+}
