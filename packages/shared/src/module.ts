@@ -103,6 +103,15 @@ export interface ModuleContext<S> {
   log: Logger;
 }
 
+/**
+ * `S` defaults to `any`, not `unknown`, and this is the second and last place
+ * `any` is allowed. The core holds modules in one heterogeneous list, so it
+ * names this type unparameterised; with `unknown`, `keyof S` is `never` and a
+ * module that persists its own keys stops being assignable to its own
+ * interface. The alternative is a cast at every registration site, which moves
+ * the same hole somewhere it is harder to see.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface GameModuleDef<S = any> {
   /** Namespaces state, actions, the overlay route and the persisted slice. */
   id: string;

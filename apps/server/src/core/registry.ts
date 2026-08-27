@@ -257,7 +257,6 @@ export class Registry {
 
   private buildContext(runtime: Runtime): ModuleContext<Record<string, unknown>> {
     const { def } = runtime;
-    const registry = this;
 
     const track = (timer: NodeJS.Timeout, repeating: boolean): Cancel => {
       timer.unref?.();
@@ -277,10 +276,14 @@ export class Registry {
       get armed() {
         return def.arming ? runtime.armed : true;
       },
-      setState(patch) {
+      // The three below are arrows rather than shorthand methods so they can
+      // reach the registry as `this`. Aliasing it into a local instead reads
+      // fine and lints badly, and there is no third option: a shorthand method
+      // on this object gets the context as `this`, not the registry.
+      setState: (patch) => {
         const next = typeof patch === "function" ? patch(runtime.state) : patch;
         Object.assign(runtime.state, next);
-        registry.markDirty(runtime);
+        this.markDirty(runtime);
       },
       on(type, handler) {
         let handlers = runtime.subs.get(type);
@@ -291,14 +294,14 @@ export class Registry {
         handlers.add(handler as Handler);
         return () => handlers.delete(handler as Handler);
       },
-      effect(effect) {
+      effect: (effect) => {
         // Publish the state this effect goes with first. Otherwise the sound
         // plays a frame before the overlay has the label to show alongside it.
-        registry.flushPatches();
-        registry.deps.onEffect({ module: def.id, ...effect });
+        this.flushPatches();
+        this.deps.onEffect({ module: def.id, ...effect });
       },
-      async invoke(action, input) {
-        await registry.dispatch(`${def.id}.${action}`, {
+      invoke: async (action, input) => {
+        await this.dispatch(`${def.id}.${action}`, {
           by: "system",
           via: "auto",
           args: [],
@@ -308,12 +311,12 @@ export class Registry {
       refuse(reason): never {
         throw new ActionRefused(reason);
       },
-      gains: registry.deps.gains,
-      obs: registry.deps.obs,
+      gains: this.deps.gains,
+      obs: this.deps.obs,
       after: (ms, fn) => track(setTimeout(fn, ms), false),
       every: (ms, fn) => track(setInterval(fn, ms), true),
-      say: (text) => registry.deps.say(text),
-      log: registry.deps.log,
+      say: (text) => this.deps.say(text),
+      log: this.deps.log,
     };
   }
 

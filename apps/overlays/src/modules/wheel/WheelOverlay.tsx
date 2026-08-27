@@ -41,6 +41,18 @@ export function WheelOverlay({ connection }: { connection: Connection }) {
 
   const key = spin ? `${spin.startedAt}:${spin.index}` : null;
 
+  // The four numbers that identify one spin, pulled out of the object because
+  // the object is not stable: a patch replaces the whole wheel slice, so a
+  // queued spin arriving or a challenge being saved hands React a brand new
+  // `spin` with identical contents. The effects below depend on these instead,
+  // because they survive that round trip unchanged -- an effect keyed on the
+  // object would restart a hold that is already half spent and re-seed an
+  // animation in the middle of its turn.
+  const startedAt = spin?.startedAt ?? null;
+  const index = spin?.index ?? 0;
+  const durationMs = spin?.durationMs ?? 0;
+  const wedgeCount = spin?.wheel.length ?? 0;
+
   // Phase is worked out during the render the spin arrives on, not in an
   // effect afterwards. An effect would commit one frame of "hidden" first, and
   // "hidden" renders no wheel -- so the ref below would still be empty when
@@ -53,36 +65,32 @@ export function WheelOverlay({ connection }: { connection: Connection }) {
   }
 
   // Only the handovers between phases. Where it starts is decided above.
-  // Deliberately keyed on the spin alone: re-running these timers because the
-  // connection object was recreated would restart a hold that is already
-  // partly spent. (react-hooks/exhaustive-deps would flag this.)
   useEffect(() => {
-    if (!spin) return;
-    const elapsed = elapsedOf(spin, connection.serverNow());
-    const total = spin.durationMs + HOLD_MS;
+    if (startedAt === null) return;
+    const elapsed = elapsedOf(startedAt, connection.serverNow());
+    const total = durationMs + HOLD_MS;
     const timers: ReturnType<typeof setTimeout>[] = [];
-    if (elapsed < spin.durationMs) {
-      timers.push(setTimeout(() => setPhase("landed"), spin.durationMs - elapsed));
+    if (elapsed < durationMs) {
+      timers.push(setTimeout(() => setPhase("landed"), durationMs - elapsed));
     }
     if (elapsed < total) {
       timers.push(setTimeout(() => setPhase("hidden"), total - elapsed));
     }
     return () => timers.forEach(clearTimeout);
-  }, [key]);
+  }, [connection, startedAt, durationMs]);
 
-  // Same reasoning: the animation belongs to one spin, and `wheel` is fixed for
-  // that spin's whole life, so the spin is the only honest dependency.
-  // (react-hooks/exhaustive-deps would flag this too.)
+  // The animation belongs to one spin, and the wheel it was drawn from is fixed
+  // for that spin's whole life, so its wedge count is all this needs of it.
   useEffect(() => {
     const element = wheelRef.current;
-    if (!element || !spin || spin.wheel.length === 0) return;
+    if (!element || startedAt === null || wedgeCount === 0) return;
 
-    const to = targetRotation(spin.index, spin.wheel.length);
-    const elapsed = elapsedOf(spin, connection.serverNow());
+    const to = targetRotation(index, wedgeCount);
+    const elapsed = elapsedOf(startedAt, connection.serverNow());
 
     // Connected after it landed -- an OBS source reloading, or her phone waking
     // up. There is nothing to animate; sit on the answer.
-    if (elapsed >= spin.durationMs) {
+    if (elapsed >= durationMs) {
       element.style.transform = `rotate(${to}deg)`;
       return;
     }
@@ -90,7 +98,7 @@ export function WheelOverlay({ connection }: { connection: Connection }) {
     element.style.transform = "";
     const animation = element.animate(
       [{ transform: `rotate(${to - TURNS * 360}deg)` }, { transform: `rotate(${to}deg)` }],
-      { duration: spin.durationMs, easing: EASE, fill: "both" },
+      { duration: durationMs, easing: EASE, fill: "both" },
     );
     // Connected mid-spin: start the animation where the server already is.
     animation.currentTime = elapsed;
@@ -103,7 +111,7 @@ export function WheelOverlay({ connection }: { connection: Connection }) {
     };
 
     return () => animation.cancel();
-  }, [key]);
+  }, [connection, startedAt, durationMs, index, wedgeCount]);
 
   if (!spin || phase === "hidden" || wedges.length === 0) {
     return <div className="stage" data-phase="hidden" data-testid="stage" />;

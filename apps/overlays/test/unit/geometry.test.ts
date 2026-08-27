@@ -148,12 +148,12 @@ const spinAt = (startedAt: number): ActiveSpin => ({
  */
 describe("how far into the spin we are", () => {
   it("is the distance from the start", () => {
-    expect(elapsedOf(spinAt(1_000), 3_500)).toBe(2_500);
+    expect(elapsedOf(1_000, 3_500)).toBe(2_500);
   });
 
   it("never goes backwards, however far ahead the caller's clock is", () => {
-    expect(elapsedOf(spinAt(10_000), 0)).toBe(0);
-    expect(elapsedOf(spinAt(10_000), 9_999)).toBe(0);
+    expect(elapsedOf(10_000, 0)).toBe(0);
+    expect(elapsedOf(10_000, 9_999)).toBe(0);
   });
 });
 

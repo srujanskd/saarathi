@@ -34,9 +34,13 @@ export type Phase = "hidden" | "spinning" | "landed";
  * server time: see `Snapshot.serverNow`. The clamp is what stops a client whose
  * clock is ahead of the server from animating backwards; the correction is what
  * stops one that is behind from animating forever.
+ *
+ * It takes the timestamp rather than the spin so the overlay's effects can
+ * depend on that one number instead of on an object the server replaces
+ * wholesale every patch.
  */
-export function elapsedOf(spin: ActiveSpin, now: number): number {
-  return Math.max(0, now - spin.startedAt);
+export function elapsedOf(startedAt: number, now: number): number {
+  return Math.max(0, now - startedAt);
 }
 
 /**
@@ -46,7 +50,7 @@ export function elapsedOf(spin: ActiveSpin, now: number): number {
  */
 export function phaseOf(spin: ActiveSpin | null, now: number): Phase {
   if (!spin) return "hidden";
-  const elapsed = elapsedOf(spin, now);
+  const elapsed = elapsedOf(spin.startedAt, now);
   if (elapsed >= spin.durationMs + HOLD_MS) return "hidden";
   return elapsed >= spin.durationMs ? "landed" : "spinning";
 }
