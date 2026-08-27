@@ -39,8 +39,6 @@ export function WheelOverlay({ connection }: { connection: Connection }) {
   const wheelRef = useRef<HTMLDivElement>(null);
   const wedges = useMemo(() => segments(wheel), [wheel]);
 
-  const key = spin ? `${spin.startedAt}:${spin.index}` : null;
-
   // The four numbers that identify one spin, pulled out of the object because
   // the object is not stable: a patch replaces the whole wheel slice, so a
   // queued spin arriving or a challenge being saved hands React a brand new
@@ -48,10 +46,20 @@ export function WheelOverlay({ connection }: { connection: Connection }) {
   // because they survive that round trip unchanged -- an effect keyed on the
   // object would restart a hold that is already half spent and re-seed an
   // animation in the middle of its turn.
+  //
+  // `connection` is in those dependency arrays for the same reason it is safe
+  // to be there: it is made once at module scope in `overlay.tsx`, outside the
+  // tree, so it never changes for the life of the page. A page that built its
+  // connection inside a component would re-run these effects on every render
+  // and bring the restarted hold back.
   const startedAt = spin?.startedAt ?? null;
   const index = spin?.index ?? 0;
   const durationMs = spin?.durationMs ?? 0;
   const wedgeCount = spin?.wheel.length ?? 0;
+
+  // One identity for one spin, derived from the same primitives, so the render
+  // path and the effects below cannot disagree about which spin is on screen.
+  const key = startedAt === null ? null : `${startedAt}:${index}`;
 
   // Phase is worked out during the render the spin arrives on, not in an
   // effect afterwards. An effect would commit one frame of "hidden" first, and

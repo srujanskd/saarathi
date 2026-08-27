@@ -121,6 +121,7 @@ pnpm install
 pnpm dev             # server + overlays
 pnpm typecheck
 pnpm lint            # eslint, warnings included
+pnpm lint:fix        # the same, applying what it can fix on its own
 ```
 
 Server is on 4400, bound to `0.0.0.0` so the phone can reach it. Develop against mock chat.
@@ -304,7 +305,7 @@ branch die. Fix on the trunk first, always, or the next release loses it again.
 
 Set once on the GitHub repo, because the strategy is a rule only if the server enforces it:
 
-- require the `verify` checks to pass before merge
+- require the `verify` checks and `lint` to pass before merge
 - require linear history (squash merges only)
 - no force pushes, no deletions
 

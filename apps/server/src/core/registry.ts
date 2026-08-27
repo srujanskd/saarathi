@@ -276,16 +276,18 @@ export class Registry {
       get armed() {
         return def.arming ? runtime.armed : true;
       },
-      // The three below are arrows rather than shorthand methods so they can
-      // reach the registry as `this`. Aliasing it into a local instead reads
-      // fine and lints badly, and there is no third option: a shorthand method
-      // on this object gets the context as `this`, not the registry.
+      // Every function below is an arrow property rather than a shorthand
+      // method, so `this` is the registry throughout. Some of them need it and
+      // some do not, but a mix of the two forms invites a reader to work out
+      // which is which: a shorthand method here gets the context as `this`,
+      // not the registry, and aliasing the registry into a local instead reads
+      // fine and lints badly.
       setState: (patch) => {
         const next = typeof patch === "function" ? patch(runtime.state) : patch;
         Object.assign(runtime.state, next);
         this.markDirty(runtime);
       },
-      on(type, handler) {
+      on: (type, handler) => {
         let handlers = runtime.subs.get(type);
         if (!handlers) {
           handlers = new Set();
@@ -308,7 +310,7 @@ export class Registry {
           ...input,
         });
       },
-      refuse(reason): never {
+      refuse: (reason): never => {
         throw new ActionRefused(reason);
       },
       gains: this.deps.gains,

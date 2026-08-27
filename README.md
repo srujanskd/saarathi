@@ -67,6 +67,7 @@ two seconds into a six-second spin renders it mid-rotation instead of missing it
 pnpm install
 pnpm dev           # server on 4400, overlay pages on Vite
 pnpm typecheck
+pnpm lint          # eslint, warnings included; `pnpm lint:fix` applies what it can
 ```
 
 The server listens on port 4400 and binds `0.0.0.0`, so a phone on the same Wi-Fi reaches it at
