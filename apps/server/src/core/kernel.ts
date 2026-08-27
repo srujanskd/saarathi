@@ -99,8 +99,17 @@ export class Kernel {
     };
   }
 
+  /**
+   * `serverNow` is stamped here rather than where the snapshot is emitted, so
+   * the socket and `/api/state` cannot disagree about what the server's clock
+   * said. See `Snapshot.serverNow` for why a client needs it at all.
+   */
   snapshot(moduleIds?: string[]): Snapshot {
-    return { core: this.coreState(), modules: this.registry.snapshot(moduleIds) };
+    return {
+      core: this.coreState(),
+      modules: this.registry.snapshot(moduleIds),
+      serverNow: Date.now(),
+    };
   }
 
   onPatch(listener: (module: string, state: unknown) => void): Cancel {

@@ -35,11 +35,11 @@ Early. Phase 1 of four.
 The server is built around the game module contract and runs. Chat events in, module state out,
 snapshot-synced over Socket.IO. Two modules ship with it: the challenge wheel and a chat log.
 
-Not built yet: `apps/overlays`. Until it exists there is nothing to look at, so drive the server
-with `POST /api/mock-chat` and `POST /api/invoke` and read `GET /api/state`.
+`apps/overlays` has its first page: the wheel overlay, which OBS loads as a browser source at
+`overlay.html?module=wheel`. It renders server state and decides nothing.
 
-Next: the React overlay app — wheel overlay, control page with a mock-chat panel — then the
-Phase 1 slice end to end.
+Next: the control page she drives the stream from, with a mock-chat panel, then the Phase 1
+slice end to end.
 
 ## How it fits together
 
@@ -65,12 +65,22 @@ two seconds into a six-second spin renders it mid-rotation instead of missing it
 
 ```bash
 pnpm install
-pnpm dev           # server only, until apps/overlays exists
+pnpm dev           # server on 4400, overlay pages on Vite
 pnpm typecheck
 ```
 
 The server listens on port 4400 and binds `0.0.0.0`, so a phone on the same Wi-Fi reaches it at
-`http://<pc-ip>:4400`.
+`http://<pc-ip>:4400`. Run `pnpm build` once and it serves the overlay pages too, which is how
+she runs it: one address for OBS, her phone and the server.
+
+Pages never assume they were served by the server. The address arrives as `?server=`, falling
+back to wherever the page came from, so the same build works with OBS on her PC, her phone on
+the LAN, and the server on a VPS the day she streams IRL:
+
+```
+http://<server>:4400/overlay.html?module=wheel
+http://<pages-host>/overlay.html?module=wheel&server=http://<server>:4400
+```
 
 With no YouTube config it runs on mock chat, which is how you develop. To point it at a real
 stream, set one of these:
@@ -99,7 +109,12 @@ apps/server/src/
   chat/                the one platform-specific layer: adapter.ts, youtube.ts, mock.ts
   modules/wheel/       the first game module; rules.ts is pure and testable
   modules/chatlog/     the second, and the proof the contract holds
-apps/overlays          React overlay and control pages (not built yet)
+apps/overlays/
+  overlay.html         one browser source per module: ?module=wheel
+  src/lib/serverUrl.ts the only thing that decides where the server is
+  src/lib/connection.ts one socket, snapshot-on-connect, no game logic
+  src/modules/         client half of the module contract, keyed by module id
+  test/                Playwright: the two things a socket client cannot check
 packages/shared        types and constants both sides import, including module state
 pnpm-workspace.yaml    workspace globs, and the allowBuilds list for postinstall scripts
 docs/plan.html         the design doc, local only and untracked

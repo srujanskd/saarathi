@@ -55,15 +55,18 @@ const kernel = createKernel({
 });
 
 // In production the server also serves the overlay pages, so OBS and her phone
-// only ever need one address.
-const overlaysDist = join(import.meta.dirname, "../../overlays/dist");
+// only ever need one address. The path is overridable because the Electron
+// build will not put the pages two directories up from this file, and because
+// a test needs to be able to prove both branches below.
+const overlaysDist =
+  process.env.OVERLAYS_DIST ?? join(import.meta.dirname, "../../overlays/dist");
 if (existsSync(overlaysDist)) {
   const fastifyStatic = (await import("@fastify/static")).default;
   await app.register(fastifyStatic, { root: overlaysDist });
 } else {
   app.get("/", async () => ({
     ok: true,
-    hint: "Overlay pages are not built yet. Run `npm run build`, or use the Vite dev server.",
+    hint: "Overlay pages are not built yet. Run `pnpm build`, or use the Vite dev server.",
   }));
 }
 

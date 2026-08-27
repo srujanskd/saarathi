@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SERVER_PORT, type CoreState, type Snapshot } from "@saarathi/shared";
 import { startServer, type RunningServer } from "./helpers/server.js";
@@ -5,7 +8,9 @@ import { startServer, type RunningServer } from "./helpers/server.js";
 let server: RunningServer;
 
 beforeAll(async () => {
-  server = await startServer();
+  // Pointed at nothing on purpose: whether someone has run `pnpm build` on
+  // this machine is not allowed to decide what these tests assert.
+  server = await startServer({ env: { OVERLAYS_DIST: join(tmpdir(), "saarathi-no-such-dist") } });
 });
 
 afterAll(async () => {
@@ -59,6 +64,39 @@ describe("a client that connects", () => {
     await client.close();
   });
 
+  /**
+   * A client is not necessarily on the server's machine -- `?server=` exists so
+   * it can be a VPS while the page runs on her phone -- and every timestamp in
+   * the state is server time. Without this field a phone whose clock is out
+   * subtracts the wrong `now` from `spin.startedAt` and gets an elapsed that is
+   * tens of seconds wrong, which for a six second spin means it renders as
+   * already finished.
+   */
+  it("is told the server's clock, so it can correct its own", async () => {
+    const before = Date.now();
+    const client = await server.connect();
+    const after = Date.now();
+
+    const serverNow = client.snapshots[0]!.serverNow;
+    expect(serverNow).toBeTypeOf("number");
+    // Both processes are on this machine, so the stamp has to sit inside the
+    // window we measured around the connect.
+    expect(serverNow).toBeGreaterThanOrEqual(before);
+    expect(serverNow).toBeLessThanOrEqual(after);
+    await client.close();
+  });
+
+  it("is told it again on reconnect, because that is when it could have drifted", async () => {
+    const first = await server.connect();
+    const before = first.snapshots[0]!.serverNow;
+    // OBS reloading the browser source: the old socket is simply gone.
+    await first.close();
+
+    const reloaded = await server.connect();
+    expect(reloaded.snapshots[0]!.serverNow).toBeGreaterThanOrEqual(before);
+    await reloaded.close();
+  });
+
   it("gets only the modules it subscribed to", async () => {
     const client = await server.connect({ surface: "overlay", modules: ["wheel"] });
     const scoped = client.snapshots.at(-1)!;
@@ -76,5 +114,36 @@ describe("a client that connects", () => {
     const client = await server.connect({ surface: "control" });
     expect(Object.keys(client.snapshots.at(-1)!.modules).sort()).toEqual(["chatlog", "wheel"]);
     await client.close();
+  });
+});
+
+describe("once the overlay pages are built", () => {
+  let dir: string;
+  let built: RunningServer;
+
+  beforeAll(async () => {
+    // Her whole setup is one address: OBS and her phone both point at the
+    // server, and the server hands them the pages.
+    dir = mkdtempSync(join(tmpdir(), "saarathi-dist-"));
+    writeFileSync(join(dir, "index.html"), "<!doctype html><title>Saarathi</title>");
+    writeFileSync(join(dir, "overlay.html"), "<!doctype html><title>overlay</title>");
+    built = await startServer({ env: { OVERLAYS_DIST: dir } });
+  });
+
+  afterAll(async () => {
+    await built?.stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("serves them, so OBS and her phone need one address and not two", async () => {
+    const overlay = await fetch(`${built.origin}/overlay.html`);
+    expect(overlay.status).toBe(200);
+    expect(await overlay.text()).toContain("<title>overlay</title>");
+  });
+
+  it("still answers the API underneath them", async () => {
+    expect(await built.get("/health")).toEqual({ ok: true });
+    const snapshot = (await built.get("/api/state")) as Snapshot;
+    expect(Object.keys(snapshot.modules).sort()).toEqual(["chatlog", "wheel"]);
   });
 });

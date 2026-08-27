@@ -6,7 +6,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @saarathi/server dev",
+    "dev": "concurrently -n server,overlays -c cyan,magenta \"pnpm --filter @saarathi/server dev\" \"pnpm --filter @saarathi/overlays dev\"",
     "build": "pnpm --filter @saarathi/overlays build",
     "start": "pnpm --filter @saarathi/server start",
     "release:patch": "pnpm version patch -m \"chore(release): v%s\"",
@@ -14,11 +14,12 @@
     "release:major": "pnpm version major -m \"chore(release): v%s\"",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
-    "test:fast": "vitest run --project unit --project integration",
-    "test:unit": "vitest run --project unit",
+    "test:fast": "vitest run --project unit --project unit-overlays --project integration",
+    "test:unit": "vitest run --project unit --project unit-overlays",
     "test:integration": "vitest run --project integration",
     "test:e2e": "vitest run --project e2e",
-    "test:watch": "vitest --project unit --project integration"
+    "test:watch": "vitest --project unit --project unit-overlays --project integration",
+    "test:browser": "pnpm --filter @saarathi/overlays test:browser"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",

@@ -22,6 +22,7 @@ const activeSpin = (startedAt: number): ActiveSpin => ({
   via: "chat",
   startedAt,
   durationMs: SPIN_DURATION_MS,
+  wheel: [...DEFAULT_CHALLENGES],
 });
 
 /** The instant a spin started at 0 stops blocking. */
@@ -127,5 +128,27 @@ describe("planSpin", () => {
   it("does not read the clock itself", () => {
     const result = planSpin(state(), { ...input, now: 12_345 });
     if (result.ok) expect(result.spin.startedAt).toBe(12_345);
+  });
+
+  /**
+   * `index` is meaningless without the list it was drawn against, and she can
+   * save a new list while the wheel is still turning. The spin has to carry its
+   * own wheel or an overlay lands the pointer on a wedge that is no longer the
+   * one the server picked.
+   */
+  it("carries the wheel it was drawn from", () => {
+    const result = planSpin(state({ challenges: ["a", "b", "c"] }), { ...input, random: () => 0.5 });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.spin.wheel).toEqual(["a", "b", "c"]);
+      expect(result.spin.wheel[result.spin.index]).toBe(result.spin.label);
+    }
+  });
+
+  it("copies the list, so a later edit cannot reach into a spin already drawn", () => {
+    const live = state({ challenges: ["a", "b"] });
+    const result = planSpin(live, input);
+    live.challenges.push("c");
+    if (result.ok) expect(result.spin.wheel).toEqual(["a", "b"]);
   });
 });

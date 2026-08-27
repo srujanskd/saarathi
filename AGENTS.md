@@ -135,7 +135,7 @@ packages with `pnpm add -F @saarathi/server <pkg>`, and depend on workspace pack
 ## Testing
 
 ```bash
-pnpm test            # unit + integration + e2e, about 6s
+pnpm test            # unit + unit-overlays + integration + e2e, about 6s
 pnpm test:fast       # skip e2e, for the tight loop
 pnpm test:watch      # same, watching
 pnpm test:unit
@@ -143,8 +143,8 @@ pnpm test:integration
 pnpm test:e2e
 ```
 
-Vitest, configured once in `vitest.config.ts` at the root as three projects. Everything lives in
-`apps/server/test`, split by what a test needs rather than by what it covers:
+Vitest, configured once in `vitest.config.ts` at the root as four projects, split by what a test
+needs rather than by what it covers. Three of them live in `apps/server/test`:
 
 - **unit** pure functions only: spin rules, the command gate, gains, the store, adapter
   normalization. No clock, no kernel, no port.
@@ -154,6 +154,13 @@ Vitest, configured once in `vitest.config.ts` at the root as three projects. Eve
 - **e2e** the real server as a child process on a port the OS handed us, driven by a real
   `socket.io-client`. This is the only layer that proves reconnect, per-module subscription and
   restart-persistence, because those are the bugs that only show up over a socket.
+
+The fourth lives in `apps/overlays/test/unit`:
+
+- **unit-overlays** the same tier as **unit**, in the other workspace. It is a separate project
+  only because a Vitest project has one root. Pure functions from the overlay app: wheel
+  geometry, the label budget, the wedge palette. No DOM, no React, no socket. Anything that
+  needs a browser is a `.spec.ts` and Playwright runs it.
 
 Helpers you should use instead of rolling your own:
 
@@ -173,15 +180,41 @@ Rules for this suite:
 - A new chat-driven feature needs an integration test through mock chat, or it is untestable by
   anyone but you.
 
-There is no browser layer, because there are no overlay pages yet. When `apps/overlays` lands it
-needs a runner that drives a real browser, and two specs a socket client cannot write:
+The browser layer is Playwright, in `apps/overlays/test`, run separately:
 
-- an overlay renders correctly when it is handed the server address as a URL parameter, rather
-  than assuming the origin it was served from
-- a spin animation touches `transform` and `opacity` only, and stops repainting once it lands
+```bash
+pnpm test:browser    # builds the pages, then drives Chromium against a real server
+```
 
-Pick that runner with me first. Playwright is the obvious candidate and is Apache-2.0, not MIT,
-so it is a decision and not a default.
+It is separate from `pnpm test` on purpose. It needs a browser downloaded
+(`pnpm --filter @saarathi/overlays exec playwright install chromium`), it takes about fifteen
+seconds, and nothing in it belongs in the tight loop. CI runs it on Ubuntu only: these specs are
+about what CEF does with a transform, not about what Windows does with a child process, and the
+matrix already covers the latter.
+
+Playwright is Apache-2.0, not MIT. It is a devDependency and nothing it touches ships to her,
+which is the only reason the exception holds. Do not let it creep into a runtime dependency.
+
+Keep this layer to what a socket client genuinely cannot reach:
+
+- a page takes the server address from `?server=` rather than the origin it was served from
+- a spin animates `transform` and `opacity` only, and leaves nothing on the browser's animation
+  books once it lands
+- an overlay opened mid-spin joins the spin already in progress
+
+Everything else about a feature is cheaper and steadier to prove in the server's own three
+projects. If a browser spec you are about to write would pass with the browser replaced by a
+socket, write it there instead.
+
+Mutate before you trust a browser spec. Break the thing on purpose, watch it fail, put it back.
+The first version of the animation spec here passed against a wheel that never turned, because a
+fade on the container satisfied "something is animating".
+
+"Nothing waits on a sleep" holds here too, with one carve-out: a spec may wait deliberately when
+elapsed wall-clock time is the thing under test, because there is no predicate to poll for "two
+seconds have passed". Never wait for a state change that way, and never assert against the wait
+constant -- ask the server how far along it thinks it is, or the spec goes vacuous the day
+somebody tunes the number.
 
 Stop the servers you started, by the PID you tracked. See rule 1.
 
@@ -219,6 +252,10 @@ Do not open a browser or use computer use to verify unless I ask for it.
 - Overlays run inside OBS at 60fps while she is streaming. Animate `transform` and `opacity`
   and nothing else. No continuously repainting animation, ever.
 - Socket payloads are small. She may be on phone data in IRL mode.
+- Every timestamp in the state is server time. A client corrects for its own clock using
+  `Snapshot.serverNow` and never subtracts `Date.now()` from a server timestamp directly: the
+  server may be a VPS while the page is on her phone, and a phone's clock is routinely tens of
+  seconds out. This is rule 3 again, in the time dimension.
 - MIT dependencies only. Check the license before you add anything. This is why we are not
   forking WebDeck and why GSAP is out.
 

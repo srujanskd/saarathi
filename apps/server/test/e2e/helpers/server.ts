@@ -98,6 +98,11 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
       cwd: SERVER_CWD,
       env: {
         ...process.env,
+        ...options.env,
+        // After options.env, not before: a test may point the server at a
+        // different overlays directory or turn the log up, but the port and
+        // the state file belong to this helper. Rule 2 -- nothing here gets to
+        // aim a server at her data/.
         PORT: String(port),
         STATE_FILE: stateFile,
         LOG_LEVEL: "warn",

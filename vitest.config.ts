@@ -3,7 +3,12 @@ import { defineConfig } from "vitest/config";
 /**
  * Three projects, split by what they need rather than by what they cover.
  *
- * unit        pure functions. No clock, no store, no kernel. Milliseconds.
+ * unit        pure functions in the server. No clock, no store, no kernel.
+ *             Milliseconds.
+ * unit-overlays the same tier, in the overlay app. It is a second project only
+ *             because a Vitest project has one root, and these live in another
+ *             workspace. Pure functions only -- anything needing a browser
+ *             belongs in apps/overlays/test/*.spec.ts, which Playwright runs.
  * integration a real Kernel over a MemoryStore and mock chat, in this process.
  *             Fake timers are allowed here, so it runs single-file at a time.
  * e2e         a real server process on an ephemeral port with a real
@@ -17,6 +22,14 @@ export default defineConfig({
         test: {
           name: "unit",
           root: "apps/server",
+          include: ["test/unit/**/*.test.ts"],
+          environment: "node",
+        },
+      },
+      {
+        test: {
+          name: "unit-overlays",
+          root: "apps/overlays",
           include: ["test/unit/**/*.test.ts"],
           environment: "node",
         },

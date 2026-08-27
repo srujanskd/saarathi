@@ -57,6 +57,7 @@ export function planSpin(state: WheelState, input: SpinInput): SpinOutcome {
       via: input.via,
       startedAt: input.now,
       durationMs: SPIN_DURATION_MS,
+      wheel: [...state.challenges],
     },
   };
 }
