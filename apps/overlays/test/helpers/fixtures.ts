@@ -29,6 +29,11 @@ export function overlayUrl(pages: PageServer, saarathi: RunningServer, module: s
   return `${pages.origin}/overlay.html?module=${module}&server=${encodeURIComponent(saarathi.origin)}`;
 }
 
+/** Same split as the overlay: pages from one host, server from another. */
+export function controlUrl(pages: PageServer, saarathi: RunningServer): string {
+  return `${pages.origin}/control.html?server=${encodeURIComponent(saarathi.origin)}`;
+}
+
 /** Animations the browser is actually running, and which properties each one
  * touches. Anything outside transform and opacity repaints the browser source. */
 export function runningAnimations(page: Page): Promise<{ id: string; properties: string[] }[]> {

@@ -1,0 +1,16 @@
+{
+  "name": "Saarathi",
+  "short_name": "Saarathi",
+  "start_url": "./control.html",
+  "display": "standalone",
+  "background_color": "#14151a",
+  "theme_color": "#14151a",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

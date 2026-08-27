@@ -4,6 +4,9 @@ import {
   CORE_ID,
   type ClientToServerEvents,
   type CoreState,
+  type InvokeRequest,
+  type InvokeResult,
+  type MockChatInput,
   type ServerToClientEvents,
   type Surface,
 } from "@saarathi/shared";
@@ -15,6 +18,12 @@ export interface ClientState {
   core: CoreState | null;
   /** Only the modules this client said hello about. */
   modules: Record<string, unknown>;
+  /**
+   * Bot replies, newest first. They arrive as effects rather than as state
+   * because there is no send path yet, and a missed one is just a missed one.
+   * Capped so a flood of refusals cannot grow the page.
+   */
+  says: string[];
 }
 
 export interface Connection {
@@ -25,6 +34,8 @@ export interface Connection {
    * state is server time, so this is the only `now` worth comparing them to.
    */
   serverNow(): number;
+  invoke(request: InvokeRequest): Promise<InvokeResult>;
+  mockChat(input: MockChatInput): void;
   close(): void;
 }
 
@@ -32,8 +43,9 @@ export interface ConnectOptions {
   url: string;
   surface: Surface;
   /** Module ids to subscribe to. An overlay asks for the one it renders and
-   * nothing else, so OBS is not paying to receive a chat log it never draws. */
-  modules: string[];
+   * nothing else, so OBS is not paying to receive a chat log it never draws.
+   * Omit for every module, which is what her control page wants. */
+  modules?: string[];
 }
 
 /**
@@ -47,7 +59,7 @@ export interface ConnectOptions {
 export function connect({ url, surface, modules }: ConnectOptions): Connection {
   const socket: SaarathiSocket = io(url, { transports: ["websocket", "polling"] });
 
-  let state: ClientState = { connected: false, core: null, modules: {} };
+  let state: ClientState = { connected: false, core: null, modules: {}, says: [] };
   const listeners = new Set<() => void>();
 
   /**
@@ -92,6 +104,13 @@ export function connect({ url, surface, modules }: ConnectOptions): Connection {
     else set({ modules: { ...state.modules, [patch.module]: patch.state } });
   });
 
+  socket.on("effect", (effect) => {
+    if (effect.module !== CORE_ID || effect.name !== "say") return;
+    const text = sayText(effect.payload);
+    if (!text) return;
+    set({ says: [text, ...state.says].slice(0, 8) });
+  });
+
   return {
     subscribe(listener) {
       listeners.add(listener);
@@ -99,11 +118,27 @@ export function connect({ url, surface, modules }: ConnectOptions): Connection {
     },
     getState: () => state,
     serverNow: () => Date.now() + offsetMs,
+    invoke(request) {
+      if (!socket.connected) {
+        return Promise.resolve({ ok: false, reason: "Cannot reach Saarathi" });
+      }
+      return new Promise((resolve) => {
+        socket.emit("invoke", request, (result) => resolve(result));
+      });
+    },
+    mockChat(input) {
+      socket.emit("mockChat", input);
+    },
     close() {
       listeners.clear();
       socket.close();
     },
   };
+}
+
+function sayText(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object" || !("text" in payload)) return null;
+  return typeof payload.text === "string" ? payload.text : null;
 }
 
 /**
@@ -123,5 +158,16 @@ export function useModuleState<S>(connection: Connection, id: string): S | null 
 /** Whether the socket is up, on its own, for the same reason as above. */
 export function useConnected(connection: Connection): boolean {
   const read = () => connection.getState().connected;
+  return useSyncExternalStore(connection.subscribe, read, read);
+}
+
+/** Core slice: adapter status and the module list the control page renders. */
+export function useCoreState(connection: Connection): CoreState | null {
+  const read = () => connection.getState().core;
+  return useSyncExternalStore(connection.subscribe, read, read);
+}
+
+export function useSays(connection: Connection): string[] {
+  const read = () => connection.getState().says;
   return useSyncExternalStore(connection.subscribe, read, read);
 }

@@ -15,6 +15,7 @@ export default defineConfig({
       input: {
         index: resolve(import.meta.dirname, "index.html"),
         overlay: resolve(import.meta.dirname, "overlay.html"),
+        control: resolve(import.meta.dirname, "control.html"),
       },
     },
   },
