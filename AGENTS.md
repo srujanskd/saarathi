@@ -120,6 +120,8 @@ frontend work done, walk this list and say which parts applied:
 pnpm install
 pnpm dev             # server + overlays
 pnpm typecheck
+pnpm lint            # eslint, warnings included
+pnpm lint:fix        # the same, applying what it can fix on its own
 ```
 
 Server is on 4400, bound to `0.0.0.0` so the phone can reach it. Develop against mock chat.
@@ -226,7 +228,8 @@ by chat, drive it through mock chat and say what you saw happen.
 Spin rules, points math, cooldowns, and adapter normalization are where the real bugs live, and
 they all have tests now. Add to them rather than writing a one-off script.
 
-Run `pnpm test` and `pnpm typecheck` before you say a change works, and say what the counts were.
+Run `pnpm test`, `pnpm typecheck` and `pnpm lint` before you say a change works, and say what
+the counts were.
 
 Do not open a browser or use computer use to verify unless I ask for it.
 
@@ -245,8 +248,11 @@ Do not open a browser or use computer use to verify unless I ask for it.
 
 - Platform weirdness stays in the adapter. The core sees normalized events only.
 - The server is authoritative. Clients render and send intents. No client-side game logic.
-- Inferred types over annotations. `any` is the enemy, and `youtube-chat-next` is the one place
-  it is tolerated, at the boundary, converted immediately.
+- Inferred types over annotations. `any` is the enemy, and `no-explicit-any` is an error, so
+  the two places it is tolerated are named in `eslint.config.js` and in the code itself:
+  `chat/youtube.ts`, where an untyped library is converted at the boundary, and the `S = any`
+  default on `GameModuleDef`, which is what lets the core hold every module in one list.
+  Adding a third means normalizing at a boundary instead.
 - Comments explain why a rule exists, not what the line does. The spin rules comment in
   `wheel.ts` is the shape I want.
 - Overlays run inside OBS at 60fps while she is streaming. Animate `transform` and `opacity`
@@ -299,7 +305,7 @@ branch die. Fix on the trunk first, always, or the next release loses it again.
 
 Set once on the GitHub repo, because the strategy is a rule only if the server enforces it:
 
-- require the `verify` checks to pass before merge
+- require the `verify` checks and `lint` to pass before merge
 - require linear history (squash merges only)
 - no force pushes, no deletions
 
@@ -348,3 +354,10 @@ Everything above stays as it is when that lands.
 `main`, on Ubuntu and on Windows. Windows is not paranoia: she runs there, and the e2e layer
 spawns a real child process and writes real temp files, which is exactly where the two
 platforms disagree.
+
+`pnpm lint` is its own Ubuntu-only job, because lint reads the source and the source is the
+same on both. It runs with `--max-warnings 0`: a rule is either worth failing a build over or
+it is not configured, and a warning nobody has to fix is a rule that rots. The config is one
+flat file at the root and deliberately not type-aware -- the rules that earn their keep here
+are syntactic, and tying lint to three tsconfigs would make it slow enough that nobody runs it
+locally. `pnpm typecheck` already reads the types.

@@ -40,11 +40,19 @@ function ConnectionStatus({ connection, url }: { connection: Connection; url: st
   const connected = useConnected(connection);
   const [complain, setComplain] = useState(false);
 
+  // Cleared during the render the change arrives on rather than in the effect
+  // below, which is the same trick the wheel uses for its phase. In an effect
+  // it commits a frame of the old answer first -- and the old answer here is a
+  // "cannot reach Saarathi" that stays on her stream for a frame after it can.
+  const [wasConnected, setWasConnected] = useState(connected);
+  if (wasConnected !== connected) {
+    setWasConnected(connected);
+    // Either direction: a fresh disconnect starts its three seconds over.
+    setComplain(false);
+  }
+
   useEffect(() => {
-    if (connected) {
-      setComplain(false);
-      return;
-    }
+    if (connected) return;
     const timer = setTimeout(() => setComplain(true), COMPLAIN_AFTER_MS);
     return () => clearTimeout(timer);
   }, [connected]);
