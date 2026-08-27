@@ -1,0 +1,135 @@
+/*
+ * OBS renders this over her camera at 60fps while she is working out, so the
+ * only properties that change here are transform and opacity. Anything that
+ * moves a box, changes a colour or resizes text mid-animation costs a repaint
+ * of the whole browser source, and she pays for it in dropped frames.
+ */
+
+.stage {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2.5vh;
+  opacity: 0;
+  transition: opacity 400ms ease;
+  pointer-events: none;
+}
+
+.stage[data-phase="spinning"],
+.stage[data-phase="landed"] {
+  opacity: 1;
+}
+
+.wheel-frame {
+  position: relative;
+  width: min(52vh, 52vw);
+  aspect-ratio: 1;
+}
+
+.wheel {
+  width: 100%;
+  height: 100%;
+  /* Its own layer before the spin starts, so the first frame is not the one
+     that pays for promoting it. */
+  will-change: transform;
+}
+
+.wheel svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 0.6vh 1.4vh rgb(0 0 0 / 0.55));
+}
+
+/* A hairline between wedges. Without it two neighbours of similar weight read
+   as one big wedge, and the wheel looks like it has fewer slices than it has. */
+.wedge {
+  stroke: rgb(255 255 255 / 0.22);
+  stroke-width: 0.35;
+  transition: opacity 400ms ease;
+}
+
+/* Once it lands, everything that did not win steps back. Opacity only -- fill
+   would repaint the whole browser source.
+   The wedges barely move: they are opaque colour, and taking much off them
+   makes her camera show through and the whole wheel turn to mud. The labels
+   take the rest of the difference, because text can afford it. */
+.stage[data-phase="landed"] .wedge[data-winner="false"] {
+  opacity: 0.72;
+}
+
+.stage[data-phase="landed"] .wedge-label[data-winner="false"] {
+  opacity: 0.4;
+}
+
+.rim {
+  fill: none;
+  stroke: #f5f3ef;
+  stroke-width: 2;
+}
+
+/* Every wedge meets in the middle, and that point is always a mess. */
+.hub {
+  fill: #14151a;
+  stroke: #f5f3ef;
+  stroke-width: 1.4;
+}
+
+.wedge-label {
+  font-family: system-ui, sans-serif;
+  transition: opacity 400ms ease;
+  font-weight: 600;
+  fill: #fdfdfb;
+  /* Outlined, because a fixed text colour has to sit on six wedge colours and
+     on whatever her camera is doing behind a semi-transparent one. */
+  paint-order: stroke;
+  stroke: rgb(0 0 0 / 0.55);
+  stroke-width: 0.55;
+  stroke-linejoin: round;
+}
+
+/* Fixed, because it is the thing the wheel turns underneath. */
+.pointer {
+  position: absolute;
+  top: -1.2vh;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-left: 2.2vh solid transparent;
+  border-right: 2.2vh solid transparent;
+  border-top: 4.2vh solid #f5f3ef;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 0.2vh 0.5vh rgb(0 0 0 / 0.65));
+}
+
+/* A plate, not just a shadow. This text lands on top of whatever her camera is
+   pointed at, and a gym is not a controlled background. */
+.result {
+  text-align: center;
+  padding: 1.2vh 3vh 1.6vh;
+  border-radius: 1.6vh;
+  background: rgb(14 15 20 / 0.72);
+  box-shadow: 0 0.6vh 2vh rgb(0 0 0 / 0.45);
+  opacity: 0;
+  transition: opacity 350ms ease;
+}
+
+.stage[data-phase="landed"] .result {
+  opacity: 1;
+}
+
+.result-label {
+  margin: 0;
+  font: 700 clamp(28px, 6vh, 72px)/1.1 system-ui, sans-serif;
+  color: #fdfdfb;
+  letter-spacing: -0.01em;
+}
+
+.result-by {
+  margin: 0.4em 0 0;
+  font: 500 clamp(16px, 2.6vh, 32px)/1.2 system-ui, sans-serif;
+  color: rgb(253 253 251 / 0.72);
+}

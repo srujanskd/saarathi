@@ -15,6 +15,23 @@ export interface Snapshot {
   core: CoreState;
   /** Only the slices this client subscribed to. */
   modules: Record<string, unknown>;
+  /**
+   * The server's clock when it built this snapshot.
+   *
+   * Every timestamp downstream of here -- `spin.startedAt` above all -- is
+   * server time, and a client is not necessarily on the same machine: `?server=`
+   * exists precisely so the server can be a VPS while the page runs on her
+   * phone. A client that subtracts its own `Date.now()` from a server timestamp
+   * is out by however far the two clocks disagree, which for a phone is
+   * routinely tens of seconds and enough to make a six second spin arrive
+   * already finished.
+   *
+   * It rides on the snapshot rather than the patch because the server re-sends
+   * a full snapshot on every connect, so a client re-syncs for free exactly
+   * when it could have drifted, and a patch does not pay for a timestamp to
+   * correct a drift that cannot accumulate inside one spin.
+   */
+  serverNow: number;
 }
 
 export interface Patch {

@@ -164,9 +164,15 @@ describe("an overlay that reloads mid-stream", () => {
 
     expect(state.spin).not.toBeNull();
     expect(state.spin!.label).toBe(label);
-    // It can work out how far through the animation it is from these two alone.
+    // It can work out how far through the animation it is from these two alone,
+    // once it has corrected its clock against the snapshot's serverNow.
     expect(state.spin!.startedAt).toBeTypeOf("number");
     expect(state.spin!.durationMs).toBe(SPIN_DURATION_MS);
+    expect(reloaded.snapshots.at(-1)!.serverNow).toBeTypeOf("number");
+
+    // And the wheel the server drew from, so it draws the same wedges the first
+    // client did even if the list has been saved over since.
+    expect(state.spin!.wheel[state.spin!.index]).toBe(label);
   });
 
   it("keeps receiving patches after the reconnect", async () => {

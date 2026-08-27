@@ -1,0 +1,127 @@
+import { useSyncExternalStore } from "react";
+import { io, type Socket } from "socket.io-client";
+import {
+  CORE_ID,
+  type ClientToServerEvents,
+  type CoreState,
+  type ServerToClientEvents,
+  type Surface,
+} from "@saarathi/shared";
+
+export type SaarathiSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
+
+export interface ClientState {
+  connected: boolean;
+  core: CoreState | null;
+  /** Only the modules this client said hello about. */
+  modules: Record<string, unknown>;
+}
+
+export interface Connection {
+  subscribe(listener: () => void): () => void;
+  getState(): ClientState;
+  /**
+   * The server's clock, as best this client can tell. Every timestamp in the
+   * state is server time, so this is the only `now` worth comparing them to.
+   */
+  serverNow(): number;
+  close(): void;
+}
+
+export interface ConnectOptions {
+  url: string;
+  surface: Surface;
+  /** Module ids to subscribe to. An overlay asks for the one it renders and
+   * nothing else, so OBS is not paying to receive a chat log it never draws. */
+  modules: string[];
+}
+
+/**
+ * One socket, one immutable state object, and no game logic.
+ *
+ * The server is authoritative and re-sends a full snapshot on every connect,
+ * so reconnecting is the same code path as connecting: replace everything.
+ * That is what makes an OBS browser source reloading mid-stream, or her phone
+ * waking up, land in the right state without anyone replaying events at it.
+ */
+export function connect({ url, surface, modules }: ConnectOptions): Connection {
+  const socket: SaarathiSocket = io(url, { transports: ["websocket", "polling"] });
+
+  let state: ClientState = { connected: false, core: null, modules: {} };
+  const listeners = new Set<() => void>();
+
+  /**
+   * How far this client's clock is from the server's. Zero until the first
+   * snapshot, which is also the only point at which nothing is rendered yet.
+   *
+   * It is out by roughly the one-way network latency, because the snapshot
+   * takes time to arrive -- single-digit milliseconds on her LAN and tens on a
+   * VPS, against a spin that lasts six seconds. Clock disagreement between two
+   * machines is the thing that is worth tens of seconds, and that is what this
+   * removes. It is not React state: nothing renders it, and a render triggered
+   * by a clock correction would be a render nobody asked for.
+   */
+  let offsetMs = 0;
+
+  // A new object every time, because useSyncExternalStore compares by identity
+  // and a mutated one would render nothing.
+  function set(next: Partial<ClientState>): void {
+    state = { ...state, ...next };
+    for (const listener of listeners) listener();
+  }
+
+  socket.on("connect", () => {
+    // Say hello on every connect, not just the first: after a reconnect the
+    // server has a brand new socket that is subscribed to everything.
+    socket.emit("hello", { surface, modules });
+    set({ connected: true });
+  });
+
+  socket.on("disconnect", () => set({ connected: false }));
+
+  socket.on("snapshot", (snapshot) => {
+    // Before `set`, not after: the render this snapshot causes is the one that
+    // draws a spin already in progress, and it has to do that maths against a
+    // corrected clock rather than the previous connection's.
+    offsetMs = snapshot.serverNow - Date.now();
+    set({ core: snapshot.core, modules: snapshot.modules });
+  });
+
+  socket.on("patch", (patch) => {
+    if (patch.module === CORE_ID) set({ core: patch.state as CoreState });
+    else set({ modules: { ...state.modules, [patch.module]: patch.state } });
+  });
+
+  return {
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+    getState: () => state,
+    serverNow: () => Date.now() + offsetMs,
+    close() {
+      listeners.clear();
+      socket.close();
+    },
+  };
+}
+
+/**
+ * The one module slice this page renders, or null until the snapshot lands.
+ *
+ * The slice is read directly rather than through the whole `ClientState`,
+ * because the server broadcasts core patches to every client: an adapter
+ * reconnecting would otherwise re-render the wheel mid-spin. A patch replaces
+ * the slice object wholesale, so its identity is already stable and
+ * `useSyncExternalStore` skips the render on its own.
+ */
+export function useModuleState<S>(connection: Connection, id: string): S | null {
+  const read = () => (connection.getState().modules[id] as S | undefined) ?? null;
+  return useSyncExternalStore(connection.subscribe, read, read);
+}
+
+/** Whether the socket is up, on its own, for the same reason as above. */
+export function useConnected(connection: Connection): boolean {
+  const read = () => connection.getState().connected;
+  return useSyncExternalStore(connection.subscribe, read, read);
+}

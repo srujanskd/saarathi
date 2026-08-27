@@ -14,6 +14,19 @@ export interface ActiveSpin {
   via: TriggerVia;
   startedAt: number;
   durationMs: number;
+  /**
+   * The wheel as it was when this spin was drawn, because `index` only means
+   * anything against that list.
+   *
+   * It lives on the spin rather than being read from `challenges` at render
+   * time for one reason: she can save a new challenge list mid-spin. If an
+   * overlay derived the wedges from the current list, the pointer would land on
+   * a wedge that no longer matches `label` -- and a client freezing the list
+   * itself would not help, because an overlay that reloads after the edit was
+   * never there to freeze the old one. Only the server knows what the wheel
+   * looked like when it picked.
+   */
+  wheel: string[];
 }
 
 export interface SpinRecord {

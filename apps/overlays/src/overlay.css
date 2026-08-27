@@ -1,0 +1,33 @@
+/* OBS composites the browser source over her camera, so the page itself has
+   to be transparent. Do not give html or body a background. */
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Setup diagnostics. Small, cornered and dim on purpose: she needs to see it
+   while she is pointing OBS at the server, and chat should not notice it if a
+   reconnect happens mid-stream. */
+.status {
+  position: fixed;
+  left: 12px;
+  bottom: 10px;
+  max-width: 44ch;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgb(20 21 26 / 0.72);
+  color: #ffd9a0;
+  font: 500 13px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  opacity: 0;
+  transition: opacity 300ms ease;
+  pointer-events: none;
+}
+
+.status[data-visible="true"] {
+  opacity: 1;
+}
