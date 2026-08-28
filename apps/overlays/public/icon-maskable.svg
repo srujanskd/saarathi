@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- The same mark, drawn inside the 80% safe zone, because Android crops a
+       maskable icon to whatever shape the launcher uses. -->
+  <rect width="32" height="32" fill="#14151a"/>
+  <circle cx="16" cy="16" r="8.5" fill="none" stroke="#4ade80" stroke-width="2"/>
+  <circle cx="16" cy="16" r="2.3" fill="#4ade80"/>
+  <path d="M16 8.4v4.6M16 19v4.6M8.4 16H13M19 16h4.6" stroke="#4ade80" stroke-width="1.6" stroke-linecap="round"/>
+</svg>

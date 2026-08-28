@@ -35,11 +35,11 @@ Early. Phase 1 of four.
 The server is built around the game module contract and runs. Chat events in, module state out,
 snapshot-synced over Socket.IO. Two modules ship with it: the challenge wheel and a chat log.
 
-`apps/overlays` has its first page: the wheel overlay, which OBS loads as a browser source at
-`overlay.html?module=wheel`. It renders server state and decides nothing.
+`apps/overlays` has two pages. The wheel overlay is the browser source OBS loads at
+`overlay.html?module=wheel`. The control page is `control.html`, the phone page she drives
+the stream from, with a mock-chat panel. Both render server state and decide nothing.
 
-Next: the control page she drives the stream from, with a mock-chat panel, then the Phase 1
-slice end to end.
+Next: the Phase 1 slice end to end.
 
 ## How it fits together
 
@@ -80,7 +80,9 @@ the LAN, and the server on a VPS the day she streams IRL:
 
 ```
 http://<server>:4400/overlay.html?module=wheel
+http://<server>:4400/control.html
 http://<pages-host>/overlay.html?module=wheel&server=http://<server>:4400
+http://<pages-host>/control.html?server=http://<server>:4400
 ```
 
 With no YouTube config it runs on mock chat, which is how you develop. To point it at a real
@@ -112,10 +114,12 @@ apps/server/src/
   modules/chatlog/     the second, and the proof the contract holds
 apps/overlays/
   overlay.html         one browser source per module: ?module=wheel
+  control.html         her phone: wheel card, chat log, mock-chat panel
   src/lib/serverUrl.ts the only thing that decides where the server is
   src/lib/connection.ts one socket, snapshot-on-connect, no game logic
-  src/modules/         client half of the module contract, keyed by module id
-  test/                Playwright: the two things a socket client cannot check
+  src/modules/         client half of the module contract: one entry per game,
+                       its overlay and its card together
+  test/                Playwright: the things a socket client cannot check
 packages/shared        types and constants both sides import, including module state
 pnpm-workspace.yaml    workspace globs, and the allowBuilds list for postinstall scripts
 docs/plan.html         the design doc, local only and untracked

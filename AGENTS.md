@@ -237,8 +237,8 @@ Do not open a browser or use computer use to verify unless I ask for it.
 
 - `apps/server` is Fastify, Socket.IO, chat adapters, the game modules, OBS control, and JSON
   persistence. This is where decisions happen.
-- `apps/overlays` is React and Vite: overlay routes for OBS, control pages for her phone. It
-  does not exist yet. It renders state and sends intents, it does not decide anything.
+- `apps/overlays` is React and Vite: overlay routes for OBS, control pages for her phone.
+  It renders state and sends intents, it does not decide anything.
 - `packages/shared` holds the types and constants both sides import, including the socket event
   contracts. Change a type here and both ends follow. No runtime logic.
 - `docs/plan.html` is the design doc, local only and untracked. Update it when a decision

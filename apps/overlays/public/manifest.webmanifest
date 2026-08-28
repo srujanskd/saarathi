@@ -1,0 +1,25 @@
+{
+  "name": "Saarathi",
+  "short_name": "Saarathi",
+  "description": "The page she drives the stream from.",
+  "start_url": "./control.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14151a",
+  "theme_color": "#14151a",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

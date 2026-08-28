@@ -127,6 +127,7 @@ describe("once the overlay pages are built", () => {
     dir = mkdtempSync(join(tmpdir(), "saarathi-dist-"));
     writeFileSync(join(dir, "index.html"), "<!doctype html><title>Saarathi</title>");
     writeFileSync(join(dir, "overlay.html"), "<!doctype html><title>overlay</title>");
+    writeFileSync(join(dir, "control.html"), "<!doctype html><title>control</title>");
     built = await startServer({ env: { OVERLAYS_DIST: dir } });
   });
 
@@ -139,6 +140,10 @@ describe("once the overlay pages are built", () => {
     const overlay = await fetch(`${built.origin}/overlay.html`);
     expect(overlay.status).toBe(200);
     expect(await overlay.text()).toContain("<title>overlay</title>");
+
+    const control = await fetch(`${built.origin}/control.html`);
+    expect(control.status).toBe(200);
+    expect(await control.text()).toContain("<title>control</title>");
   });
 
   it("still answers the API underneath them", async () => {

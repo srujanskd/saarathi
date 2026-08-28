@@ -54,10 +54,10 @@ const kernel = createKernel({
   log,
 });
 
-// In production the server also serves the overlay pages, so OBS and her phone
-// only ever need one address. The path is overridable because the Electron
-// build will not put the pages two directories up from this file, and because
-// a test needs to be able to prove both branches below.
+// In production the server also serves the overlay and control pages, so OBS
+// and her phone only ever need one address. The path is overridable because the
+// Electron build will not put the pages two directories up from this file, and
+// because a test needs to be able to prove both branches below.
 const overlaysDist =
   process.env.OVERLAYS_DIST ?? join(import.meta.dirname, "../../overlays/dist");
 if (existsSync(overlaysDist)) {
