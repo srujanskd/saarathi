@@ -39,7 +39,7 @@ snapshot-synced over Socket.IO. Two modules ship with it: the challenge wheel an
 `overlay.html?module=wheel`. The control page is `control.html`, the phone page she drives
 the stream from, with a mock-chat panel. Both render server state and decide nothing.
 
-Next: a cap on how many challenges the wheel will take, then Phase 2.
+Next: the Phase 1 slice end to end.
 
 ## How it fits together
 
@@ -117,7 +117,8 @@ apps/overlays/
   control.html         her phone: wheel card, chat log, mock-chat panel
   src/lib/serverUrl.ts the only thing that decides where the server is
   src/lib/connection.ts one socket, snapshot-on-connect, no game logic
-  src/modules/         client half of the module contract, keyed by module id
+  src/modules/         client half of the module contract: one entry per game,
+                       its overlay and its card together
   test/                Playwright: the things a socket client cannot check
 packages/shared        types and constants both sides import, including module state
 pnpm-workspace.yaml    workspace globs, and the allowBuilds list for postinstall scripts

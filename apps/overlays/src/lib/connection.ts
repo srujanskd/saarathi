@@ -19,11 +19,12 @@ export interface ClientState {
   /** Only the modules this client said hello about. */
   modules: Record<string, unknown>;
   /**
-   * Bot replies, newest first. They arrive as effects rather than as state
-   * because there is no send path yet, and a missed one is just a missed one.
-   * Capped so a flood of refusals cannot grow the page.
+   * Bot replies, newest first, and only for a client that asked for them.
+   * They arrive as effects rather than as state because there is no send path
+   * yet, and a missed one is just a missed one. Capped so a flood of refusals
+   * cannot grow the page.
    */
-  says: string[];
+  botReplies: string[];
 }
 
 export interface Connection {
@@ -46,7 +47,14 @@ export interface ConnectOptions {
    * nothing else, so OBS is not paying to receive a chat log it never draws.
    * Omit for every module, which is what her control page wants. */
   modules?: string[];
+  /** Keep the bot's replies for a page that shows them. Off by default: an
+   * overlay draws none of them, and state nothing renders is state that only
+   * has bugs in it. */
+  botReplies?: boolean;
 }
+
+/** Enough of a refusal history to see what chat just tried, and no more. */
+const BOT_REPLY_LIMIT = 8;
 
 /**
  * One socket, one immutable state object, and no game logic.
@@ -56,10 +64,10 @@ export interface ConnectOptions {
  * That is what makes an OBS browser source reloading mid-stream, or her phone
  * waking up, land in the right state without anyone replaying events at it.
  */
-export function connect({ url, surface, modules }: ConnectOptions): Connection {
+export function connect({ url, surface, modules, botReplies }: ConnectOptions): Connection {
   const socket: SaarathiSocket = io(url, { transports: ["websocket", "polling"] });
 
-  let state: ClientState = { connected: false, core: null, modules: {}, says: [] };
+  let state: ClientState = { connected: false, core: null, modules: {}, botReplies: [] };
   const listeners = new Set<() => void>();
 
   /**
@@ -104,12 +112,14 @@ export function connect({ url, surface, modules }: ConnectOptions): Connection {
     else set({ modules: { ...state.modules, [patch.module]: patch.state } });
   });
 
-  socket.on("effect", (effect) => {
-    if (effect.module !== CORE_ID || effect.name !== "say") return;
-    const text = sayText(effect.payload);
-    if (!text) return;
-    set({ says: [text, ...state.says].slice(0, 8) });
-  });
+  if (botReplies) {
+    socket.on("effect", (effect) => {
+      if (effect.module !== CORE_ID || effect.name !== "say") return;
+      const text = sayText(effect.payload);
+      if (!text) return;
+      set({ botReplies: [text, ...state.botReplies].slice(0, BOT_REPLY_LIMIT) });
+    });
+  }
 
   return {
     subscribe(listener) {
@@ -167,7 +177,9 @@ export function useCoreState(connection: Connection): CoreState | null {
   return useSyncExternalStore(connection.subscribe, read, read);
 }
 
-export function useSays(connection: Connection): string[] {
-  const read = () => connection.getState().says;
+/** What the bot has said back, newest first. Empty unless the page asked for
+ * them with `botReplies`. */
+export function useBotReplies(connection: Connection): string[] {
+  const read = () => connection.getState().botReplies;
   return useSyncExternalStore(connection.subscribe, read, read);
 }

@@ -9,6 +9,37 @@ export interface PageLocation {
   hostname: string;
 }
 
+/** Where an explicit `?server=` is kept between loads. Scoped to the page's
+ * own origin by the browser, so a copy served from her PC and a copy served
+ * from a pages host never overwrite each other. */
+const REMEMBERED = "saarathi:server";
+
+export interface ServerMemory {
+  read(): string | null;
+  write(url: string): void;
+}
+
+/** localStorage, or nothing at all. A private window and a browser with site
+ * data blocked both throw on the way in, and neither is a reason to fail. */
+function browserMemory(): ServerMemory {
+  return {
+    read() {
+      try {
+        return window.localStorage.getItem(REMEMBERED);
+      } catch {
+        return null;
+      }
+    },
+    write(url) {
+      try {
+        window.localStorage.setItem(REMEMBERED, url);
+      } catch {
+        // Nothing to do and nothing worth saying: the parameter still worked.
+      }
+    },
+  };
+}
+
 /**
  * Where the Saarathi server is.
  *
@@ -20,10 +51,26 @@ export interface PageLocation {
  *
  * Nothing in this repo may name a host. This function is what makes that rule
  * keepable: everything else asks it instead of guessing.
+ *
+ * A `?server=` she typed is also remembered, because the installed PWA is
+ * launched from the manifest's `start_url` and a manifest is a static file
+ * that cannot carry her address. Without this, installing the control page
+ * from a pages host gives her an app that looks for a server on the pages
+ * host. The way back out is the way in: load it once with a new `?server=`.
  */
-export function serverUrl(location: PageLocation = window.location): string {
+export function serverUrl(
+  location: PageLocation = window.location,
+  memory: ServerMemory = browserMemory(),
+): string {
   const param = new URLSearchParams(location.search).get("server");
-  if (param && param.trim()) return normalise(param, location.protocol);
+  if (param && param.trim()) {
+    const url = normalise(param, location.protocol);
+    memory.write(url);
+    return url;
+  }
+
+  const remembered = memory.read();
+  if (remembered) return remembered;
 
   // In production the server serves these pages, so it is the origin we came
   // from. In dev, Vite serves them from its own port, so keep the host --

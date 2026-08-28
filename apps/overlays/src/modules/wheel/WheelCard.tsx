@@ -3,7 +3,7 @@ import { WHEEL_ID, type WheelState } from "@saarathi/shared";
 import { useModuleState } from "../../lib/connection.js";
 import type { CardProps } from "../types.js";
 import { phaseKicker, queueSummary, spinCaption } from "./caption.js";
-import { linesOf, textOf } from "./challenges.js";
+import { toLines, toText } from "./challenges.js";
 
 export function WheelCard({ connection, status }: CardProps) {
   const state = useModuleState<WheelState>(connection, WHEEL_ID);
@@ -13,30 +13,53 @@ export function WheelCard({ connection, status }: CardProps) {
   const [now, setNow] = useState(() => connection.serverNow());
 
   const spin = state?.spin ?? null;
-  const startedAt = spin?.startedAt ?? null;
+  const endsAt = spin ? spin.startedAt + spin.durationMs : null;
 
   // The last challenge stays on this page after the overlay has hidden it, so
-  // the only clock we need is the one that flips "spinning" to "landed".
+  // the only thing this clock decides is when "spinning" becomes "landed".
+  // Once it has decided, it stops: an interval that keeps ticking is her phone
+  // re-rendering forever for a number nothing reads.
   useEffect(() => {
-    if (startedAt === null) return;
-    const tick = () => setNow(connection.serverNow());
-    tick();
-    const id = setInterval(tick, 250);
+    if (endsAt === null || connection.serverNow() >= endsAt) return;
+    const id = setInterval(() => {
+      const at = connection.serverNow();
+      setNow(at);
+      if (at >= endsAt) clearInterval(id);
+    }, 250);
     return () => clearInterval(id);
-  }, [connection, startedAt]);
+  }, [connection, endsAt]);
 
   const caption = spinCaption(spin, now);
-  const queued = queueSummary(state?.queue ?? [], (state?.challenges.length ?? 0) > 0);
+  const queue = state?.queue ?? [];
+  const challenges = state?.challenges ?? [];
+  const queued = queueSummary(queue.length, queue[0]?.by ?? "", challenges.length > 0);
   const primary = status.actions.find((action) => action.id === "wheel.spin");
   const rest = status.actions.filter((action) => action !== primary);
-  const challenges = state?.challenges ?? [];
-  const editor = draft ?? textOf(challenges);
 
-  async function run(action: string, args?: string[]): Promise<void> {
+  // The server owns the list. A draft is what she has typed and not yet saved,
+  // so it shadows the server only while it exists -- and it stops existing the
+  // moment it is saved or dropped. Without that, one keystroke would freeze
+  // this textarea against every later snapshot, deck save, and reconnect.
+  const saved = toText(challenges);
+  const editor = draft ?? saved;
+  const unsaved = draft !== null && draft !== saved;
+
+  /** Fires an action and reports whether the server took it. The notice is
+   * cleared on the way in as well as set on the way out, so a refusal she has
+   * already dealt with does not sit on the card forever. */
+  async function run(action: string, args?: string[]): Promise<boolean> {
     setBusy(action);
+    setNotice(null);
     const result = await connection.invoke({ action, args });
     setBusy(null);
-    setNotice(result.ok ? null : result.reason);
+    if (!result.ok) setNotice(result.reason);
+    return result.ok;
+  }
+
+  async function save(): Promise<void> {
+    // The draft is dropped only on the way through. A refused save has to
+    // leave her text where she can fix it, and the notice says why.
+    if (await run("wheel.setChallenges", toLines(editor))) setDraft(null);
   }
 
   return (
@@ -54,7 +77,16 @@ export function WheelCard({ connection, status }: CardProps) {
       ) : null}
       {notice ? (
         <p className="notice" data-testid="wheel-notice">
-          {notice}
+          <span>{notice}</span>
+          <button
+            type="button"
+            className="dismiss"
+            aria-label="Dismiss"
+            data-testid="wheel-notice-dismiss"
+            onClick={() => setNotice(null)}
+          >
+            ×
+          </button>
         </p>
       ) : null}
 
@@ -70,26 +102,23 @@ export function WheelCard({ connection, status }: CardProps) {
         </button>
       ) : null}
 
-      {rest.length > 0 ? (
-        <div className="btn-row">
-          {rest.map((action) => (
-            <button
-              key={action.id}
-              type="button"
-              className="btn"
-              data-testid={action.id.replace(".", "-")}
-              disabled={busy !== null}
-              onClick={() => void run(action.id)}
-            >
-              {action.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      {rest.map((action) => (
+        <button
+          key={action.id}
+          type="button"
+          className="btn"
+          data-testid={action.id.replace(".", "-")}
+          disabled={busy !== null}
+          onClick={() => void run(action.id)}
+        >
+          {action.label}
+        </button>
+      ))}
 
       <details className="fold">
         <summary>
-          {challenges.length === 1 ? "1 challenge" : `${challenges.length} challenges`}
+          <span>{challenges.length === 1 ? "1 challenge" : `${challenges.length} challenges`}</span>
+          {unsaved ? <span className="dirty" data-testid="wheel-unsaved">unsaved</span> : null}
         </summary>
         <label className="field">
           <span>One per line</span>
@@ -105,10 +134,19 @@ export function WheelCard({ connection, status }: CardProps) {
           type="button"
           className="btn"
           data-testid="wheel-save"
-          disabled={busy !== null}
-          onClick={() => void run("wheel.setChallenges", linesOf(editor))}
+          disabled={busy !== null || !unsaved}
+          onClick={() => void save()}
         >
           Save challenges
+        </button>
+        <button
+          type="button"
+          className="btn"
+          data-testid="wheel-revert"
+          disabled={busy !== null || draft === null}
+          onClick={() => setDraft(null)}
+        >
+          Discard changes
         </button>
       </details>
     </section>

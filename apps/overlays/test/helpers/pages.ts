@@ -11,7 +11,6 @@ const TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".svg": "image/svg+xml",
   ".webmanifest": "application/manifest+json",
-  ".json": "application/json",
 };
 
 export interface PageServer {

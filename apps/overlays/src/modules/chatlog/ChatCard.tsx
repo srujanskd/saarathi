@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { CHATLOG_ID, type ChatLogState, type MockChatInput } from "@saarathi/shared";
-import { useModuleState, useSays } from "../../lib/connection.js";
+import { useBotReplies, useModuleState } from "../../lib/connection.js";
 import type { CardProps } from "../types.js";
 import { formatEvent } from "./format.js";
 
@@ -14,7 +14,7 @@ const KINDS: { value: Kind; label: string }[] = [
 
 export function ChatCard({ connection, status }: CardProps) {
   const state = useModuleState<ChatLogState>(connection, CHATLOG_ID);
-  const says = useSays(connection);
+  const replies = useBotReplies(connection);
   const [author, setAuthor] = useState("");
   const [text, setText] = useState("");
   const [kind, setKind] = useState<Kind>("chat");
@@ -99,9 +99,9 @@ export function ChatCard({ connection, status }: CardProps) {
         </button>
       </form>
 
-      {says.length > 0 ? (
-        <ul className="says" data-testid="bot-says">
-          {says.map((line, index) => (
+      {replies.length > 0 ? (
+        <ul className="bot-replies" data-testid="bot-replies">
+          {replies.map((line, index) => (
             <li key={`${index}:${line}`}>{line}</li>
           ))}
         </ul>

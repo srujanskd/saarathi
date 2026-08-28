@@ -53,30 +53,20 @@ describe("what her phone says about the wheel", () => {
 
 describe("the queue on her phone", () => {
   it("says nothing when nobody is waiting", () => {
-    expect(queueSummary([], true)).toBeNull();
+    expect(queueSummary(0, "", true)).toBeNull();
   });
 
   it("uses the full name, unlike the overlay card on her camera", () => {
-    expect(queueSummary([{ by: "a very long viewer name", via: "paid", at: 1 }], true)).toBe(
+    expect(queueSummary(1, "a very long viewer name", true)).toBe(
       "a very long viewer name is next",
     );
   });
 
   it("counts when more than one person is waiting", () => {
-    expect(
-      queueSummary(
-        [
-          { by: "anita", via: "paid", at: 1 },
-          { by: "priya", via: "paid", at: 2 },
-        ],
-        true,
-      ),
-    ).toBe("2 waiting, anita is next");
+    expect(queueSummary(2, "anita", true)).toBe("2 waiting, anita is next");
   });
 
   it("explains the stall when there is nothing to spin", () => {
-    expect(queueSummary([{ by: "anita", via: "paid", at: 1 }], false)).toBe(
-      "1 spin waiting, nothing on the wheel yet",
-    );
+    expect(queueSummary(1, "anita", false)).toBe("1 spin waiting, nothing on the wheel yet");
   });
 });

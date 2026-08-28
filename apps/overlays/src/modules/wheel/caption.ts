@@ -1,4 +1,4 @@
-import type { ActiveSpin, QueuedSpin } from "@saarathi/shared";
+import type { ActiveSpin } from "@saarathi/shared";
 
 export type SpinPhase = "idle" | "spinning" | "landed";
 
@@ -40,15 +40,20 @@ export function phaseKicker(caption: SpinCaption): string {
   return "Do this";
 }
 
-/** Full names, unlike the overlay card that sits on her camera. */
-export function queueSummary(queue: QueuedSpin[], hasChallenges: boolean): string | null {
-  if (queue.length === 0) return null;
+/**
+ * The same line as the overlay's `queueNote`, in full names rather than short
+ * ones, because this card is on her phone rather than across her camera. It
+ * takes the three primitives it needs for the same reason that one does: a
+ * patch replaces the whole wheel slice, so the queue array is a new object
+ * every time the state moves at all.
+ */
+export function queueSummary(count: number, nextBy: string, hasChallenges: boolean): string | null {
+  if (count < 1) return null;
   if (!hasChallenges) {
-    return queue.length === 1
+    return count === 1
       ? "1 spin waiting, nothing on the wheel yet"
-      : `${queue.length} spins waiting, nothing on the wheel yet`;
+      : `${count} spins waiting, nothing on the wheel yet`;
   }
-  const head = queue[0]!.by;
-  if (queue.length === 1) return `${head} is next`;
-  return `${queue.length} waiting, ${head} is next`;
+  if (count === 1) return `${nextBy} is next`;
+  return `${count} waiting, ${nextBy} is next`;
 }

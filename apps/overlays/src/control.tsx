@@ -1,13 +1,10 @@
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import {
-  connect,
-  useConnected,
-  useCoreState,
-  type Connection,
-} from "./lib/connection.js";
+import { connect, useConnected, useCoreState, type Connection } from "./lib/connection.js";
 import { serverUrl } from "./lib/serverUrl.js";
-import { cards, GenericCard } from "./modules/cards.js";
+import { useUnreachable } from "./lib/unreachable.js";
+import { GenericCard } from "./modules/GenericCard.js";
+import { clients } from "./modules/registry.js";
 import "./control.css";
 
 /**
@@ -18,11 +15,7 @@ import "./control.css";
  * second one.
  */
 
-/** Long enough that a blip between two frames is "connecting", not a failure. */
-const COMPLAIN_AFTER_MS = 3_000;
-
 function Control({ url, connection }: { url: string; connection: Connection }) {
-  const connected = useConnected(connection);
   const core = useCoreState(connection);
 
   return (
@@ -32,7 +25,7 @@ function Control({ url, connection }: { url: string; connection: Connection }) {
           <span className="mark" aria-hidden="true" />
           <div>
             <h1>Saarathi</h1>
-            <Status url={url} connected={connected} />
+            <Status url={url} connection={connection} />
           </div>
         </div>
         {core ? <Connections connections={core.connections} /> : null}
@@ -40,7 +33,7 @@ function Control({ url, connection }: { url: string; connection: Connection }) {
 
       <main className="cards">
         {(core?.modules ?? []).map((status) => {
-          const Card = cards[status.id] ?? GenericCard;
+          const Card = clients[status.id]?.card ?? GenericCard;
           return <Card key={status.id} connection={connection} status={status} />;
         })}
       </main>
@@ -48,19 +41,9 @@ function Control({ url, connection }: { url: string; connection: Connection }) {
   );
 }
 
-function Status({ url, connected }: { url: string; connected: boolean }) {
-  const [complain, setComplain] = useState(false);
-  const [wasConnected, setWasConnected] = useState(connected);
-  if (wasConnected !== connected) {
-    setWasConnected(connected);
-    setComplain(false);
-  }
-
-  useEffect(() => {
-    if (connected) return;
-    const timer = setTimeout(() => setComplain(true), COMPLAIN_AFTER_MS);
-    return () => clearTimeout(timer);
-  }, [connected]);
+function Status({ url, connection }: { url: string; connection: Connection }) {
+  const connected = useConnected(connection);
+  const complain = useUnreachable(connection);
 
   const text = connected
     ? "Connected"
@@ -98,9 +81,26 @@ function Connections({
   );
 }
 
+/**
+ * The only reason a service worker exists here: Chrome will not install a page
+ * as an app -- a real icon on her home screen rather than a bookmark -- unless
+ * the page controls one with a fetch handler. It caches nothing on purpose. An
+ * overlay served stale out of a cache mid-stream would be a far worse bug than
+ * anything offline support could buy on a LAN.
+ */
+function registerServiceWorker(): void {
+  if (!("serviceWorker" in navigator)) return;
+  void navigator.serviceWorker.register("./sw.js").catch(() => {
+    // Installing is a nicety. A page that cannot register one still works, and
+    // there is nobody at a console to read about it.
+  });
+}
+
 const root = document.getElementById("root")!;
 const url = serverUrl();
-const connection = connect({ url, surface: "control" });
+const connection = connect({ url, surface: "control", botReplies: true });
+
+registerServiceWorker();
 
 createRoot(root).render(
   <StrictMode>

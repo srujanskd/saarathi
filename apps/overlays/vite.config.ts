@@ -9,6 +9,10 @@ import { defineConfig } from "vite";
  * Fastify static plugin in production serves these as plain files.
  */
 export default defineConfig({
+  // Every URL in the built pages is relative to the page itself, for the same
+  // reason nothing here names a host: the server serves these at the root, a
+  // pages host may serve them from a subpath, and neither gets to be assumed.
+  base: "./",
   plugins: [react()],
   build: {
     rollupOptions: {

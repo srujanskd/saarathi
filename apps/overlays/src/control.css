@@ -220,11 +220,43 @@ h2 {
 }
 
 .notice {
-  padding: 0.65rem 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 0.4rem 0.65rem 0.8rem;
   border-radius: 10px;
   background: rgb(255 217 160 / 0.08);
   border: 1px solid rgb(255 217 160 / 0.28);
   color: var(--warn);
+}
+
+.notice span {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A refusal she has read is a refusal she can put away. Sized for a thumb
+   rather than a cursor, like everything else she touches mid-workout. */
+.dismiss {
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--warn);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dismiss:active {
+  background: rgb(255 217 160 / 0.14);
+}
+
+.dismiss:focus-visible {
+  outline: 2px solid var(--warn);
+  outline-offset: 2px;
 }
 
 .btn {
@@ -266,19 +298,6 @@ h2 {
   font-size: 1.08rem;
 }
 
-.btn-row {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 0.55rem;
-}
-
-.btn-row .btn {
-  flex: 1;
-  margin: 0;
-  min-height: 3.2rem;
-  font-size: 0.95rem;
-}
-
 .fold {
   margin-top: 0.35rem;
   border-top: 1px solid var(--line);
@@ -293,6 +312,15 @@ h2 {
   list-style: none;
   color: var(--muted);
   font-weight: 600;
+}
+
+.dirty {
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: rgb(255 217 160 / 0.14);
+  color: var(--warn);
+  font-size: 0.8rem;
 }
 
 .fold summary::-webkit-details-marker {
@@ -396,7 +424,7 @@ h2 {
   min-width: 0;
 }
 
-.says {
+.bot-replies {
   margin: 0.2rem 0 0.75rem;
   padding: 0.7rem 0.85rem;
   list-style: none;
@@ -406,7 +434,7 @@ h2 {
   color: var(--warn);
 }
 
-.says li + li {
+.bot-replies li + li {
   margin-top: 0.4rem;
 }
 

@@ -1,8 +1,9 @@
-import { StrictMode, useEffect, useState, type ReactNode } from "react";
+import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { connect, useConnected, type Connection } from "./lib/connection.js";
+import { connect, type Connection } from "./lib/connection.js";
 import { moduleParam, serverUrl } from "./lib/serverUrl.js";
-import { overlays } from "./modules/registry.js";
+import { useUnreachable } from "./lib/unreachable.js";
+import { clients, overlayIds } from "./modules/registry.js";
 import "./overlay.css";
 
 /**
@@ -16,15 +17,12 @@ import "./overlay.css";
  * what a remount does to a connection that should never be remounted.
  */
 
-/** Long enough that a reconnect between two OBS frames never reaches chat. */
-const COMPLAIN_AFTER_MS = 3_000;
-
 function Overlay({ id, url, connection }: { id: string; url: string; connection: Connection }) {
-  const Module = overlays[id];
+  const Module = clients[id]?.overlay;
   if (!Module) {
     return (
       <Status visible>
-        Nothing renders “{id}”. Known overlays: {Object.keys(overlays).join(", ")}
+        Nothing renders “{id}”. Known overlays: {overlayIds().join(", ")}
       </Status>
     );
   }
@@ -37,28 +35,9 @@ function Overlay({ id, url, connection }: { id: string; url: string; connection:
 }
 
 function ConnectionStatus({ connection, url }: { connection: Connection; url: string }) {
-  const connected = useConnected(connection);
-  const [complain, setComplain] = useState(false);
-
-  // Cleared during the render the change arrives on rather than in the effect
-  // below, which is the same trick the wheel uses for its phase. In an effect
-  // it commits a frame of the old answer first -- and the old answer here is a
-  // "cannot reach Saarathi" that stays on her stream for a frame after it can.
-  const [wasConnected, setWasConnected] = useState(connected);
-  if (wasConnected !== connected) {
-    setWasConnected(connected);
-    // Either direction: a fresh disconnect starts its three seconds over.
-    setComplain(false);
-  }
-
-  useEffect(() => {
-    if (connected) return;
-    const timer = setTimeout(() => setComplain(true), COMPLAIN_AFTER_MS);
-    return () => clearTimeout(timer);
-  }, [connected]);
-
+  const unreachable = useUnreachable(connection);
   return (
-    <Status visible={complain} testId="status">
+    <Status visible={unreachable} testId="status">
       Cannot reach Saarathi at {url} — retrying
     </Status>
   );
