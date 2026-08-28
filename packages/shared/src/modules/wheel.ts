@@ -65,6 +65,17 @@ export const MAX_HISTORY = 200;
  */
 export const MAX_QUEUE = 25;
 
+/**
+ * How many challenges a wheel may hold.
+ *
+ * Two limits meet near here and 24 is under both. On screen, `labelFontSize`
+ * bottoms out at 28 wedges and the labels start colliding with their
+ * neighbours past that, so a wheel nobody can read is not worth saving. In the
+ * payload, `ActiveSpin.wheel` copies the whole list into every snapshot for as
+ * long as a spin is live, and she may be on phone data in IRL mode.
+ */
+export const MAX_CHALLENGES = 24;
+
 export const DEFAULT_CHALLENGES = [
   "20 squats",
   "30s plank",
