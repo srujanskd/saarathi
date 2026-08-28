@@ -81,26 +81,9 @@ function Connections({
   );
 }
 
-/**
- * The only reason a service worker exists here: Chrome will not install a page
- * as an app -- a real icon on her home screen rather than a bookmark -- unless
- * the page controls one with a fetch handler. It caches nothing on purpose. An
- * overlay served stale out of a cache mid-stream would be a far worse bug than
- * anything offline support could buy on a LAN.
- */
-function registerServiceWorker(): void {
-  if (!("serviceWorker" in navigator)) return;
-  void navigator.serviceWorker.register("./sw.js").catch(() => {
-    // Installing is a nicety. A page that cannot register one still works, and
-    // there is nobody at a console to read about it.
-  });
-}
-
 const root = document.getElementById("root")!;
 const url = serverUrl();
 const connection = connect({ url, surface: "control", botReplies: true });
-
-registerServiceWorker();
 
 createRoot(root).render(
   <StrictMode>
