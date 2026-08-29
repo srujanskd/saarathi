@@ -89,6 +89,18 @@ function normalise(value: string, protocol: string): string {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `${protocol}//${trimmed}`;
 }
 
+/**
+ * Another of her pages, from this one, carrying this one's query along.
+ *
+ * The whole query and not just `server=`: everything on it was aimed at these
+ * pages, and the link between two of them is the easiest place in the app to
+ * drop the address and quietly send the next page looking for a server on
+ * whatever host served the HTML. That is rule 3, one hop sideways.
+ */
+export function pageHref(page: string, location: { search: string } = window.location): string {
+  return `./${page}${location.search}`;
+}
+
 /** Which module's overlay this page renders, e.g. `?module=wheel`. */
 export function moduleParam(search: string = window.location.search): string | null {
   return new URLSearchParams(search).get("module");

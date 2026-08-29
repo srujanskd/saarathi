@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { serverUrl, type PageLocation, type ServerMemory } from "../../src/lib/serverUrl.js";
+import { pageHref, serverUrl, type PageLocation, type ServerMemory } from "../../src/lib/serverUrl.js";
 
 const at = (search: string): PageLocation => ({
   search,
@@ -54,4 +54,16 @@ describe("where the page thinks the server is", () => {
   // The last-resort fallback -- the origin the page came from -- is the one
   // branch that reads `import.meta.env`, so it is proven against a real built
   // bundle in `server-param.spec.ts` rather than guessed at here.
+});
+
+describe("linking from one of her pages to another", () => {
+  it("carries the address the current page was given", () => {
+    expect(pageHref("deck.html", { search: "?server=http%3A%2F%2F192.168.1.20%3A4400" })).toBe(
+      "./deck.html?server=http%3A%2F%2F192.168.1.20%3A4400",
+    );
+  });
+
+  it("stays relative, so a pages host serving from a subpath still works", () => {
+    expect(pageHref("control.html", { search: "" })).toBe("./control.html");
+  });
 });

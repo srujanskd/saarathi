@@ -244,11 +244,14 @@ describe("core state a client renders", () => {
     expect(wheel.actions.every((a) => a.label.length > 0)).toBe(true);
   });
 
-  it("hides an action marked hidden from her button grids", async () => {
+  it("keeps an action that needs arguments off her button grids", async () => {
     const h = await start();
     const wheel = h.kernel.coreState().modules.find((m) => m.id === "wheel")!;
+    // `ModuleStatus.actions` is what the deck picker and the control page
+    // press with no arguments, so an action that needs one cannot be in it:
+    // saved as a button it would be a refusal she meets by pressing it.
     expect(wheel.actions.map((a) => a.id)).not.toContain("wheel.setChallenges");
-    // Still invocable by id, because her challenge editor needs it.
+    // Still invocable by id, because her challenge editor knows what to pass.
     expect(await h.kernel.invoke("wheel.setChallenges", { args: ["a"] })).toEqual({ ok: true });
   });
 

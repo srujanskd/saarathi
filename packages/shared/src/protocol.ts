@@ -5,6 +5,25 @@ import type { Effect, ModuleStatus } from "./module.js";
 export const CORE_ID = "core";
 
 /**
+ * The core's own actions, spelled exactly as `invoke` takes them.
+ *
+ * Both ends import these: the server routes on them and her pages send them.
+ * A deck button is one of these strings saved on disk, so an id that was
+ * renamed on one side only does not fail a build -- it turns a button she made
+ * weeks ago into a refusal she finds out about mid-workout, by pressing it.
+ * That is the same reason `GAINS` is one constant and not a hundred literals.
+ */
+export const CORE_ACTIONS = {
+  obsConnect: `${CORE_ID}.obsConnect`,
+  obsDisconnect: `${CORE_ID}.obsDisconnect`,
+  obsAuto: `${CORE_ID}.obsAuto`,
+  obsForget: `${CORE_ID}.obsForget`,
+  obsScene: `${CORE_ID}.obsScene`,
+  obsSettings: `${CORE_ID}.obsSettings`,
+  deckSet: `${CORE_ID}.deckSet`,
+} as const;
+
+/**
  * What she is allowed to know about the OBS connection. Deliberately not the
  * password: this slice reaches every client, and in IRL mode that is her phone
  * over somebody else's network. `hasPassword` is enough to render the field.
@@ -39,7 +58,7 @@ export interface ObsView {
  * reorder by dragging without the server learning a second verb.
  */
 export interface DeckSlot {
-  /** Fully qualified, exactly as `invoke` takes it: "wheel.spin", "core.obsScene". */
+  /** Fully qualified, exactly as `invoke` takes it: "wheel.spin", `CORE_ACTIONS.obsScene`. */
   action: string;
   /** Positional args for that action, exactly what `invoke` sends. */
   args: string[];

@@ -1,0 +1,25 @@
+{
+  "id": "./deck.html",
+  "name": "Saarathi Deck",
+  "short_name": "Deck",
+  "description": "Her buttons, full screen.",
+  "start_url": "./deck.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#14151a",
+  "theme_color": "#14151a",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

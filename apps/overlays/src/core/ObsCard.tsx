@@ -1,6 +1,10 @@
 import { useState } from "react";
-import type { ConnectionStatus, ObsView } from "@saarathi/shared";
+import { CORE_ACTIONS, type ConnectionStatus, type ObsView } from "@saarathi/shared";
 import type { Connection } from "../lib/connection.js";
+import { useInvoke } from "../lib/invoke.js";
+import { Notice } from "./Notice.js";
+import { appendSlot, encodeGrid, hasScene, sceneSlot } from "./deckDraft.js";
+import type { DeckDraft } from "./useDeckDraft.js";
 
 /**
  * OBS on her phone.
@@ -14,20 +18,31 @@ import type { Connection } from "../lib/connection.js";
  * settings underneath exist for the day the server is not on the same machine
  * as OBS; on her PC they should stay closed forever, because the server reads
  * the port and password out of OBS's own config.
+ *
+ * It also writes deck buttons, which is why it shares the deck card's draft.
+ * A scene button is the one deck action that needs an argument, and the
+ * argument is a scene name -- so it is added from the card that is already
+ * showing her the scenes, rather than by teaching the deck's picker to
+ * enumerate core actions and then ask her to type one. That is the decision
+ * recorded in the plan: less machinery, and the button is where she is already
+ * looking.
  */
 export function ObsCard({
   connection,
   obs,
   status,
+  deck,
 }: {
   connection: Connection;
   obs: ObsView;
   status: ConnectionStatus | undefined;
+  /** Shared with the deck card, which is the other thing that writes buttons. */
+  deck: DeckDraft;
 }) {
-  const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const invoke = useInvoke(connection);
   const [draft, setDraft] = useState<{ host: string; port: string; password: string } | null>(null);
 
+  const busy = invoke.working;
   const connected = status?.state === "connected";
 
   // Same discipline as the challenge editor: a draft shadows the server only
@@ -36,17 +51,34 @@ export function ObsCard({
   const fields = draft ?? { host: obs.host, port: String(obs.port), password: "" };
   const dirty = draft !== null;
 
-  async function run(action: string, args?: string[]): Promise<boolean> {
-    setBusy(true);
-    setNotice(null);
-    const result = await connection.invoke({ action, args });
-    setBusy(false);
-    if (!result.ok) setNotice(result.reason);
-    return result.ok;
-  }
+  const { run } = invoke;
 
   async function save(): Promise<void> {
-    if (await run("core.obsSettings", [fields.host, fields.port, fields.password])) setDraft(null);
+    const args = [fields.host, fields.port, fields.password];
+    if (await run(CORE_ACTIONS.obsSettings, args)) setDraft(null);
+  }
+
+  /**
+   * A scene, onto the grid she is looking at.
+   *
+   * With nothing open in the deck card it appends and saves in one go: the
+   * deck has no half-saved state -- a save replaces the whole grid -- and a
+   * full deck is refused by the server in its own words, which land in the
+   * notice above.
+   *
+   * With an arrangement open there, the button goes into that arrangement and
+   * she saves once, from the card with the Save button on it. Saving over her
+   * draft would commit edits she has not finished; saving under it would put
+   * the scene somewhere she cannot see, and her next Save would delete it.
+   */
+  async function addScene(scene: string): Promise<void> {
+    const next = appendSlot(deck.slots, sceneSlot(scene));
+    if (deck.editing) {
+      deck.set(next);
+      invoke.say(`${scene} added to the deck you are editing — Save deck to keep it`);
+      return;
+    }
+    if (await run(CORE_ACTIONS.deckSet, [encodeGrid(next)])) deck.discard();
   }
 
   return (
@@ -56,19 +88,8 @@ export function ObsCard({
         {status?.detail ?? "Starting up"}
       </p>
 
-      {notice ? (
-        <p className="notice" data-testid="obs-notice">
-          <span>{notice}</span>
-          <button
-            type="button"
-            className="dismiss"
-            aria-label="Dismiss"
-            data-testid="obs-notice-dismiss"
-            onClick={() => setNotice(null)}
-          >
-            ×
-          </button>
-        </p>
+      {invoke.notice ? (
+        <Notice notice={invoke.notice} testId="obs-notice" onDismiss={invoke.dismiss} />
       ) : null}
 
       {connected && obs.scenes.length > 0 ? (
@@ -81,7 +102,7 @@ export function ObsCard({
               data-active={scene === obs.currentScene}
               aria-pressed={scene === obs.currentScene}
               disabled={busy}
-              onClick={() => void run("core.obsScene", [scene])}
+              onClick={() => void run(CORE_ACTIONS.obsScene, [scene])}
             >
               {scene}
             </button>
@@ -95,6 +116,37 @@ export function ObsCard({
           else to set up.
         </p>
       )}
+
+      {connected && obs.scenes.length > 0 ? (
+        <details className="fold">
+          <summary>
+            <span>Put a scene on her deck</span>
+          </summary>
+          <p className="hint">
+            {deck.editing
+              ? "Added to the arrangement in the deck card, so one Save keeps both."
+              : "Saved straight away, on its own."}
+          </p>
+          <div className="scenes">
+            {obs.scenes.map((scene) => {
+              const already = hasScene(deck.slots, scene);
+              return (
+                <button
+                  key={scene}
+                  type="button"
+                  className="btn scene"
+                  data-on-deck={already}
+                  data-testid="obs-add-scene"
+                  disabled={busy || already}
+                  onClick={() => void addScene(scene)}
+                >
+                  {already ? `${scene} — on her deck` : `Add ${scene}`}
+                </button>
+              );
+            })}
+          </div>
+        </details>
+      ) : null}
 
       <details className="fold">
         <summary>
@@ -174,7 +226,7 @@ export function ObsCard({
           className="btn"
           data-testid="obs-auto"
           disabled={busy || obs.mode === "auto"}
-          onClick={() => void run("core.obsAuto").then(() => setDraft(null))}
+          onClick={() => void run(CORE_ACTIONS.obsAuto).then(() => setDraft(null))}
         >
           Use OBS&rsquo;s own settings
         </button>
@@ -183,7 +235,7 @@ export function ObsCard({
           className="btn"
           data-testid="obs-forget"
           disabled={busy || !obs.hasPassword}
-          onClick={() => void run("core.obsForget")}
+          onClick={() => void run(CORE_ACTIONS.obsForget)}
         >
           Forget password
         </button>
@@ -192,7 +244,7 @@ export function ObsCard({
           className="btn"
           data-testid="obs-toggle"
           disabled={busy}
-          onClick={() => void run(connected ? "core.obsDisconnect" : "core.obsConnect")}
+          onClick={() => void run(connected ? CORE_ACTIONS.obsDisconnect : CORE_ACTIONS.obsConnect)}
         >
           {connected ? "Disconnect from OBS" : "Try again now"}
         </button>

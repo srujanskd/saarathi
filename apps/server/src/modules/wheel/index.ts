@@ -159,7 +159,9 @@ export const wheel: GameModuleDef<WheelState> = {
 
     setChallenges: {
       label: "Save challenges",
-      hidden: true,
+      // The list arrives as one argument per line, which is why no grid offers
+      // it: her challenge editor is the card that knows what to pass.
+      needsArgs: true,
       // The cap is enforced on the write and nowhere else, so a list already
       // over it in her state file keeps loading and spinning; only her next
       // save is refused. Clamping on load would want a per-module hydrate hook

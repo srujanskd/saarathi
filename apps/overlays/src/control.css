@@ -1,162 +1,9 @@
-:root {
-  --bg: #0f1117;
-  --card: #171a23;
-  --card-2: #1f2330;
-  --line: #2a2f3e;
-  --text: #f4f5f8;
-  --muted: #9aa1b2;
-  --accent: #4ade80;
-  --accent-ink: #06210f;
-  --warn: #ffd9a0;
-  --pad: max(1rem, env(safe-area-inset-left));
-}
+/*
+ * The control page's own pieces. The shell it sits in -- palette, card,
+ * button, fold -- is in base.css, which the deck page uses too.
+ */
 
-html {
-  background: var(--bg);
-}
-
-html,
-body,
-#root {
-  margin: 0;
-  min-height: 100%;
-  -webkit-font-smoothing: antialiased;
-}
-
-body {
-  font: 17px/1.4 system-ui, sans-serif;
-  color: var(--text);
-  background: var(--bg);
-}
-
-button,
-input,
-select,
-textarea {
-  font: inherit;
-  color: inherit;
-}
-
-button {
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-}
-
-.page {
-  box-sizing: border-box;
-  max-width: 26.5rem;
-  margin: 0 auto;
-  padding: 1.1rem var(--pad) calc(2.2rem + env(safe-area-inset-bottom));
-  padding-right: max(1rem, env(safe-area-inset-right));
-}
-
-.top {
-  margin-bottom: 1.1rem;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.mark {
-  flex: 0 0 auto;
-  width: 2.4rem;
-  height: 2.4rem;
-  border-radius: 0.7rem;
-  background: var(--card);
-  border: 1.5px solid var(--accent);
-  box-shadow: inset 0 0 0 5px var(--bg), inset 0 0 0 8px var(--accent);
-}
-
-h1 {
-  margin: 0;
-  font-size: 1.35rem;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
-}
-
-h2 {
-  margin: 0 0 0.85rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.status {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin: 0.2rem 0 0;
-  font-size: 0.88rem;
-  color: var(--muted);
-}
-
-.status::before {
-  content: "";
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: #5b6273;
-  flex: 0 0 auto;
-}
-
-.status[data-connected="true"]::before {
-  background: var(--accent);
-}
-
-.status[data-complain="true"] {
-  color: var(--warn);
-}
-
-.status[data-complain="true"]::before {
-  background: var(--warn);
-}
-
-.connections {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin: 0.75rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.connections li {
-  padding: 0.35rem 0.65rem;
-  border-radius: 999px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-
-.connections [data-state="connected"] {
-  border-color: rgb(74 222 128 / 0.35);
-  color: var(--accent);
-}
-
-.connections [data-state="error"],
-.connections [data-state="disconnected"] {
-  border-color: rgb(255 217 160 / 0.4);
-  color: var(--warn);
-}
-
-.cards {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-}
-
-.card {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  padding: 1rem 1rem 1.1rem;
-}
+@import "./base.css";
 
 .caption {
   display: flex;
@@ -203,182 +50,13 @@ h2 {
   font-size: 0.95rem;
 }
 
-.queue-line,
-.notice,
-.hint,
-.empty {
-  margin: 0 0 0.85rem;
-  color: var(--muted);
-}
-
 .queue-line {
+  margin: 0 0 0.85rem;
   padding: 0.65rem 0.8rem;
   border-radius: 10px;
   background: rgb(74 222 128 / 0.08);
   border: 1px solid rgb(74 222 128 / 0.25);
   color: var(--accent);
-}
-
-.notice {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.65rem 0.4rem 0.65rem 0.8rem;
-  border-radius: 10px;
-  background: rgb(255 217 160 / 0.08);
-  border: 1px solid rgb(255 217 160 / 0.28);
-  color: var(--warn);
-}
-
-.notice span {
-  flex: 1;
-  min-width: 0;
-}
-
-/* A refusal she has read is a refusal she can put away. Sized for a thumb
-   rather than a cursor, like everything else she touches mid-workout. */
-.dismiss {
-  flex: none;
-  width: 2.75rem;
-  height: 2.75rem;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--warn);
-  font-size: 1.4rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.dismiss:active {
-  background: rgb(255 217 160 / 0.14);
-}
-
-.dismiss:focus-visible {
-  outline: 2px solid var(--warn);
-  outline-offset: 2px;
-}
-
-.btn {
-  display: block;
-  width: 100%;
-  min-height: 3.5rem;
-  margin: 0 0 0.55rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--card-2);
-  color: var(--text);
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.btn:last-child {
-  margin-bottom: 0;
-}
-
-.btn:active:not(:disabled) {
-  transform: scale(0.98);
-}
-
-.btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.btn:disabled {
-  opacity: 0.45;
-}
-
-.btn-primary {
-  min-height: 3.85rem;
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
-  font-size: 1.08rem;
-}
-
-.fold {
-  margin-top: 0.35rem;
-  border-top: 1px solid var(--line);
-  padding-top: 0.35rem;
-}
-
-.fold summary {
-  display: flex;
-  align-items: center;
-  min-height: 2.8rem;
-  cursor: pointer;
-  list-style: none;
-  color: var(--muted);
-  font-weight: 600;
-}
-
-.dirty {
-  margin-left: 0.5rem;
-  padding: 0.1rem 0.45rem;
-  border-radius: 999px;
-  background: rgb(255 217 160 / 0.14);
-  color: var(--warn);
-  font-size: 0.8rem;
-}
-
-.fold summary::-webkit-details-marker {
-  display: none;
-}
-
-.fold summary::after {
-  content: "";
-  margin-left: auto;
-  width: 0.45rem;
-  height: 0.45rem;
-  border-right: 2px solid var(--muted);
-  border-bottom: 2px solid var(--muted);
-  transform: rotate(45deg);
-}
-
-.fold[open] summary::after {
-  transform: rotate(-135deg);
-}
-
-.fold .field {
-  margin-top: 0.4rem;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  margin: 0 0 0.7rem;
-  color: var(--muted);
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.input,
-.textarea {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 3.15rem;
-  padding: 0.7rem 0.85rem;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--bg);
-  color: var(--text);
-  font-weight: 500;
-}
-
-.input:focus,
-.textarea:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 0;
-  border-color: transparent;
-}
-
-.textarea {
-  min-height: 9.5rem;
-  resize: vertical;
-  line-height: 1.45;
 }
 
 .mock {
@@ -436,12 +114,6 @@ h2 {
 
 .bot-replies li + li {
   margin-top: 0.4rem;
-}
-
-.empty {
-  margin: 0.4rem 0 0;
-  padding: 0.9rem 0.2rem 0.2rem;
-  text-align: center;
 }
 
 .log {
@@ -512,4 +184,124 @@ h2 {
   border-color: var(--accent);
   color: var(--accent-ink);
   font-weight: 650;
+}
+
+.scene[data-on-deck="true"] {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+/* The deck editor. The grid itself lives on deck.html; this is where she says
+   what is on it. */
+
+.slots {
+  margin: 0.4rem 0 0.7rem;
+  padding: 0;
+  list-style: none;
+}
+
+.slot {
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.slot:first-child {
+  border-top: 0;
+}
+
+/* Icon and label sit on one line, because that is how they sit on the button
+   she is describing. */
+.slot-head {
+  display: flex;
+  gap: 0.4rem;
+}
+
+/* What it does on the left, what to do with it on the right. Side by side
+   rather than a stacked column of arrows, which made every row three buttons
+   tall and pushed the grid off the bottom of the fold. */
+.slot-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+}
+
+.slot-icon {
+  flex: 0 0 3.4rem;
+  min-height: 2.9rem;
+  text-align: center;
+  font-size: 1.25rem;
+}
+
+.slot-label {
+  flex: 1;
+  min-width: 0;
+  min-height: 2.9rem;
+}
+
+.slot-does {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding-left: 0.2rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.slot-tools {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.3rem;
+}
+
+/* Square, thumb-sized, and stacked: reordering is two taps on a phone rather
+   than a drag, which is the interaction that actually works one-handed. */
+.tool {
+  width: 2.9rem;
+  height: 2.9rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card-2);
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tool:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.tool:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tool:disabled {
+  opacity: 0.3;
+}
+
+.tool[data-tool="remove"] {
+  color: var(--warn);
+}
+
+.add-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+  margin-bottom: 0.7rem;
+}
+
+.add-row .field {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.add-row .btn {
+  flex: 0 0 5.5rem;
+  min-height: 3.15rem;
+  margin: 0;
 }

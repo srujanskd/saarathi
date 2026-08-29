@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
 import { MAX_CHALLENGES, WHEEL_ID, type WheelState } from "@saarathi/shared";
+import { Notice } from "../../core/Notice.js";
 import { useModuleState } from "../../lib/connection.js";
+import { useInvoke } from "../../lib/invoke.js";
 import type { CardProps } from "../types.js";
 import { countLabel, phaseKicker, queueSummary, spinCaption } from "./caption.js";
 import { toLines, toText } from "./challenges.js";
 
 export function WheelCard({ connection, status }: CardProps) {
   const state = useModuleState<WheelState>(connection, WHEEL_ID);
-  const [notice, setNotice] = useState<string | null>(null);
+  const invoke = useInvoke(connection);
   const [draft, setDraft] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
   const [now, setNow] = useState(() => connection.serverNow());
 
   const spin = state?.spin ?? null;
@@ -45,17 +46,7 @@ export function WheelCard({ connection, status }: CardProps) {
   const unsaved = draft !== null && draft !== saved;
   const drafted = toLines(editor);
 
-  /** Fires an action and reports whether the server took it. The notice is
-   * cleared on the way in as well as set on the way out, so a refusal she has
-   * already dealt with does not sit on the card forever. */
-  async function run(action: string, args?: string[]): Promise<boolean> {
-    setBusy(action);
-    setNotice(null);
-    const result = await connection.invoke({ action, args });
-    setBusy(null);
-    if (!result.ok) setNotice(result.reason);
-    return result.ok;
-  }
+  const { run, working } = invoke;
 
   async function save(): Promise<void> {
     // The draft is dropped only on the way through. A refused save has to
@@ -76,19 +67,8 @@ export function WheelCard({ connection, status }: CardProps) {
           {queued}
         </p>
       ) : null}
-      {notice ? (
-        <p className="notice" data-testid="wheel-notice">
-          <span>{notice}</span>
-          <button
-            type="button"
-            className="dismiss"
-            aria-label="Dismiss"
-            data-testid="wheel-notice-dismiss"
-            onClick={() => setNotice(null)}
-          >
-            ×
-          </button>
-        </p>
+      {invoke.notice ? (
+        <Notice notice={invoke.notice} testId="wheel-notice" onDismiss={invoke.dismiss} />
       ) : null}
 
       {primary ? (
@@ -96,7 +76,7 @@ export function WheelCard({ connection, status }: CardProps) {
           type="button"
           className="btn btn-primary"
           data-testid="wheel-spin"
-          disabled={busy !== null}
+          disabled={working}
           onClick={() => void run(primary.id)}
         >
           {primary.label}
@@ -109,7 +89,7 @@ export function WheelCard({ connection, status }: CardProps) {
           type="button"
           className="btn"
           data-testid={action.id.replace(".", "-")}
-          disabled={busy !== null}
+          disabled={working}
           onClick={() => void run(action.id)}
         >
           {action.label}
@@ -138,7 +118,7 @@ export function WheelCard({ connection, status }: CardProps) {
           type="button"
           className="btn"
           data-testid="wheel-save"
-          disabled={busy !== null || !unsaved}
+          disabled={working || !unsaved}
           onClick={() => void save()}
         >
           Save challenges
@@ -147,7 +127,7 @@ export function WheelCard({ connection, status }: CardProps) {
           type="button"
           className="btn"
           data-testid="wheel-revert"
-          disabled={busy !== null || draft === null}
+          disabled={working || draft === null}
           onClick={() => setDraft(null)}
         >
           Discard changes

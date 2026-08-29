@@ -1,4 +1,5 @@
 import {
+  CORE_ACTIONS,
   DECK_ID,
   MAX_DECK_SLOTS,
   type DeckSlot,
@@ -68,6 +69,9 @@ export class Deck implements DeckCommands {
  * knowing that a grid arrives as JSON is knowledge about the deck, and the
  * registry's job is modules. `null` means "not one of ours".
  *
+ * The id it answers to comes from `CORE_ACTIONS`, the same constant her pages
+ * send, so the two ends of one string cannot drift apart.
+ *
  * `InvokeRequest.args` is `string[]` and a button is four fields, so the grid
  * travels as one JSON string and is parsed here and only here -- the same
  * boundary rule `obsSettings` follows for its port. Nothing past this line
@@ -75,10 +79,10 @@ export class Deck implements DeckCommands {
  */
 export function deckCommand(
   deck: DeckCommands,
-  name: string,
+  actionId: string,
   args: string[],
 ): InvokeResult | null {
-  if (name !== "deckSet") return null;
+  if (actionId !== CORE_ACTIONS.deckSet) return null;
 
   let parsed: unknown;
   try {
