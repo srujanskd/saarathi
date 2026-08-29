@@ -4,11 +4,30 @@ import type { Effect, ModuleStatus } from "./module.js";
 /** Reserved module id for the core's own slice. */
 export const CORE_ID = "core";
 
+/**
+ * What she is allowed to know about the OBS connection. Deliberately not the
+ * password: this slice reaches every client, and in IRL mode that is her phone
+ * over somebody else's network. `hasPassword` is enough to render the field.
+ */
+export interface ObsView {
+  mode: "auto" | "manual";
+  /** Effective values -- what the next connect attempt will actually use. */
+  host: string;
+  port: number;
+  hasPassword: boolean;
+  /** True when these came from OBS's own config file rather than from her. */
+  detected: boolean;
+  /** Transient: OBS tells us on connect, and we forget on disconnect. */
+  scenes: string[];
+  currentScene: string | null;
+}
+
 export interface CoreState {
   startedAt: number;
-  /** One entry per chat adapter, keyed by adapter name. */
+  /** One entry per external connection, keyed by adapter name: chat, and OBS. */
   connections: Record<string, ConnectionStatus>;
   modules: ModuleStatus[];
+  obs: ObsView;
 }
 
 export interface Snapshot {

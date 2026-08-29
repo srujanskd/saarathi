@@ -97,7 +97,7 @@ test("edits challenges without freezing the textarea against the server", async 
   await page.goto(controlUrl(pages, saarathi));
   await expect(page.getByTestId("status")).toHaveText("Connected");
 
-  await page.locator(".fold > summary").click();
+  await page.getByTestId("wheel-card").locator(".fold > summary").click();
   const textarea = page.getByTestId("wheel-challenges");
   const before = await textarea.inputValue();
 
@@ -123,7 +123,7 @@ test("edits challenges without freezing the textarea against the server", async 
   const elsewhere = await page.context().newPage();
   await elsewhere.goto(controlUrl(pages, saarathi));
   await expect(elsewhere.getByTestId("status")).toHaveText("Connected");
-  await elsewhere.locator(".fold > summary").click();
+  await elsewhere.getByTestId("wheel-card").locator(".fold > summary").click();
   await elsewhere.getByTestId("wheel-challenges").fill("50 jumping jacks");
   await elsewhere.getByTestId("wheel-save").click();
 
@@ -154,7 +154,7 @@ test("says a list is too long before she saves it, and keeps it when refused", a
   await page.goto(controlUrl(pages, saarathi));
   await expect(page.getByTestId("status")).toHaveText("Connected");
 
-  await page.locator(".fold > summary").click();
+  await page.getByTestId("wheel-card").locator(".fold > summary").click();
   const textarea = page.getByTestId("wheel-challenges");
   const before = (await saarathi.get("/api/state")) as { modules: Record<string, WheelState> };
   const saved = before.modules[WHEEL_ID]!.challenges;

@@ -10,9 +10,9 @@ import {
   type Logger,
   type ModuleContext,
   type ModuleStatus,
-  type ObsActions,
   type StreamEvent,
 } from "@saarathi/shared";
+import type { ObsAdapter } from "./obs.js";
 import type { StateStore } from "./store.js";
 import { ActionRefused } from "./triggers.js";
 
@@ -24,7 +24,7 @@ const LIFECYCLE_KEY = "lifecycle";
 export interface RegistryDeps {
   store: StateStore;
   gains: GainsLedger;
-  obs: ObsActions;
+  obs: ObsAdapter;
   log: Logger;
   say(text: string): void;
   onPatch(module: string, state: unknown): void;
@@ -199,13 +199,36 @@ export class Registry {
    * so her control page never shows a button that does nothing.
    */
   private async dispatchCore(name: string, input: ActionInput): Promise<InvokeResult> {
-    const targetId = input.args[0];
-    const runtime = targetId ? this.modules.get(targetId) : undefined;
-    if (!runtime) return { ok: false, reason: `There is no "${targetId ?? ""}"` };
+    // Resolving the target module belongs to the cases that have one. Doing it
+    // up here refused every core action that is not about a module -- which,
+    // once OBS arrived, was most of them.
+    const target = (): Runtime | null => this.modules.get(input.args[0] ?? "") ?? null;
+    const missing = (): InvokeResult => ({
+      ok: false,
+      reason: `There is no "${input.args[0] ?? ""}"`,
+    });
 
     switch (name) {
+      case "obsConnect":
+        return this.deps.obs.connect();
+      case "obsDisconnect":
+        return this.deps.obs.disconnect();
+      case "obsAuto":
+        return this.deps.obs.useAuto();
+      case "obsForget":
+        return this.deps.obs.forgetPassword();
+      case "obsScene":
+        return this.deps.obs.setScene(input.args[0] ?? "");
+      case "obsSettings": {
+        // Positional strings, because InvokeRequest.args is string[] -- the
+        // same constraint wheel.setChallenges already lives with.
+        const [host = "", port = "", password = ""] = input.args;
+        return this.deps.obs.setSettings(host, port, password);
+      }
       case "enable":
       case "disable": {
+        const runtime = target();
+        if (!runtime) return missing();
         const enabled = name === "enable";
         if (runtime.enabled === enabled) return { ok: true };
         runtime.enabled = enabled;
@@ -217,6 +240,8 @@ export class Registry {
       }
       case "arm":
       case "disarm": {
+        const runtime = target();
+        if (!runtime) return missing();
         if (!runtime.def.arming) {
           return { ok: false, reason: `${runtime.def.title} does not use arming` };
         }
@@ -314,7 +339,7 @@ export class Registry {
         throw new ActionRefused(reason);
       },
       gains: this.deps.gains,
-      obs: this.deps.obs,
+      obs: this.deps.obs.actions,
       after: (ms, fn) => track(setTimeout(fn, ms), false),
       every: (ms, fn) => track(setInterval(fn, ms), true),
       say: (text) => this.deps.say(text),

@@ -9,13 +9,14 @@ import {
   type InvokeResult,
   type Logger,
   type MockChatInput,
-  type ObsActions,
+  type ObsView,
   type Snapshot,
   type StreamEvent,
 } from "@saarathi/shared";
 import type { ChatAdapter, ChatSink } from "../chat/adapter.js";
 import { MockChatAdapter } from "../chat/mock.js";
 import { Gains } from "./gains.js";
+import type { ObsAdapter } from "./obs.js";
 import { Registry } from "./registry.js";
 import type { StateStore } from "./store.js";
 import { CommandGate, parseCommand } from "./triggers.js";
@@ -24,7 +25,7 @@ export interface KernelDeps {
   modules: GameModuleDef[];
   chat: ChatAdapter[];
   store: StateStore;
-  obs: ObsActions;
+  obs: ObsAdapter;
   log: Logger;
 }
 
@@ -41,12 +42,14 @@ export class Kernel {
   private readonly gate: CommandGate;
   private readonly mock?: MockChatAdapter;
   private readonly connections: Record<string, ConnectionStatus> = {};
+  private obsView: ObsView;
   private readonly startedAt = Date.now();
   private readonly patchListeners = new Set<(module: string, state: unknown) => void>();
   private readonly effectListeners = new Set<(effect: Effect) => void>();
 
   constructor(private readonly deps: KernelDeps) {
     this.gains = new Gains(deps.store, deps.log);
+    this.obsView = deps.obs.view();
     this.gate = new CommandGate(this.gains);
     this.mock = deps.chat.find((adapter): adapter is MockChatAdapter => adapter instanceof MockChatAdapter);
 
@@ -63,7 +66,7 @@ export class Kernel {
 
     for (const module of deps.modules) this.registry.register(module);
 
-    for (const adapter of deps.chat) {
+    for (const adapter of [...deps.chat, deps.obs]) {
       this.connections[adapter.name] = { state: "disconnected", detail: "Not started" };
     }
   }
@@ -81,10 +84,25 @@ export class Kernel {
         this.setConnection(adapter.name, { state: "error", detail: String(err) });
       }
     }
+
+    // After the chat adapters, so a slow OBS handshake never delays chat: the
+    // stream is happening either way, and OBS retries on its own.
+    try {
+      await this.deps.obs.start({
+        status: (status) => this.setConnection(this.deps.obs.name, status),
+        view: (view) => {
+          this.obsView = view;
+          this.emitPatch(CORE_ID, this.coreState());
+        },
+      });
+    } catch (err) {
+      this.setConnection(this.deps.obs.name, { state: "error", detail: String(err) });
+    }
   }
 
   async stop(): Promise<void> {
     for (const adapter of this.deps.chat) await adapter.stop().catch(() => {});
+    await this.deps.obs.stop().catch(() => {});
     await this.registry.stop();
     this.deps.store.flush();
   }
@@ -96,6 +114,7 @@ export class Kernel {
       startedAt: this.startedAt,
       connections: { ...this.connections },
       modules: this.registry.statuses(),
+      obs: this.obsView,
     };
   }
 

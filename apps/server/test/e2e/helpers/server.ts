@@ -109,6 +109,11 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
         // Never the real adapter: it would go looking for her live stream.
         YT_CHANNEL_ID: "",
         YT_LIVE_ID: "",
+        // Same reason, one machine closer to home: autodetect would read the
+        // real OBS settings of whoever is running the suite and connect to
+        // their OBS mid-test. Blank switches it off. A test that wants the
+        // autodetect path writes its own config file and names it here.
+        OBS_CONFIG: options.env?.OBS_CONFIG ?? "",
       },
       // The fourth slot is the IPC channel stop() asks over, because on
       // Windows a signal is not a request.

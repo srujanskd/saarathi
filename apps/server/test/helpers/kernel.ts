@@ -1,32 +1,108 @@
-import type { GameModuleDef, MockChatInput, ObsActions } from "@saarathi/shared";
+import {
+  OBS_ID,
+  type GameModuleDef,
+  type InvokeResult,
+  type MockChatInput,
+  type ObsView,
+} from "@saarathi/shared";
 import type { ChatAdapter } from "../../src/chat/adapter.js";
 import { MockChatAdapter } from "../../src/chat/mock.js";
 import { createKernel, type Kernel } from "../../src/core/kernel.js";
+import { obsStatus } from "../../src/core/obs-config.js";
+import type { ObsAdapter, ObsSink } from "../../src/core/obs.js";
 import { MemoryStore, type StateStore } from "../../src/core/store.js";
 import { chatlog } from "../../src/modules/chatlog/index.js";
 import { wheel } from "../../src/modules/wheel/index.js";
 import { collect, type Collected } from "./collect.js";
 import { testLogger, type RecordingLogger } from "./logger.js";
 
-export interface FakeObs extends ObsActions {
+export interface FakeObs extends ObsAdapter {
+  /** Scenes she switched to, in order. */
   readonly scenes: string[];
   readonly visibility: { scene: string; source: string; visible: boolean }[];
+  /** Settings saved from her control page, in order. */
+  readonly saves: { host: string; port: string; password: string }[];
+  /** Pretend OBS came up, or went away. Pushes status the way the real one does. */
+  arrive(scenes?: string[]): void;
+  depart(): void;
 }
 
-export function fakeObs(connected = true): FakeObs {
+/**
+ * OBS that never opens a socket. It is the whole `ObsAdapter`, not just the
+ * narrow `ObsActions` a module sees, because the interesting things now happen
+ * on the other half: her control page saving settings, and a connection coming
+ * and going underneath a running kernel.
+ */
+export function fakeObs(): FakeObs {
   const scenes: string[] = [];
   const visibility: FakeObs["visibility"] = [];
+  const saves: FakeObs["saves"] = [];
+  let sink: ObsSink | null = null;
+  let live: string[] | null = null;
+
+  const view = (): ObsView => ({
+    mode: "manual",
+    host: "127.0.0.1",
+    port: 4455,
+    hasPassword: false,
+    detected: false,
+    scenes: live ?? [],
+    currentScene: live?.[0] ?? null,
+  });
+
+  const publish = () => sink?.view(view());
+  const ok = async (): Promise<InvokeResult> => ({ ok: true });
+
   return {
-    get connected() {
-      return connected;
-    },
+    name: OBS_ID,
     scenes,
     visibility,
-    async setScene(name) {
-      scenes.push(name);
+    saves,
+    actions: {
+      get connected() {
+        return live !== null;
+      },
+      async setScene(name) {
+        scenes.push(name);
+      },
+      async setSourceVisible(scene, source, visible) {
+        visibility.push({ scene, source, visible });
+      },
     },
-    async setSourceVisible(scene, source, visible) {
-      visibility.push({ scene, source, visible });
+    async start(next) {
+      sink = next;
+      publish();
+      sink.status(obsStatus({ phase: "down", host: "127.0.0.1", port: 4455 }));
+    },
+    async stop() {
+      sink = null;
+      live = null;
+    },
+    view,
+    connect: ok,
+    disconnect: ok,
+    useAuto: ok,
+    forgetPassword: ok,
+    async setSettings(host, port, password) {
+      saves.push({ host, port, password });
+      return { ok: true };
+    },
+    async setScene(name) {
+      if (live === null) return { ok: false, reason: "OBS is not connected" };
+      if (!live.includes(name)) return { ok: false, reason: `OBS has no scene called "${name}"` };
+      scenes.push(name);
+      publish();
+      return { ok: true };
+    },
+    arrive(list = ["Workout", "Just Chatting"]) {
+      live = list;
+      publish();
+      sink?.status(obsStatus({ phase: "connected", host: "127.0.0.1", port: 4455, scenes: list.length }));
+    },
+    depart() {
+      live = null;
+      publish();
+      sink?.status(obsStatus({ phase: "down", host: "127.0.0.1", port: 4455 }));
     },
   };
 }
@@ -47,6 +123,7 @@ export interface HarnessOptions {
   /** Reuse a store to prove something survived a restart. */
   store?: StateStore;
   chat?: ChatAdapter[];
+  obs?: FakeObs;
 }
 
 /**
@@ -56,7 +133,7 @@ export interface HarnessOptions {
  */
 export async function harness(options: HarnessOptions = {}): Promise<Harness> {
   const log = testLogger();
-  const obs = fakeObs();
+  const obs = options.obs ?? fakeObs();
   const store = options.store ?? new MemoryStore();
   const chat = options.chat ?? [new MockChatAdapter()];
 

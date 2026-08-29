@@ -481,3 +481,35 @@ h2 {
 .log [data-kind="new-member"] .log-what {
   color: var(--accent);
 }
+
+/* OBS */
+
+.hint[data-state="connected"] {
+  color: var(--accent);
+}
+
+.hint[data-state="error"],
+.hint[data-state="disconnected"] {
+  color: var(--warn);
+}
+
+.scenes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+}
+
+/* Wide enough for a thumb, narrow enough that four short scene names do not
+   become four full-width rows she has to scroll past mid-workout. */
+.scene {
+  flex: 1 1 8rem;
+  margin: 0;
+}
+
+.scene[data-active="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 650;
+}
