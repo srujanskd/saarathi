@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { WHEEL_ID, type WheelState } from "@saarathi/shared";
+import { MAX_CHALLENGES, WHEEL_ID, type WheelState } from "@saarathi/shared";
 import { useModuleState } from "../../lib/connection.js";
 import type { CardProps } from "../types.js";
-import { phaseKicker, queueSummary, spinCaption } from "./caption.js";
-import { countLabel, toLines, toText } from "./challenges.js";
+import { countLabel, phaseKicker, queueSummary, spinCaption } from "./caption.js";
+import { toLines, toText } from "./challenges.js";
 
 export function WheelCard({ connection, status }: CardProps) {
   const state = useModuleState<WheelState>(connection, WHEEL_ID);
@@ -126,7 +126,10 @@ export function WheelCard({ connection, status }: CardProps) {
           <textarea
             className="textarea"
             data-testid="wheel-challenges"
-            rows={Math.max(6, drafted.length + 1)}
+            // Sized to the draft so the box grows as she types, but the cap
+            // bounds it: a paste of three hundred lines is refused anyway, and
+            // a three-hundred-row textarea on her phone is unscrollable past.
+            rows={Math.min(MAX_CHALLENGES + 1, Math.max(6, drafted.length + 1))}
             value={editor}
             onChange={(event) => setDraft(event.target.value)}
           />

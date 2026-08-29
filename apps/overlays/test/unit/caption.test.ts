@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { SPIN_DURATION_MS, type ActiveSpin } from "@saarathi/shared";
-import { phaseKicker, queueSummary, spinCaption } from "../../src/modules/wheel/caption.js";
+import { MAX_CHALLENGES, SPIN_DURATION_MS, type ActiveSpin } from "@saarathi/shared";
+import {
+  countLabel,
+  phaseKicker,
+  queueSummary,
+  spinCaption,
+} from "../../src/modules/wheel/caption.js";
 
 const spin = (over: Partial<ActiveSpin> = {}): ActiveSpin => ({
   index: 0,
@@ -68,5 +73,28 @@ describe("the queue on her phone", () => {
 
   it("explains the stall when there is nothing to spin", () => {
     expect(queueSummary(1, "anita", false)).toBe("1 spin waiting, nothing on the wheel yet");
+  });
+
+  it("pluralises the stalled spins too", () => {
+    expect(queueSummary(3, "anita", false)).toBe("3 spins waiting, nothing on the wheel yet");
+  });
+});
+
+describe("the count in the fold", () => {
+  it("says one challenge without a stray plural", () => {
+    expect(countLabel(1)).toBe("1 challenge");
+  });
+
+  it("counts a list that fits", () => {
+    expect(countLabel(MAX_CHALLENGES)).toBe(`${MAX_CHALLENGES} challenges`);
+  });
+
+  // Word for word what `setChallenges` refuses with. The fold saying it before
+  // she taps and the notice saying it after have to be one sentence, or the
+  // same rule reads as two rules.
+  it("says the refusal itself once the list is over the cap", () => {
+    expect(countLabel(MAX_CHALLENGES + 1)).toBe(
+      `A wheel holds ${MAX_CHALLENGES} challenges \u2014 that list has ${MAX_CHALLENGES + 1}`,
+    );
   });
 });
