@@ -1,6 +1,6 @@
 {
   "name": "saarathi",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Open-source stream tools for a fitness streamer on YouTube: chat-driven challenge wheel, overlays, phone stream deck, and more.",
   "license": "MIT",
