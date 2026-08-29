@@ -218,6 +218,23 @@ describe("the settle window is not a persisted concern", () => {
   it("is a rule, not state, so nothing about it is written down", async () => {
     live = await harness();
     await live.kernel.invoke("wheel.spin");
-    expect(JSON.stringify(live.store.read("wheel"))).not.toContain(String(SETTLE_MS));
+
+    const saved = live.store.read("wheel") as Record<string, unknown>;
+    // The declared durable keys and no fourth one. This used to search the
+    // stringified slice for "1000" and was flaky for it: a spin writes a
+    // history entry stamped with epoch milliseconds, and roughly one
+    // timestamp in fifty contains those four digits somewhere in the middle.
+    expect(Object.keys(saved).sort()).toEqual(["challenges", "history", "queue"]);
+    // And no number under any of them is the window itself. Exact rather than
+    // textual, so a timestamp that merely reads like it cannot fail this.
+    expect(numbersIn(saved)).not.toContain(SETTLE_MS);
   });
 });
+
+/** Every number anywhere in a saved slice, however deeply nested. */
+function numbersIn(value: unknown): number[] {
+  if (typeof value === "number") return [value];
+  if (Array.isArray(value)) return value.flatMap(numbersIn);
+  if (typeof value === "object" && value !== null) return Object.values(value).flatMap(numbersIn);
+  return [];
+}
