@@ -28,6 +28,8 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
 
       - run: pnpm lint
 
@@ -51,10 +53,22 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+        env:
+          # Nothing in this job runs Electron -- typecheck reads the package's
+          # types and the bundler never touches the binary -- and downloading
+          # 150MB on every push to both runners is a slow suite nobody waits for.
+          # The release workflow does not set this, because it builds an app.
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
 
       - run: pnpm typecheck
 
       - run: pnpm test
+
+      # The tray app is only ever proven by building it: nothing in the test
+      # suite can boot Electron, so a bundle that stopped bundling would
+      # otherwise surface at release time, on a tag, with nowhere to fix it
+      # forward from.
+      - run: pnpm --filter @saarathi/desktop build
 
       # The overlay specs drive a real browser, so they need one downloaded.
       # Chromium only and Linux only: they are about what CEF does with a

@@ -16,12 +16,13 @@
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
-    "test:fast": "vitest run --project unit --project unit-overlays --project integration",
-    "test:unit": "vitest run --project unit --project unit-overlays",
+    "test:fast": "vitest run --project unit --project unit-overlays --project unit-desktop --project integration",
+    "test:unit": "vitest run --project unit --project unit-overlays --project unit-desktop",
     "test:integration": "vitest run --project integration",
     "test:e2e": "vitest run --project e2e",
-    "test:watch": "vitest --project unit --project unit-overlays --project integration",
-    "test:browser": "pnpm --filter @saarathi/overlays test:browser"
+    "test:watch": "vitest --project unit --project unit-overlays --project unit-desktop --project integration",
+    "test:browser": "pnpm --filter @saarathi/overlays test:browser",
+    "dist": "pnpm --filter @saarathi/overlays build && pnpm --filter @saarathi/desktop dist"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

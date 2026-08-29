@@ -5,3 +5,11 @@ packages:
 allowBuilds:
   # esbuild's postinstall links its prebuilt binary; tsx will not run without it.
   esbuild: true
+  # Electron's postinstall downloads the platform binary for this machine;
+  # without it there is nothing for `pnpm --filter @saarathi/desktop dev` to run.
+  electron: true
+  # electron-builder fetches its app-builder helper the same way.
+  electron-builder: true
+  # Pulled in by electron-builder for its Squirrel target, which we do not use:
+  # the Windows target is NSIS. Named explicitly so an install is not a warning.
+  electron-winstaller: false

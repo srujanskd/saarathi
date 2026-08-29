@@ -22,10 +22,11 @@ export default tseslint.config(
     ],
   },
 
-  // Only TypeScript is linted: there is no first-party JavaScript here beyond
-  // this file.
+  // TypeScript everywhere, plus the handful of first-party .mjs files that
+  // build and package the tray app. Those never run in her build of anything,
+  // but a typo in one of them is a release that does not happen.
   {
-    files: ["**/*.ts", "**/*.tsx"],
+    files: ["**/*.ts", "**/*.tsx", "**/*.mjs"],
     extends: [js.configs.recommended, tseslint.configs.recommended],
     languageOptions: {
       ecmaVersion: 2023,
