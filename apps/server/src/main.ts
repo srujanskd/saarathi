@@ -12,7 +12,8 @@ import type { ChatAdapter } from "./chat/adapter.js";
 import { MockChatAdapter } from "./chat/mock.js";
 import { YouTubeAdapter } from "./chat/youtube.js";
 import { createKernel } from "./core/kernel.js";
-import { nullObs } from "./core/obs.js";
+import { obsConfigPath } from "./core/obs-config.js";
+import { ObsWebSocketAdapter } from "./core/obs.js";
 import { JsonStore, defaultStorePath } from "./core/store.js";
 import { attachSync, type SaarathiServer } from "./core/sync.js";
 import { chatlog } from "./modules/chatlog/index.js";
@@ -46,11 +47,19 @@ if (channelId || liveId) {
   log.info("No YT_CHANNEL_ID or YT_LIVE_ID set — running on mock chat only");
 }
 
+// OBS keeps its own WebSocket port and password in a file next to its config,
+// and reading it is what spares her copying a generated password out of a
+// dialog. It is a hint, never a requirement: OBS_CONFIG can point somewhere
+// else or be blank to switch autodetect off entirely, which is what the tests
+// do so no test run ever finds a real OBS on the machine running it.
+const obsConfig =
+  process.env.OBS_CONFIG ?? obsConfigPath(process.platform, process.env) ?? "";
+
 const kernel = createKernel({
   modules: [wheel, chatlog],
   chat,
   store,
-  obs: nullObs(log),
+  obs: new ObsWebSocketAdapter({ store, log, configPath: obsConfig || null }),
   log,
 });
 

@@ -128,6 +128,12 @@ Server is on 4400, bound to `0.0.0.0` so the phone can reach it. Develop against
 Only set `YT_CHANNEL_ID` or `YT_LIVE_ID` when you are specifically testing the adapter, and
 never while she is live.
 
+OBS control needs its WebSocket server switched on once, in OBS under Tools → WebSocket Server
+Settings. Nothing else: the server reads the port and the generated password out of OBS's own
+config file, so neither you nor she ever types one. `OBS_CONFIG` overrides that path, and blank
+switches autodetect off entirely — which is what the e2e suite forces, so no test run ever finds
+the real OBS on the machine running it.
+
 Package manager is pnpm, pinned in `packageManager`. Use it, not npm: an `npm install` here
 writes a `package-lock.json` and a flat `node_modules` that hides missing dependencies. Add
 packages with `pnpm add -F @saarathi/server <pkg>`, and depend on workspace packages with
@@ -137,8 +143,8 @@ packages with `pnpm add -F @saarathi/server <pkg>`, and depend on workspace pack
 ## Testing
 
 ```bash
-pnpm test            # unit + unit-overlays + integration + e2e, about 6s
-pnpm test:fast       # skip e2e, for the tight loop
+pnpm test            # unit + unit-overlays + integration + e2e, about 30s
+pnpm test:fast       # skip e2e, for the tight loop -- under a second
 pnpm test:watch      # same, watching
 pnpm test:unit
 pnpm test:integration

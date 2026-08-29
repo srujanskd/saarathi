@@ -108,13 +108,15 @@ apps/server/src/
   core/sync.ts         the only file that imports socket.io
   core/store.ts        namespaced slices, atomic debounced writes
   core/gains.ts        the channel currency ledger
-  core/obs.ts          OBS seam; a no-op adapter until Phase 2
+  core/obs.ts          the OBS seam, and the live obs-websocket connection in it
+  core/obs-config.ts   OBS's own config file, and the words her card shows
   chat/                the one platform-specific layer: adapter.ts, youtube.ts, mock.ts
   modules/wheel/       the first game module; rules.ts is pure and testable
   modules/chatlog/     the second, and the proof the contract holds
 apps/overlays/
   overlay.html         one browser source per module: ?module=wheel
   control.html         her phone: wheel card, chat log, mock-chat panel
+  src/core/            cards for core services rather than modules: OBS
   src/lib/serverUrl.ts the only thing that decides where the server is
   src/lib/connection.ts one socket, snapshot-on-connect, no game logic
   src/modules/         client half of the module contract: one entry per game,

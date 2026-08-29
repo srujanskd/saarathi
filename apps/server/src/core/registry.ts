@@ -10,9 +10,9 @@ import {
   type Logger,
   type ModuleContext,
   type ModuleStatus,
-  type ObsActions,
   type StreamEvent,
 } from "@saarathi/shared";
+import { obsCommand, type ObsAdapter } from "./obs.js";
 import type { StateStore } from "./store.js";
 import { ActionRefused } from "./triggers.js";
 
@@ -24,7 +24,7 @@ const LIFECYCLE_KEY = "lifecycle";
 export interface RegistryDeps {
   store: StateStore;
   gains: GainsLedger;
-  obs: ObsActions;
+  obs: ObsAdapter;
   log: Logger;
   say(text: string): void;
   onPatch(module: string, state: unknown): void;
@@ -199,13 +199,25 @@ export class Registry {
    * so her control page never shows a button that does nothing.
    */
   private async dispatchCore(name: string, input: ActionInput): Promise<InvokeResult> {
-    const targetId = input.args[0];
-    const runtime = targetId ? this.modules.get(targetId) : undefined;
-    if (!runtime) return { ok: false, reason: `There is no "${targetId ?? ""}"` };
+    // OBS routes itself. What its actions are called and what their arguments
+    // mean is knowledge about OBS, and this file is about modules.
+    const obs = obsCommand(this.deps.obs, name, input.args);
+    if (obs) return obs;
+
+    // Resolving the target module belongs to the cases that have one, which is
+    // why these are closures. Doing it eagerly refused every core action that
+    // is not about a module -- which, once OBS arrived, was most of them.
+    const target = (): Runtime | null => this.modules.get(input.args[0] ?? "") ?? null;
+    const missing = (): InvokeResult => ({
+      ok: false,
+      reason: `There is no "${input.args[0] ?? ""}"`,
+    });
 
     switch (name) {
       case "enable":
       case "disable": {
+        const runtime = target();
+        if (!runtime) return missing();
         const enabled = name === "enable";
         if (runtime.enabled === enabled) return { ok: true };
         runtime.enabled = enabled;
@@ -217,6 +229,8 @@ export class Registry {
       }
       case "arm":
       case "disarm": {
+        const runtime = target();
+        if (!runtime) return missing();
         if (!runtime.def.arming) {
           return { ok: false, reason: `${runtime.def.title} does not use arming` };
         }
@@ -314,7 +328,7 @@ export class Registry {
         throw new ActionRefused(reason);
       },
       gains: this.deps.gains,
-      obs: this.deps.obs,
+      obs: this.deps.obs.actions,
       after: (ms, fn) => track(setTimeout(fn, ms), false),
       every: (ms, fn) => track(setInterval(fn, ms), true),
       say: (text) => this.deps.say(text),

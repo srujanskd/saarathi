@@ -1,5 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { OBS_ID } from "@saarathi/shared";
+import { ObsCard } from "./core/ObsCard.js";
 import { connect, useConnected, useCoreState, type Connection } from "./lib/connection.js";
 import { serverUrl } from "./lib/serverUrl.js";
 import { useUnreachable } from "./lib/unreachable.js";
@@ -32,6 +34,12 @@ function Control({ url, connection }: { url: string; connection: Connection }) {
       </header>
 
       <main className="cards">
+        {/* Wired by hand rather than through modules/registry.ts: OBS is a core
+            service every module shares, not a game. It leads because it is the
+            one card that explains why nothing else is working. */}
+        {core ? (
+          <ObsCard connection={connection} obs={core.obs} status={core.connections[OBS_ID]} />
+        ) : null}
         {(core?.modules ?? []).map((status) => {
           const Card = clients[status.id]?.card ?? GenericCard;
           return <Card key={status.id} connection={connection} status={status} />;
