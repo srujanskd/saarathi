@@ -47,6 +47,36 @@ jobs:
             --generate-notes \
             $prerelease
 
-      # Phase 4: a windows-latest job builds the Electron installer and uploads
-      # it plus latest.yml onto this release, which is what electron-updater
-      # polls. Nothing above changes when it lands.
+  # The installer, on the platform it installs onto. It runs after the release
+  # exists because electron-builder uploads onto it: the NSIS .exe, its blockmap,
+  # and latest.yml, which is the file electron-updater polls. A release without
+  # this job is a release she cannot install, so it is a job and not a step.
+  installer:
+    needs: publish
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The pages ship inside the installer as static files, so they are built
+      # first and copied in as extraResources. See electron-builder.config.mjs.
+      - run: pnpm --filter @saarathi/overlays build
+
+      - run: pnpm --filter @saarathi/desktop build
+
+      # --publish always uploads onto the release the job above created, which
+      # is why the version in the installer is read from the root package.json
+      # the tag was checked against.
+      - run: pnpm --filter @saarathi/desktop exec electron-builder --config electron-builder.config.mjs --win --publish always
+        env:
+          GH_TOKEN: ${{ github.token }}

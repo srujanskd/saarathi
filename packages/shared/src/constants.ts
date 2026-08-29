@@ -45,3 +45,49 @@ export const DECK_ID = "deck";
  * data, in IRL mode.
  */
 export const MAX_DECK_SLOTS = 24;
+
+/**
+ * The hotkeys she may put on a button, and the only ones the tray will ever
+ * register.
+ *
+ * A closed list rather than a text box, for the reason there is no free-text
+ * argument field on the deck editor: she arranges her grid on her phone, and
+ * "press the combination you want" is not a thing a phone can offer. It also
+ * means the shell never hands Electron an accelerator string it invented --
+ * `globalShortcut.register` throws on a malformed one, and that would be a
+ * crash on the one path she has no way to debug.
+ *
+ * Two families, because they are two different pieces of hardware. The
+ * modifier ones are what she presses on the keyboard next to her while OBS has
+ * focus. F13-F24 exist on no keyboard, which is exactly why they are here: a
+ * $20 macro keypad programmed to send one is a physical deck button that
+ * cannot collide with a shortcut in OBS, a browser or Windows itself.
+ */
+export interface HotkeyChoice {
+  /** Electron accelerator syntax, exactly as `globalShortcut` takes it. */
+  readonly accelerator: string;
+  /** What she reads on the picker and on the button. */
+  readonly label: string;
+  /** Heading it sits under in the picker. */
+  readonly group: string;
+}
+
+export const HOTKEYS: readonly HotkeyChoice[] = [
+  ...["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"].map((key) => ({
+    accelerator: `Control+Alt+${key}`,
+    label: `Ctrl+Alt+${key}`,
+    group: "Keyboard",
+  })),
+  ...Array.from({ length: 12 }, (_, index) => index + 13).map((n) => ({
+    accelerator: `F${n}`,
+    label: `F${n}`,
+    group: "Macro keypad",
+  })),
+];
+
+/** The accelerator a saved button carries, or undefined if it is not one of
+ * ours. The server validates with this and the tray registers on it, so a
+ * hotkey that is not in the list above cannot reach either. */
+export function hotkeyChoice(accelerator: string): HotkeyChoice | undefined {
+  return HOTKEYS.find((choice) => choice.accelerator === accelerator);
+}

@@ -1,6 +1,7 @@
 import {
   CORE_ACTIONS,
   DECK_ID,
+  hotkeyChoice,
   MAX_DECK_SLOTS,
   type DeckSlot,
   type DeckView,
@@ -50,9 +51,33 @@ export class Deck implements DeckCommands {
     }
 
     const slots: DeckSlot[] = [];
+    // Two buttons on one key is a press with no answer, so it is refused here
+    // rather than left for the tray to resolve by arriving first. Named by the
+    // key she recognises and the button she can see, because "slot 7" is not
+    // something on her screen.
+    const taken = new Map<string, string>();
     for (const [index, raw] of input.entries()) {
       const checked = checkSlot(raw);
       if (!checked.ok) return { ok: false, reason: `Button ${index + 1} ${checked.problem}.` };
+      const { hotkey } = checked.slot;
+      if (hotkey) {
+        // Checked here rather than in checkSlot, because the two callers want
+        // opposite things from a key they do not recognise: a save is refused
+        // to her face, and a state file already on disk keeps the button and
+        // loses only the key.
+        const choice = hotkeyChoice(hotkey);
+        if (!choice) {
+          return { ok: false, reason: `Button ${index + 1} wants a key this app cannot register.` };
+        }
+        const owner = taken.get(hotkey);
+        if (owner) {
+          return {
+            ok: false,
+            reason: `${choice.label} is on "${owner}" already. One key, one button.`,
+          };
+        }
+        taken.set(hotkey, checked.slot.label);
+      }
       slots.push(checked.slot);
     }
 
@@ -106,7 +131,7 @@ function checkSlot(raw: unknown): SlotCheck {
 
   if (typeof raw !== "object" || raw === null) return no("is not a button");
 
-  const { action, args, label, icon } = raw as Record<string, unknown>;
+  const { action, args, label, icon, hotkey } = raw as Record<string, unknown>;
 
   const id = typeof action === "string" ? action.trim() : "";
   // The same shape `Registry.dispatch` splits on. Anything without the dot
@@ -121,6 +146,13 @@ function checkSlot(raw: unknown): SlotCheck {
     return no("has arguments that are not text");
   }
 
+  // Shape only, like everything else here: whether this is a key we can
+  // actually register is the caller's question, and the two callers answer it
+  // differently. Blank is how the picker says "no key", and it is stored as
+  // absent rather than as "" -- the editor compares the field directly to
+  // decide whether Save has anything to do.
+  const key = typeof hotkey === "string" ? hotkey.trim() : "";
+
   return {
     ok: true,
     slot: {
@@ -130,6 +162,7 @@ function checkSlot(raw: unknown): SlotCheck {
       args: (args as string[] | undefined) ?? [],
       label: name,
       icon: typeof icon === "string" ? icon.trim() : "",
+      ...(key ? { hotkey: key } : {}),
     },
   };
 }
@@ -148,8 +181,20 @@ function readSaved(store: StateStore, log: Logger): DeckSlot[] {
   const slots: DeckSlot[] = [];
   for (const [index, raw] of saved.entries()) {
     const checked = checkSlot(raw);
-    if (checked.ok) slots.push(checked.slot);
-    else log.warn(`deck: dropped saved button ${index + 1}, it ${checked.problem}`);
+    if (!checked.ok) {
+      log.warn(`deck: dropped saved button ${index + 1}, it ${checked.problem}`);
+      continue;
+    }
+    const { hotkey, ...rest } = checked.slot;
+    // A key this build no longer offers costs her the key, never the button.
+    // Her grid outlives a list of accelerators, and a button she made and can
+    // still press is worth more than a shortcut she has forgotten setting.
+    if (hotkey && !hotkeyChoice(hotkey)) {
+      log.warn(`deck: dropped the key on saved button ${index + 1}, it is not one we register`);
+      slots.push(rest);
+      continue;
+    }
+    slots.push(checked.slot);
   }
   return slots;
 }

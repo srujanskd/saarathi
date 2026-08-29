@@ -141,3 +141,57 @@ describe("what was saved last time", () => {
     expect(build("not a list").deck.view().slots).toEqual([]);
   });
 });
+
+describe("the key she puts on a button", () => {
+  it("saves one of ours and reads it back", () => {
+    const { deck } = build();
+    expect(save(deck, [{ ...spin, hotkey: "Control+Alt+1" }])).toEqual({ ok: true });
+    expect(deck.view().slots[0]!.hotkey).toBe("Control+Alt+1");
+  });
+
+  it("leaves the field absent rather than blank when she picks no key", () => {
+    // The editor compares the field directly to decide whether Save has
+    // anything to do, so "" against undefined would read as unsaved forever.
+    const { deck } = build();
+    save(deck, [{ ...spin, hotkey: "  " }]);
+    expect("hotkey" in deck.view().slots[0]!).toBe(false);
+  });
+
+  it("refuses a key the tray could not register, before the tray has to try", () => {
+    // globalShortcut.register throws on a string it cannot parse, and the
+    // shell is the one place a throw has nowhere to be reported.
+    const { deck } = build();
+    const result = save(deck, [{ ...spin, hotkey: "Ctrl+Shift+Banana" }]);
+    expect(result).toEqual({
+      ok: false,
+      reason: "Button 1 wants a key this app cannot register.",
+    });
+    expect(deck.view().slots).toEqual([]);
+  });
+
+  it("refuses two buttons on one key, naming both in words she can see", () => {
+    const { deck } = build();
+    expect(
+      save(deck, [
+        { ...spin, hotkey: "F13" },
+        { action: CORE_ACTIONS.obsScene, args: ["BRB"], label: "BRB", hotkey: "F13" },
+      ]),
+    ).toEqual({ ok: false, reason: 'F13 is on "Spin" already. One key, one button.' });
+  });
+
+  it("lets her move a key from one button to another in one save", () => {
+    const { deck } = build();
+    save(deck, [{ ...spin, hotkey: "F13" }]);
+    expect(
+      save(deck, [spin, { action: CORE_ACTIONS.obsScene, args: ["BRB"], label: "BRB", hotkey: "F13" }]),
+    ).toEqual({ ok: true });
+    expect(deck.view().slots.map((slot) => slot.hotkey)).toEqual([undefined, "F13"]);
+  });
+
+  it("drops a saved key it no longer knows, and keeps the button", () => {
+    // Her buttons outlive a build that stopped offering a key. Losing the
+    // button over it would be losing something she made.
+    const { deck } = build([{ ...spin, hotkey: "Control+Alt+Nope" }]);
+    expect(deck.view().slots).toEqual([{ action: "wheel.spin", args: [], label: "Spin", icon: "🎡" }]);
+  });
+});

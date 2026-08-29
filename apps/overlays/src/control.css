@@ -239,6 +239,27 @@
   min-height: 2.9rem;
 }
 
+/* Its own row rather than squeezed into the foot: a select, a line of text and
+   three thumb-sized buttons do not fit across a phone, and the one that would
+   have shrunk is the one she has to hit accurately. */
+.slot-key {
+  display: flex;
+  margin-top: 0.3rem;
+}
+
+.field-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.key-pick {
+  min-height: 2.9rem;
+  padding-block: 0;
+}
+
 .slot-does {
   flex: 1;
   min-width: 0;

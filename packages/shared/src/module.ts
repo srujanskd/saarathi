@@ -6,6 +6,10 @@ export type TriggerVia =
   | "paid"
   | "gains"
   | "deck"
+  // Her deck too, pressed by a key on the PC rather than a finger on a screen.
+  // Separate so the history can tell her which, the way "deck" is separate
+  // from "control".
+  | "hotkey"
   | "control"
   // An overlay renders and does not decide, so nothing should send this. It
   // exists so that if one ever does, the history says so instead of quietly

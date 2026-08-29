@@ -1,10 +1,14 @@
 import { defineConfig } from "vitest/config";
 
 /**
- * Three projects, split by what they need rather than by what they cover.
+ * Five projects, split by what they need rather than by what they cover.
  *
  * unit        pure functions in the server. No clock, no store, no kernel.
  *             Milliseconds.
+ * unit-desktop the same tier again, in the tray app -- which address to show
+ *             her, what the menu says, how the server child is spawned.
+ *             Electron itself is the one thing here nothing can boot, so the
+ *             shell holds no decisions and this project holds all of them.
  * unit-overlays the same tier, in the overlay app. It is a second project only
  *             because a Vitest project has one root, and these live in another
  *             workspace. Pure functions only -- anything needing a browser
@@ -30,6 +34,14 @@ export default defineConfig({
         test: {
           name: "unit-overlays",
           root: "apps/overlays",
+          include: ["test/unit/**/*.test.ts"],
+          environment: "node",
+        },
+      },
+      {
+        test: {
+          name: "unit-desktop",
+          root: "apps/desktop",
           include: ["test/unit/**/*.test.ts"],
           environment: "node",
         },

@@ -124,6 +124,28 @@ pnpm lint            # eslint, warnings included
 pnpm lint:fix        # the same, applying what it can fix on its own
 ```
 
+The tray app is its own workspace and its own loop:
+
+```bash
+pnpm --filter @saarathi/desktop dev   # bundles, then runs the tray against this checkout
+pnpm dist                             # the Windows installer, buildable from any platform
+```
+
+It starts the server as a child process rather than importing it, so a server crash shows up in
+a menu instead of taking the tray down, and it hands the child four env vars — `STATE_FILE`,
+`OVERLAYS_DIST`, `PORT`, `LOG_LEVEL`. Those four are the entire contract between the shell and
+the server; `spawnPlan` is where they live and `test/unit/server-process.test.ts` is what breaks
+when one is renamed. Nothing about a game module belongs in `apps/desktop`.
+
+For the same reason it does not import the server, it does not import the kernel either: a
+global hotkey reaches an action by opening a socket to `127.0.0.1` and calling `invoke`, exactly
+as her deck page does over the LAN. There is one code path into an action and there is not going
+to be a second. A hotkey is a value on a `DeckSlot`, picked from the closed list in `HOTKEYS` —
+never a string anyone types, because `globalShortcut.register` throws on one it cannot parse and
+because she arranges her grid on a phone, which cannot offer "press the combination you want".
+The floating deck window loads the same `deck.html` everything else does; its frame, its drag
+strip and its close button are injected by the shell, so the page stays one page.
+
 Server is on 4400, bound to `0.0.0.0` so the phone can reach it. Develop against mock chat.
 Only set `YT_CHANNEL_ID` or `YT_LIVE_ID` when you are specifically testing the adapter, and
 never while she is live.
@@ -151,7 +173,7 @@ pnpm test:integration
 pnpm test:e2e
 ```
 
-Vitest, configured once in `vitest.config.ts` at the root as four projects, split by what a test
+Vitest, configured once in `vitest.config.ts` at the root as five projects, split by what a test
 needs rather than by what it covers. Three of them live in `apps/server/test`:
 
 - **unit** pure functions only: spin rules, the command gate, gains, the store, adapter
@@ -163,12 +185,22 @@ needs rather than by what it covers. Three of them live in `apps/server/test`:
   `socket.io-client`. This is the only layer that proves reconnect, per-module subscription and
   restart-persistence, because those are the bugs that only show up over a socket.
 
-The fourth lives in `apps/overlays/test/unit`:
+The other two are the same tier in the other two workspaces. In `apps/overlays/test/unit`:
 
 - **unit-overlays** the same tier as **unit**, in the other workspace. It is a separate project
   only because a Vitest project has one root. Pure functions from the overlay app: wheel
   geometry, the label budget, the wedge palette. No DOM, no React, no socket. Anything that
   needs a browser is a `.spec.ts` and Playwright runs it.
+
+And in `apps/desktop/test/unit`:
+
+- **unit-desktop** pure functions from the tray app: which LAN address to show her, what the
+  menu says in each state, how the server child is spawned, where its state and pages live,
+  which keys a grid claims and when a change to it is a change to the keys, and where the
+  floating window opens when the monitor it remembers is gone.
+  Electron is the one thing in this repo nothing can boot, so `main.ts` holds no decisions and
+  this project holds all of them. If you find yourself wanting to test `main.ts`, the thing you
+  want to test is in the wrong file.
 
 Helpers you should use instead of rolling your own:
 
@@ -179,6 +211,10 @@ Helpers you should use instead of rolling your own:
 - `test/e2e/helpers/server.ts` — `startServer()` boots the real thing with `STATE_FILE` in a temp
   directory. It kills only the PID it spawned, and it never touches `data/`. Pass
   `stop({ keepState: true })` when a second run needs the same file.
+
+Not a test helper, but it is what CI runs beside them: `apps/desktop/build.mjs` produces the
+three bundles the installer ships, and CI builds it on every push, because a bundle that stopped
+bundling would otherwise surface on a tag with nowhere to fix forward from.
 
 Rules for this suite:
 
@@ -340,9 +376,13 @@ generated from the PR titles since the last one.
 A tag with a hyphen — `v0.3.0-rc.1` — is marked a pre-release. It exists so something can be
 installed deliberately for testing and never handed to her.
 
-Phase 4 adds one job to `release.yml`: a Windows runner that builds the Electron installer and
-uploads it with `latest.yml` onto the same release, which is what `electron-updater` polls.
-Everything above stays as it is when that lands.
+`release.yml` has one more job after that one: a Windows runner builds the NSIS installer and
+uploads it plus `latest.yml` onto the same release, which is what `electron-updater` polls. It
+runs after the release exists, because it uploads onto it. The installer's version is read from
+the root `package.json` rather than from `apps/desktop`, so the check above covers it too.
+
+A tag with no installer on it is a tag she cannot install, so if that job fails, fix forward and
+cut the next patch rather than editing the release by hand.
 
 ## Pull requests
 
