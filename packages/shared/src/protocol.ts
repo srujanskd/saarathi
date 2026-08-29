@@ -30,12 +30,42 @@ export interface ObsView {
   currentScene: string | null;
 }
 
+/**
+ * One button on her deck.
+ *
+ * There is no id. The whole grid is replaced on every save, the way her
+ * challenge list is, so nothing downstream ever has to tell one button from the
+ * same button moved -- and a deck that is a plain list is a deck she can
+ * reorder by dragging without the server learning a second verb.
+ */
+export interface DeckSlot {
+  /** Fully qualified, exactly as `invoke` takes it: "wheel.spin", "core.obsScene". */
+  action: string;
+  /** Positional args for that action, exactly what `invoke` sends. */
+  args: string[];
+  /** What she reads on the button. Never blank: the server refuses that. */
+  label: string;
+  /** One emoji, or blank. What she actually aims at, at arm's length. */
+  icon: string;
+}
+
+export interface DeckView {
+  slots: DeckSlot[];
+}
+
 export interface CoreState {
   startedAt: number;
   /** One entry per external connection, keyed by adapter name: chat, and OBS. */
   connections: Record<string, ConnectionStatus>;
   modules: ModuleStatus[];
   obs: ObsView;
+  /**
+   * Her button grid. Core state rather than a module, for the reason the scene
+   * list is: every surface renders it and no module owns it. It rides here so
+   * the deck page, the control page's editor and (later) the hotkey registrar
+   * are all looking at one list that changed everywhere at once.
+   */
+  deck: DeckView;
 }
 
 export interface Snapshot {

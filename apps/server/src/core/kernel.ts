@@ -15,6 +15,7 @@ import {
 } from "@saarathi/shared";
 import type { ChatAdapter, ChatSink } from "../chat/adapter.js";
 import { MockChatAdapter } from "../chat/mock.js";
+import { Deck } from "./deck.js";
 import { Gains } from "./gains.js";
 import type { ObsAdapter } from "./obs.js";
 import { Registry } from "./registry.js";
@@ -39,6 +40,7 @@ export interface KernelDeps {
 export class Kernel {
   readonly registry: Registry;
   private readonly gains: Gains;
+  private readonly deck: Deck;
   private readonly gate: CommandGate;
   private readonly mock?: MockChatAdapter;
   private readonly connections: Record<string, ConnectionStatus> = {};
@@ -49,6 +51,7 @@ export class Kernel {
 
   constructor(private readonly deps: KernelDeps) {
     this.gains = new Gains(deps.store, deps.log);
+    this.deck = new Deck(deps.store, deps.log, () => this.emitPatch(CORE_ID, this.coreState()));
     this.obsView = deps.obs.view();
     this.gate = new CommandGate(this.gains);
     this.mock = deps.chat.find((adapter): adapter is MockChatAdapter => adapter instanceof MockChatAdapter);
@@ -57,6 +60,7 @@ export class Kernel {
       store: deps.store,
       gains: this.gains,
       obs: deps.obs,
+      deck: this.deck,
       log: deps.log,
       say: (text) => this.say(text),
       onPatch: (module, state) => this.emitPatch(module, state),
@@ -115,6 +119,7 @@ export class Kernel {
       connections: { ...this.connections },
       modules: this.registry.statuses(),
       obs: this.obsView,
+      deck: this.deck.view(),
     };
   }
 
