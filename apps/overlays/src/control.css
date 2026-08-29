@@ -201,10 +201,7 @@
 }
 
 .slot {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.55rem 0;
+  padding: 0.6rem 0;
   border-top: 1px solid var(--line);
 }
 
@@ -212,19 +209,21 @@
   border-top: 0;
 }
 
-.slot-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
 /* Icon and label sit on one line, because that is how they sit on the button
    she is describing. */
 .slot-head {
   display: flex;
   gap: 0.4rem;
+}
+
+/* What it does on the left, what to do with it on the right. Side by side
+   rather than a stacked column of arrows, which made every row three buttons
+   tall and pushed the grid off the bottom of the fold. */
+.slot-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
 }
 
 .slot-icon {
@@ -241,6 +240,8 @@
 }
 
 .slot-does {
+  flex: 1;
+  min-width: 0;
   margin: 0;
   padding-left: 0.2rem;
   color: var(--muted);
@@ -251,8 +252,7 @@
 .slot-tools {
   flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.3rem;
 }
 
 /* Square, thumb-sized, and stacked: reordering is two taps on a phone rather

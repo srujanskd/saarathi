@@ -116,12 +116,13 @@ export function DeckCard({
           </p>
         ) : (
           <ul className="slots" data-testid="deck-slots">
-            {slots.map((slot, index) => (
+            {slots.map((slot, index) => {
+              const does = describeAction(slot, groups);
+              return (
               // Position is the key because a slot has no id -- a save replaces
               // the whole grid, the way her challenge list is replaced.
               <li className="slot" key={index} data-testid="deck-slot">
-                <div className="slot-text">
-                  <div className="slot-head">
+                <div className="slot-head">
                     <input
                       className="input slot-icon"
                       data-testid="deck-slot-icon"
@@ -142,12 +143,15 @@ export function DeckCard({
                       autoComplete="off"
                       onChange={(event) => setDraft(editAt(slots, index, { label: event.target.value }))}
                     />
-                  </div>
-                  <p className="slot-does" data-testid="deck-slot-does">
-                    {describeAction(slot, groups)}
-                  </p>
                 </div>
-                <div className="slot-tools">
+                <div className="slot-foot">
+                  {/* Only when it adds something. A button she has not renamed
+                      says the module's own words twice otherwise, and the row
+                      she does need to read -- the scene one -- gets lost among
+                      the ones that are just repeating themselves. */}
+                  <p className="slot-does" data-testid="deck-slot-does">
+                    {does === slot.label ? "" : does}
+                  </p>
                   <button
                     type="button"
                     className="tool"
@@ -183,7 +187,8 @@ export function DeckCard({
                   </button>
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
 

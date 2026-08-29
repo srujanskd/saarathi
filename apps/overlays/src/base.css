@@ -175,6 +175,14 @@ h2 {
   color: var(--muted);
 }
 
+/* Every link on these pages is a link to another of her own pages. The
+   browser's default blue is the one colour in the app that came from nowhere. */
+a {
+  color: var(--accent);
+  text-decoration-color: rgb(74 222 128 / 0.4);
+  text-underline-offset: 0.2em;
+}
+
 .notice {
   display: flex;
   align-items: center;
