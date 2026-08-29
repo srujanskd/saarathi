@@ -4,6 +4,7 @@ import { OBS_ID } from "@saarathi/shared";
 import { DeckCard } from "./core/DeckCard.js";
 import { ObsCard } from "./core/ObsCard.js";
 import { Status } from "./core/Status.js";
+import { useDeckDraft } from "./core/useDeckDraft.js";
 import { connect, useCoreState, type Connection } from "./lib/connection.js";
 import { pageHref, serverUrl } from "./lib/serverUrl.js";
 import { GenericCard } from "./modules/GenericCard.js";
@@ -20,6 +21,10 @@ import "./control.css";
 
 function Control({ url, connection }: { url: string; connection: Connection }) {
   const core = useCoreState(connection);
+  // Held here rather than in the deck card because two cards write buttons:
+  // the deck card arranges them and the OBS card adds a scene. One draft, so
+  // neither can save away what the other just added.
+  const deck = useDeckDraft(core?.deck.slots ?? EMPTY_GRID);
 
   return (
     <div className="page">
@@ -43,7 +48,7 @@ function Control({ url, connection }: { url: string; connection: Connection }) {
             connection={connection}
             obs={core.obs}
             status={core.connections[OBS_ID]}
-            deck={core.deck}
+            deck={deck}
           />
         ) : null}
         {/* Also core rather than a module, and for the same reason: every
@@ -51,7 +56,7 @@ function Control({ url, connection }: { url: string; connection: Connection }) {
         {core ? (
           <DeckCard
             connection={connection}
-            deck={core.deck}
+            deck={deck}
             modules={core.modules}
             href={pageHref("deck.html")}
           />
@@ -64,6 +69,10 @@ function Control({ url, connection }: { url: string; connection: Connection }) {
     </div>
   );
 }
+
+/** One array, so a snapshot that has not arrived does not look like a change
+ * of grid on every render. */
+const EMPTY_GRID: never[] = [];
 
 function Connections({
   connections,

@@ -1,17 +1,20 @@
 import { useState } from "react";
-import type { DeckSlot, DeckView, ModuleStatus } from "@saarathi/shared";
+import { CORE_ACTIONS, type ModuleStatus } from "@saarathi/shared";
 import type { Connection } from "../lib/connection.js";
+import { useInvoke } from "../lib/invoke.js";
+import { Notice } from "./Notice.js";
 import {
   actionChoices,
-  append,
+  appendSlot,
+  deckSizeNote,
   describeAction,
-  editAt,
+  editSlot,
   encodeGrid,
-  gridNote,
-  move,
-  removeAt,
-  sameGrid,
+  findAction,
+  moveSlot,
+  removeSlot,
 } from "./deckDraft.js";
+import type { DeckDraft } from "./useDeckDraft.js";
 
 /**
  * Where she says what is on her deck.
@@ -22,9 +25,10 @@ import {
  * she cannot look at it properly.
  *
  * There is no argument field anywhere on it. The picker offers actions that
- * take none, and a button that needs one -- an OBS scene, today -- is added
- * from the card that already knows the answer. Asking her to type an argument
- * is the no-terminal rule failing in a different costume.
+ * take none -- which is what `ModuleStatus.actions` means, enforced on the
+ * server by `needsArgs` -- and a button that needs one, an OBS scene today, is
+ * added from the card that already knows the answer. Asking her to type an
+ * argument is the no-terminal rule failing in a different costume.
  */
 export function DeckCard({
   connection,
@@ -33,47 +37,32 @@ export function DeckCard({
   href,
 }: {
   connection: Connection;
-  deck: DeckView;
+  /** Shared with the OBS card, which also writes buttons. */
+  deck: DeckDraft;
   modules: ModuleStatus[];
   /** Where `deck.html` is from here, carrying whatever `?server=` this page
    * was given. */
   href: string;
 }) {
-  const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState<DeckSlot[] | null>(null);
+  const invoke = useInvoke(connection);
   const [picked, setPicked] = useState("");
 
   const groups = actionChoices(modules);
-
-  // The server owns the grid. A draft is what she has arranged and not yet
-  // saved, so it shadows the server only while it exists -- otherwise one
-  // keystroke would freeze this list against every later snapshot, including
-  // the scene button she adds from the OBS card a moment later.
-  const slots = draft ?? deck.slots;
-  const unsaved = draft !== null && !sameGrid(draft, deck.slots);
-
-  async function run(action: string, args?: string[]): Promise<boolean> {
-    setBusy(true);
-    setNotice(null);
-    const result = await connection.invoke({ action, args });
-    setBusy(false);
-    if (!result.ok) setNotice(result.reason);
-    return result.ok;
-  }
+  const slots = deck.slots;
+  const busy = invoke.working;
 
   async function save(): Promise<void> {
     // Dropped only on the way through: a refused save has to leave her grid
     // where she can fix it, and the notice says what was wrong with it.
-    if (await run("core.deckSet", [encodeGrid(slots)])) setDraft(null);
+    if (await invoke.run(CORE_ACTIONS.deckSet, [encodeGrid(slots)])) deck.discard();
   }
 
   function add(): void {
-    const chosen = groups.flatMap((group) => group.actions).find((action) => action.id === picked);
+    const chosen = findAction(groups, picked);
     if (!chosen) return;
     // Her own words start as the module's words, which is a label that already
     // reads correctly on a button. Blank is the one thing the server refuses.
-    setDraft(append(slots, { action: chosen.id, args: [], label: chosen.label, icon: "" }));
+    deck.set(appendSlot(slots, { action: chosen.id, args: [], label: chosen.label, icon: "" }));
     setPicked("");
   }
 
@@ -85,25 +74,14 @@ export function DeckCard({
         whatever she props next to her.
       </p>
 
-      {notice ? (
-        <p className="notice" data-testid="deck-editor-notice">
-          <span>{notice}</span>
-          <button
-            type="button"
-            className="dismiss"
-            aria-label="Dismiss"
-            data-testid="deck-editor-notice-dismiss"
-            onClick={() => setNotice(null)}
-          >
-            ×
-          </button>
-        </p>
+      {invoke.notice ? (
+        <Notice notice={invoke.notice} testId="deck-editor-notice" onDismiss={invoke.dismiss} />
       ) : null}
 
       <details className="fold">
         <summary>
-          <span data-testid="deck-count">{gridNote(slots.length)}</span>
-          {unsaved ? (
+          <span data-testid="deck-count">{deckSizeNote(slots.length)}</span>
+          {deck.unsaved ? (
             <span className="dirty" data-testid="deck-unsaved">
               unsaved
             </span>
@@ -133,7 +111,7 @@ export function DeckCard({
                       // clamps what it draws anyway.
                       maxLength={4}
                       autoComplete="off"
-                      onChange={(event) => setDraft(editAt(slots, index, { icon: event.target.value }))}
+                      onChange={(event) => deck.set(editSlot(slots, index, { icon: event.target.value }))}
                     />
                     <input
                       className="input slot-label"
@@ -141,7 +119,7 @@ export function DeckCard({
                       aria-label={`Label for button ${index + 1}`}
                       value={slot.label}
                       autoComplete="off"
-                      onChange={(event) => setDraft(editAt(slots, index, { label: event.target.value }))}
+                      onChange={(event) => deck.set(editSlot(slots, index, { label: event.target.value }))}
                     />
                 </div>
                 <div className="slot-foot">
@@ -159,7 +137,7 @@ export function DeckCard({
                     data-testid="deck-slot-up"
                     aria-label={`Move ${slot.label} up`}
                     disabled={busy || index === 0}
-                    onClick={() => setDraft(move(slots, index, index - 1))}
+                    onClick={() => deck.set(moveSlot(slots, index, index - 1))}
                   >
                     ▲
                   </button>
@@ -170,7 +148,7 @@ export function DeckCard({
                     data-testid="deck-slot-down"
                     aria-label={`Move ${slot.label} down`}
                     disabled={busy || index === slots.length - 1}
-                    onClick={() => setDraft(move(slots, index, index + 1))}
+                    onClick={() => deck.set(moveSlot(slots, index, index + 1))}
                   >
                     ▼
                   </button>
@@ -181,7 +159,7 @@ export function DeckCard({
                     data-testid="deck-slot-remove"
                     aria-label={`Remove ${slot.label}`}
                     disabled={busy}
-                    onClick={() => setDraft(removeAt(slots, index))}
+                    onClick={() => deck.set(removeSlot(slots, index))}
                   >
                     ×
                   </button>
@@ -228,7 +206,7 @@ export function DeckCard({
           type="button"
           className="btn"
           data-testid="deck-save"
-          disabled={busy || !unsaved}
+          disabled={busy || !deck.unsaved}
           onClick={() => void save()}
         >
           Save deck
@@ -237,8 +215,8 @@ export function DeckCard({
           type="button"
           className="btn"
           data-testid="deck-revert"
-          disabled={busy || draft === null}
-          onClick={() => setDraft(null)}
+          disabled={busy || !deck.editing}
+          onClick={() => deck.discard()}
         >
           Discard changes
         </button>

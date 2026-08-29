@@ -1,16 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { MAX_DECK_SLOTS, type DeckSlot, type ModuleStatus } from "@saarathi/shared";
 import {
-  OBS_SCENE_ACTION,
+  CORE_ACTIONS,
+  MAX_DECK_SLOTS,
+  type DeckSlot,
+  type ModuleStatus,
+} from "@saarathi/shared";
+import {
   actionChoices,
-  append,
+  appendSlot,
+  deckSizeNote,
   describeAction,
-  editAt,
+  editSlot,
   encodeGrid,
-  gridNote,
+  findAction,
   hasScene,
-  move,
-  removeAt,
+  moveSlot,
+  removeSlot,
   sameGrid,
   sceneSlot,
 } from "../../src/core/deckDraft.js";
@@ -38,7 +43,7 @@ const moduleStatus = (over: Partial<ModuleStatus>): ModuleStatus => ({
 });
 
 describe("the grid she is editing", () => {
-  it("travels as the one JSON string `core.deckSet` parses", () => {
+  it("travels as the one JSON string `CORE_ACTIONS.deckSet` parses", () => {
     expect(JSON.parse(encodeGrid([slot({ icon: "🎡" })]))).toEqual([
       { action: "wheel.spin", args: [], label: "Spin", icon: "🎡" },
     ]);
@@ -60,54 +65,54 @@ describe("whether she has unsaved changes", () => {
 
   it("notices a renamed button, a new icon, and a reorder", () => {
     const saved = grid("Spin", "Clear");
-    expect(sameGrid(editAt(saved, 0, { label: "Go" }), saved)).toBe(false);
-    expect(sameGrid(editAt(saved, 1, { icon: "🧹" }), saved)).toBe(false);
-    expect(sameGrid(move(saved, 0, 1), saved)).toBe(false);
+    expect(sameGrid(editSlot(saved, 0, { label: "Go" }), saved)).toBe(false);
+    expect(sameGrid(editSlot(saved, 1, { icon: "🧹" }), saved)).toBe(false);
+    expect(sameGrid(moveSlot(saved, 0, 1), saved)).toBe(false);
   });
 
   it("notices an argument changing under an unchanged label", () => {
-    const before = [slot({ action: OBS_SCENE_ACTION, args: ["BRB"], label: "Back soon" })];
-    const after = [slot({ action: OBS_SCENE_ACTION, args: ["Away"], label: "Back soon" })];
+    const before = [slot({ action: CORE_ACTIONS.obsScene, args: ["BRB"], label: "Back soon" })];
+    const after = [slot({ action: CORE_ACTIONS.obsScene, args: ["Away"], label: "Back soon" })];
     expect(sameGrid(before, after)).toBe(false);
   });
 });
 
 describe("rearranging it", () => {
   it("moves a button one place with one tap", () => {
-    expect(labels(move(grid("a", "b", "c"), 2, 1))).toEqual(["a", "c", "b"]);
-    expect(labels(move(grid("a", "b", "c"), 0, 1))).toEqual(["b", "a", "c"]);
+    expect(labels(moveSlot(grid("a", "b", "c"), 2, 1))).toEqual(["a", "c", "b"]);
+    expect(labels(moveSlot(grid("a", "b", "c"), 0, 1))).toEqual(["b", "a", "c"]);
   });
 
   it("does nothing at the ends, because those arrows are still thumb-sized", () => {
     const saved = grid("a", "b");
-    expect(move(saved, 0, -1)).toBe(saved);
-    expect(move(saved, 1, 2)).toBe(saved);
-    expect(move(saved, 1, 1)).toBe(saved);
+    expect(moveSlot(saved, 0, -1)).toBe(saved);
+    expect(moveSlot(saved, 1, 2)).toBe(saved);
+    expect(moveSlot(saved, 1, 1)).toBe(saved);
   });
 
   it("removes one button and leaves the rest in order", () => {
-    expect(labels(removeAt(grid("a", "b", "c"), 1))).toEqual(["a", "c"]);
+    expect(labels(removeSlot(grid("a", "b", "c"), 1))).toEqual(["a", "c"]);
   });
 
   it("edits one field of one button and touches nothing else", () => {
-    const next = editAt(grid("a", "b"), 1, { icon: "🎡" });
+    const next = editSlot(grid("a", "b"), 1, { icon: "🎡" });
     expect(next[0]).toEqual(slot({ label: "a" }));
     expect(next[1]).toEqual(slot({ label: "b", icon: "🎡" }));
   });
 
   it("leaves the button it edited alone, so the draft never rewrites the socket's copy", () => {
     const saved = grid("a", "b");
-    const next = editAt(saved, 0, { label: "x" });
+    const next = editSlot(saved, 0, { label: "x" });
     expect(next[0]).not.toBe(saved[0]);
     expect(saved[0]!.label).toBe("a");
   });
 
   it("never mutates the grid it was given", () => {
     const saved = grid("a", "b", "c");
-    move(saved, 0, 2);
-    removeAt(saved, 0);
-    editAt(saved, 0, { label: "x" });
-    append(saved, slot({ label: "d" }));
+    moveSlot(saved, 0, 2);
+    removeSlot(saved, 0);
+    editSlot(saved, 0, { label: "x" });
+    appendSlot(saved, slot({ label: "d" }));
     expect(labels(saved)).toEqual(["a", "b", "c"]);
   });
 });
@@ -115,7 +120,7 @@ describe("rearranging it", () => {
 describe("the scene button the OBS card writes", () => {
   it("labels itself with the scene, because that is what she called it in OBS", () => {
     expect(sceneSlot("BRB")).toEqual({
-      action: OBS_SCENE_ACTION,
+      action: CORE_ACTIONS.obsScene,
       args: ["BRB"],
       label: "BRB",
       icon: "",
@@ -154,6 +159,17 @@ describe("the action picker", () => {
     ]);
     expect(choices[0]!.actions).toHaveLength(1);
   });
+
+  it("finds one action by the id a saved button carries", () => {
+    // The picker offers an action and a saved row reads it back. Same walk,
+    // so the same function does both.
+    const groups = actionChoices([
+      moduleStatus({ actions: [{ id: "wheel.spin", label: "Spin the wheel" }] }),
+      moduleStatus({ id: "bingo", title: "Bingo", actions: [{ id: "bingo.go", label: "Start" }] }),
+    ]);
+    expect(findAction(groups, "bingo.go")?.label).toBe("Start");
+    expect(findAction(groups, "wheel.gone")).toBeUndefined();
+  });
 });
 
 describe("what a saved button says it does", () => {
@@ -166,7 +182,7 @@ describe("what a saved button says it does", () => {
   });
 
   it("names a core action rather than showing her its id", () => {
-    expect(describeAction(slot({ action: OBS_SCENE_ACTION, args: ["BRB"] }), groups)).toBe(
+    expect(describeAction(slot({ action: CORE_ACTIONS.obsScene, args: ["BRB"] }), groups)).toBe(
       "OBS scene · BRB",
     );
   });
@@ -178,14 +194,14 @@ describe("what a saved button says it does", () => {
 
 describe("the cap, in the fold", () => {
   it("counts what she has, singular and plural", () => {
-    expect(gridNote(0)).toBe("0 buttons");
-    expect(gridNote(1)).toBe("1 button");
-    expect(gridNote(3)).toBe("3 buttons");
+    expect(deckSizeNote(0)).toBe("0 buttons");
+    expect(deckSizeNote(1)).toBe("1 button");
+    expect(deckSizeNote(3)).toBe("3 buttons");
   });
 
   it("says the refusal itself once she is over it", () => {
-    expect(gridNote(MAX_DECK_SLOTS)).toBe(`${MAX_DECK_SLOTS} buttons`);
-    expect(gridNote(MAX_DECK_SLOTS + 1)).toContain(`A deck holds ${MAX_DECK_SLOTS} buttons`);
-    expect(gridNote(MAX_DECK_SLOTS + 1)).toContain(`has ${MAX_DECK_SLOTS + 1}`);
+    expect(deckSizeNote(MAX_DECK_SLOTS)).toBe(`${MAX_DECK_SLOTS} buttons`);
+    expect(deckSizeNote(MAX_DECK_SLOTS + 1)).toContain(`A deck holds ${MAX_DECK_SLOTS} buttons`);
+    expect(deckSizeNote(MAX_DECK_SLOTS + 1)).toContain(`has ${MAX_DECK_SLOTS + 1}`);
   });
 });

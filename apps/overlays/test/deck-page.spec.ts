@@ -1,4 +1,5 @@
-import type { CoreState, DeckSlot, WheelState } from "@saarathi/shared";
+import { CORE_ACTIONS, type CoreState, type DeckSlot, type WheelState } from "@saarathi/shared";
+import { startFakeObs, type FakeObs } from "../../server/test/e2e/helpers/fake-obs.js";
 import { controlUrl, deckUrl, expect, test } from "./helpers/fixtures.js";
 
 /**
@@ -14,9 +15,9 @@ import { controlUrl, deckUrl, expect, test } from "./helpers/fixtures.js";
  */
 
 const grid = (slots: Partial<DeckSlot>[]) =>
-  ({ action: "core.deckSet", args: [JSON.stringify(slots)] });
+  ({ action: CORE_ACTIONS.deckSet, args: [JSON.stringify(slots)] });
 
-test("renders the saved grid when the server address arrives as a URL parameter", async ({
+test("renders a saved button and presses it, which a socket client cannot prove", async ({
   page,
   pages,
   saarathi,
@@ -27,17 +28,6 @@ test("renders the saved grid when the server address arrives as a URL parameter"
   await expect(page.getByTestId("status")).toHaveText("Connected");
   await expect(page.getByTestId("deck-key")).toContainText("Spin");
   await expect(page.getByTestId("deck-key")).toContainText("🎡");
-});
-
-test("presses a button, which is the one thing a socket client cannot prove", async ({
-  page,
-  pages,
-  saarathi,
-}) => {
-  await saarathi.invoke(grid([{ action: "wheel.spin", label: "Spin" }]));
-
-  await page.goto(deckUrl(pages, saarathi));
-  await expect(page.getByTestId("status")).toHaveText("Connected");
   await page.getByTestId("deck-key").click();
 
   // The page renders no wheel state at all, so the confirmation is the only
@@ -114,6 +104,73 @@ test("a button added on the control page turns up on a deck nobody touched", asy
   await expect(deck.getByTestId("deck-key")).toHaveCount(1);
   await expect(deck.getByTestId("deck-key")).toContainText("🎡");
   await deck.close();
+});
+
+/**
+ * Two cards write buttons -- the deck card arranges them, the OBS card adds a
+ * scene -- and only a browser can prove they are looking at the same grid,
+ * because the bug lives between two React components and never reaches the
+ * socket. Held by one card, a draft shadows the server for that card alone: the
+ * scene lands on the server, never appears in the list she is reading, and her
+ * next Save deletes it. She watched it work and then lost it.
+ *
+ * This is the only spec here that needs an OBS, so it brings its own.
+ */
+let obs: FakeObs | null = null;
+
+test.afterEach(async () => {
+  await obs?.close();
+  obs = null;
+});
+
+test("keeps a scene added while she is part-way through arranging the deck", async ({
+  page,
+  pages,
+  saarathi,
+}) => {
+  obs = await startFakeObs({ scenes: ["Workout", "BRB"] });
+  // The same way her control page points the server at an OBS on another
+  // machine, which is the one path a test can take: autodetect is off here.
+  expect(
+    await saarathi.invoke({
+      action: CORE_ACTIONS.obsSettings,
+      args: ["127.0.0.1", String(obs.port), ""],
+    }),
+  ).toEqual({ ok: true });
+
+  await page.goto(controlUrl(pages, saarathi));
+  await expect(page.getByTestId("status")).toHaveText("Connected");
+  await expect(page.getByTestId("obs-scenes")).toBeVisible();
+
+  // An arrangement she has not saved yet.
+  await page.getByTestId("deck-count").click();
+  await page.getByTestId("deck-add-action").selectOption("wheel.spin");
+  await page.getByTestId("deck-add").click();
+  await page.getByTestId("deck-slot-label").fill("Go");
+  await expect(page.getByTestId("deck-unsaved")).toBeVisible();
+
+  // ...and a scene added from the other card while it is open.
+  await page.getByText("Put a scene on her deck").click();
+  await page.getByTestId("obs-add-scene").filter({ hasText: "BRB" }).click();
+
+  // It has to turn up in the list she is reading, or the next Save silently
+  // takes it away again.
+  const rows = page.getByTestId("deck-slot-label");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveValue("Go");
+  await expect(rows.nth(1)).toHaveValue("BRB");
+  await expect(page.getByTestId("obs-notice")).toContainText("BRB");
+  // Not saved behind her back: one Save, from the card with the Save button.
+  expect(((await saarathi.get("/api/state")) as { core: CoreState }).core.deck.slots).toHaveLength(
+    0,
+  );
+
+  await page.getByTestId("deck-save").click();
+  await expect(page.getByTestId("deck-unsaved")).toBeHidden();
+
+  const saved = ((await saarathi.get("/api/state")) as { core: CoreState }).core.deck.slots;
+  expect(saved.map((slot) => slot.label)).toEqual(["Go", "BRB"]);
+  expect(saved[1]).toMatchObject({ action: CORE_ACTIONS.obsScene, args: ["BRB"] });
 });
 
 /** The installed deck is launched from its manifest's `start_url`, which is a

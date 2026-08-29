@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 // fake server in the tests can speak without pulling a codec in too.
 import OBSWebSocket, { OBSWebSocketError } from "obs-websocket-js/json";
 import {
+  CORE_ACTIONS,
   OBS_CALL_TIMEOUT_MS,
   OBS_CONNECT_TIMEOUT_MS,
   OBS_DEFAULT_PORT,
@@ -77,23 +78,26 @@ export interface ObsAdapter extends ObsCommands {
  * Knowing that `obsScene` takes a scene name and `obsSettings` takes a port
  * that has to parse is knowledge about OBS, and the registry's job is modules.
  * `null` means "not one of ours", so the registry can carry on to its own.
+ *
+ * Keyed by the whole action id out of `CORE_ACTIONS`, which is the same
+ * constant her pages send, so the two ends of one string cannot drift apart.
  */
 export function obsCommand(
   obs: ObsCommands,
-  name: string,
+  actionId: string,
   args: string[],
 ): Promise<InvokeResult> | null {
-  const run = OBS_COMMANDS.get(name);
+  const run = OBS_COMMANDS.get(actionId);
   return run ? run(obs, args) : null;
 }
 
 const OBS_COMMANDS = new Map<string, (obs: ObsCommands, args: string[]) => Promise<InvokeResult>>([
-  ["obsConnect", (obs) => obs.connect()],
-  ["obsDisconnect", (obs) => obs.disconnect()],
-  ["obsAuto", (obs) => obs.useAuto()],
-  ["obsForget", (obs) => obs.forgetPassword()],
-  ["obsScene", (obs, args) => obs.setScene(args[0] ?? "")],
-  ["obsSettings", (obs, args) => applySettings(obs, args)],
+  [CORE_ACTIONS.obsConnect, (obs) => obs.connect()],
+  [CORE_ACTIONS.obsDisconnect, (obs) => obs.disconnect()],
+  [CORE_ACTIONS.obsAuto, (obs) => obs.useAuto()],
+  [CORE_ACTIONS.obsForget, (obs) => obs.forgetPassword()],
+  [CORE_ACTIONS.obsScene, (obs, args) => obs.setScene(args[0] ?? "")],
+  [CORE_ACTIONS.obsSettings, (obs, args) => applySettings(obs, args)],
 ]);
 
 /**

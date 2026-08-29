@@ -1,15 +1,11 @@
 import { useEffect, useState } from "react";
 import type { DeckSlot } from "@saarathi/shared";
 import type { Connection } from "../lib/connection.js";
+import { Notice, type NoticeText } from "./Notice.js";
 
 /** Long enough to read at arm's length, short enough to be gone before she
  * needs the space back. Only a confirmation fades; a refusal stays. */
 const CONFIRM_MS = 1_600;
-
-interface Note {
-  text: string;
-  ok: boolean;
-}
 
 /**
  * Her grid, as something to press.
@@ -33,7 +29,7 @@ export function DeckGrid({
   connection: Connection;
   slots: DeckSlot[];
 }) {
-  const [note, setNote] = useState<Note | null>(null);
+  const [note, setNote] = useState<NoticeText | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
 
   useEffect(() => {
@@ -47,7 +43,11 @@ export function DeckGrid({
     setNote(null);
     const result = await connection.invoke({ action: slot.action, args: slot.args });
     setBusy(null);
-    setNote(result.ok ? { text: slot.label, ok: true } : { text: result.reason, ok: false });
+    // A confirmation says what she pressed: this page renders no module state,
+    // so "Spin — done" is the whole of what she gets back.
+    setNote(
+      result.ok ? { text: `${slot.label} — done`, ok: true } : { text: result.reason, ok: false },
+    );
   }
 
   if (slots.length === 0) {
@@ -61,18 +61,7 @@ export function DeckGrid({
   return (
     <>
       {note ? (
-        <p className="notice" data-ok={note.ok} data-testid="deck-notice">
-          <span>{note.ok ? `${note.text} — done` : note.text}</span>
-          <button
-            type="button"
-            className="dismiss"
-            aria-label="Dismiss"
-            data-testid="deck-notice-dismiss"
-            onClick={() => setNote(null)}
-          >
-            ×
-          </button>
-        </p>
+        <Notice notice={note} testId="deck-notice" onDismiss={() => setNote(null)} />
       ) : null}
 
       <div className="grid" data-testid="deck-grid">

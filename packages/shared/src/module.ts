@@ -30,8 +30,18 @@ export interface ActionInput {
 export interface ActionSpec<S = unknown> {
   /** Button label on the deck and the control page. */
   label: string;
-  /** Hide from the deck/control grids; still invocable by id. */
-  hidden?: boolean;
+  /**
+   * This action takes positional arguments, so no grid may offer it as a plain
+   * button. `ModuleStatus.actions` is what the deck picker and the control
+   * page press with none, and a button that saved `args: []` for an action
+   * that needed one is a refusal she meets by pressing it.
+   *
+   * Still invocable by id, from whichever card knows what to pass it -- the
+   * challenge editor, the OBS card's scene list. That is what keeps a free
+   * text args box, which is the no-terminal rule in a different costume, out
+   * of the app.
+   */
+  needsArgs?: boolean;
   run(input: ActionInput, ctx: ModuleContext<S>): void | Promise<void>;
 }
 

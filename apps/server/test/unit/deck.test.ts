@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DECK_ID, MAX_DECK_SLOTS, type DeckSlot } from "@saarathi/shared";
+import { CORE_ACTIONS, DECK_ID, MAX_DECK_SLOTS, type DeckSlot } from "@saarathi/shared";
 import { Deck, deckCommand } from "../../src/core/deck.js";
 import { MemoryStore } from "../../src/core/store.js";
 import { testLogger } from "../helpers/logger.js";
@@ -24,12 +24,12 @@ const spin = { action: "wheel.spin", label: "Spin", icon: "🎡" };
 
 /** What `deckSet` actually receives: one JSON string in `args[0]`. */
 const save = (deck: Deck, slots: unknown) =>
-  deckCommand(deck, "deckSet", [JSON.stringify(slots)]);
+  deckCommand(deck, CORE_ACTIONS.deckSet, [JSON.stringify(slots)]);
 
 describe("saving her deck", () => {
   it("keeps the buttons in the order she put them in", () => {
     const { deck } = build();
-    expect(save(deck, [spin, { action: "core.obsScene", args: ["BRB"], label: "BRB" }])).toEqual({
+    expect(save(deck, [spin, { action: CORE_ACTIONS.obsScene, args: ["BRB"], label: "BRB" }])).toEqual({
       ok: true,
     });
     expect(deck.view().slots.map((slot) => slot.label)).toEqual(["Spin", "BRB"]);
@@ -43,7 +43,7 @@ describe("saving her deck", () => {
 
   it("leaves arguments exactly as they came, spaces and all", () => {
     const { deck } = build();
-    save(deck, [{ action: "core.obsScene", args: [" Just Chatting "], label: "Chat" }]);
+    save(deck, [{ action: CORE_ACTIONS.obsScene, args: [" Just Chatting "], label: "Chat" }]);
     expect(deck.view().slots[0]!.args).toEqual([" Just Chatting "]);
   });
 
@@ -96,14 +96,14 @@ describe("saving her deck", () => {
 
   it("survives a save that arrived as something other than a list", () => {
     const { deck } = build();
-    expect(deckCommand(deck, "deckSet", ["not json at all"])).toMatchObject({ ok: false });
-    expect(deckCommand(deck, "deckSet", ['{"slots":[]}'])).toMatchObject({ ok: false });
+    expect(deckCommand(deck, CORE_ACTIONS.deckSet, ["not json at all"])).toMatchObject({ ok: false });
+    expect(deckCommand(deck, CORE_ACTIONS.deckSet, ['{"slots":[]}'])).toMatchObject({ ok: false });
     expect(deck.view().slots).toEqual([]);
   });
 
   it("is not the one to answer for an action it does not own", () => {
     const { deck } = build();
-    expect(deckCommand(deck, "obsScene", ["Workout"])).toBeNull();
+    expect(deckCommand(deck, CORE_ACTIONS.obsScene, ["Workout"])).toBeNull();
   });
 
   it("hands out a copy, so nothing outside can edit the grid in place", () => {

@@ -112,7 +112,7 @@ export class Registry {
       armed: runtime.def.arming ? runtime.armed : true,
       arming: Boolean(runtime.def.arming),
       actions: Object.entries(runtime.def.actions)
-        .filter(([, spec]) => !spec.hidden)
+        .filter(([, spec]) => !spec.needsArgs)
         .map(([id, spec]) => ({ id: `${runtime.def.id}.${id}`, label: spec.label })),
       commands: (runtime.def.commands ?? []).map((command) => ({
         name: command.name,
@@ -166,7 +166,7 @@ export class Registry {
     const moduleId = actionId.slice(0, separator);
     const name = actionId.slice(separator + 1);
 
-    if (moduleId === CORE_ID) return this.dispatchCore(name, input);
+    if (moduleId === CORE_ID) return this.dispatchCore(actionId, name, input);
 
     const runtime = this.modules.get(moduleId);
     if (!runtime) return { ok: false, reason: `There is no "${moduleId}"` };
@@ -200,15 +200,20 @@ export class Registry {
    * a module that did not ask for it counts as armed and refuses arm/disarm,
    * so her control page never shows a button that does nothing.
    */
-  private async dispatchCore(name: string, input: ActionInput): Promise<InvokeResult> {
+  private async dispatchCore(
+    /** Whole, because the two routers below key off `CORE_ACTIONS`. */
+    actionId: string,
+    name: string,
+    input: ActionInput,
+  ): Promise<InvokeResult> {
     // OBS routes itself. What its actions are called and what their arguments
     // mean is knowledge about OBS, and this file is about modules.
-    const obs = obsCommand(this.deps.obs, name, input.args);
+    const obs = obsCommand(this.deps.obs, actionId, input.args);
     if (obs) return obs;
 
     // Same arrangement, same reason: what a button is made of is knowledge
     // about the deck.
-    const deck = deckCommand(this.deps.deck, name, input.args);
+    const deck = deckCommand(this.deps.deck, actionId, input.args);
     if (deck) return deck;
 
     // Resolving the target module belongs to the cases that have one, which is

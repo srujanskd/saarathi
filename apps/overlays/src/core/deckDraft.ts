@@ -1,4 +1,9 @@
-import { MAX_DECK_SLOTS, type DeckSlot, type ModuleStatus } from "@saarathi/shared";
+import {
+  CORE_ACTIONS,
+  MAX_DECK_SLOTS,
+  type DeckSlot,
+  type ModuleStatus,
+} from "@saarathi/shared";
 
 /**
  * The deck editor's half of the deck, kept out of React so it can be tested
@@ -12,11 +17,6 @@ import { MAX_DECK_SLOTS, type DeckSlot, type ModuleStatus } from "@saarathi/shar
  * tell apart and the socket's state quietly rewritten.
  */
 
-/** The action an OBS scene button is made of. Named once, because the OBS card
- * writes these buttons and the editor has to recognise them when it reads them
- * back. */
-export const OBS_SCENE_ACTION = "core.obsScene";
-
 /**
  * Core actions worth naming in words, which today is exactly one.
  *
@@ -27,7 +27,7 @@ export const OBS_SCENE_ACTION = "core.obsScene";
  * name. When a second core action earns a button, it gets a line here.
  */
 const CORE_ACTION_NAMES: Record<string, string> = {
-  [OBS_SCENE_ACTION]: "OBS scene",
+  [CORE_ACTIONS.obsScene]: "OBS scene",
 };
 
 /**
@@ -62,12 +62,13 @@ export function sameGrid(a: DeckSlot[], b: DeckSlot[]): boolean {
 /**
  * Reordering, as two taps rather than a drag.
  *
- * A move that goes nowhere returns the array it was given, so the up arrow on
- * the first button is a button that does nothing rather than an error. That
- * matters more than it sounds: these are thumb-sized targets and she will hit
- * the end of the list without looking.
+ * The card greys the two arrows at the ends of the list, which is what she
+ * sees. A move that goes nowhere still returns the array it was given, so
+ * whether an arrow is reachable stays a rendering decision: nothing here
+ * throws, marks a grid unsaved, or reorders anything if the card ever offers
+ * one of those taps -- and these are thumb-sized targets on a phone.
  */
-export function move(slots: DeckSlot[], from: number, to: number): DeckSlot[] {
+export function moveSlot(slots: DeckSlot[], from: number, to: number): DeckSlot[] {
   if (from === to) return slots;
   if (from < 0 || to < 0 || from >= slots.length || to >= slots.length) return slots;
   const next = [...slots];
@@ -76,13 +77,13 @@ export function move(slots: DeckSlot[], from: number, to: number): DeckSlot[] {
   return next;
 }
 
-export function removeAt(slots: DeckSlot[], index: number): DeckSlot[] {
+export function removeSlot(slots: DeckSlot[], index: number): DeckSlot[] {
   if (index < 0 || index >= slots.length) return slots;
   return slots.filter((_, at) => at !== index);
 }
 
 /** One field of one button, without disturbing the rest of the grid. */
-export function editAt(slots: DeckSlot[], index: number, patch: Partial<DeckSlot>): DeckSlot[] {
+export function editSlot(slots: DeckSlot[], index: number, patch: Partial<DeckSlot>): DeckSlot[] {
   if (index < 0 || index >= slots.length) return slots;
   return slots.map((slot, at) => (at === index ? { ...slot, ...patch } : slot));
 }
@@ -93,7 +94,7 @@ export function editAt(slots: DeckSlot[], index: number, patch: Partial<DeckSlot
  * adds a scene. The editor never asks her to type an argument, which is the
  * no-terminal rule in the one place it would be easiest to break.
  */
-export function append(slots: DeckSlot[], slot: DeckSlot): DeckSlot[] {
+export function appendSlot(slots: DeckSlot[], slot: DeckSlot): DeckSlot[] {
   return [...slots, slot];
 }
 
@@ -103,7 +104,7 @@ export function append(slots: DeckSlot[], slot: DeckSlot): DeckSlot[] {
  * "the same button" means the same action pointed at the same scene.
  */
 export function hasScene(slots: DeckSlot[], scene: string): boolean {
-  return slots.some((slot) => slot.action === OBS_SCENE_ACTION && slot.args[0] === scene);
+  return slots.some((slot) => slot.action === CORE_ACTIONS.obsScene && slot.args[0] === scene);
 }
 
 /** The button the OBS card writes. Here rather than there because the shape of
@@ -111,7 +112,7 @@ export function hasScene(slots: DeckSlot[], scene: string): boolean {
  * button is built out of something she picked rather than something a module
  * declared. */
 export function sceneSlot(scene: string): DeckSlot {
-  return { action: OBS_SCENE_ACTION, args: [scene], label: scene, icon: "" };
+  return { action: CORE_ACTIONS.obsScene, args: [scene], label: scene, icon: "" };
 }
 
 export interface ActionGroup {
@@ -141,11 +142,17 @@ export function actionChoices(modules: ModuleStatus[]): ActionGroup[] {
  * four buttons.
  */
 export function describeAction(slot: DeckSlot, groups: ActionGroup[]): string {
-  const declared = groups
-    .flatMap((group) => group.actions)
-    .find((action) => action.id === slot.action);
-  const name = declared?.label ?? CORE_ACTION_NAMES[slot.action] ?? slot.action;
+  const name = findAction(groups, slot.action)?.label ?? CORE_ACTION_NAMES[slot.action] ?? slot.action;
   return slot.args.length > 0 ? `${name} · ${slot.args.join(" · ")}` : name;
+}
+
+/** One action out of the picker, by the id a saved button carries. The picker
+ * offers it and a saved row has to read it back, and those are the same walk. */
+export function findAction(
+  groups: ActionGroup[],
+  id: string,
+): { id: string; label: string } | undefined {
+  return groups.flatMap((group) => group.actions).find((action) => action.id === id);
 }
 
 /**
@@ -158,7 +165,7 @@ export function describeAction(slot: DeckSlot, groups: ActionGroup[]): string {
  * decide -- Save stays live and the server's answer is the authority, because
  * a button that greys itself out explains nothing at arm's length.
  */
-export function gridNote(count: number): string {
+export function deckSizeNote(count: number): string {
   if (count > MAX_DECK_SLOTS) {
     return `A deck holds ${MAX_DECK_SLOTS} buttons — that grid has ${count}`;
   }
