@@ -12,6 +12,7 @@ import {
   type ModuleStatus,
   type StreamEvent,
 } from "@saarathi/shared";
+import { deckCommand, type DeckCommands } from "./deck.js";
 import { obsCommand, type ObsAdapter } from "./obs.js";
 import type { StateStore } from "./store.js";
 import { ActionRefused } from "./triggers.js";
@@ -25,6 +26,7 @@ export interface RegistryDeps {
   store: StateStore;
   gains: GainsLedger;
   obs: ObsAdapter;
+  deck: DeckCommands;
   log: Logger;
   say(text: string): void;
   onPatch(module: string, state: unknown): void;
@@ -203,6 +205,11 @@ export class Registry {
     // mean is knowledge about OBS, and this file is about modules.
     const obs = obsCommand(this.deps.obs, name, input.args);
     if (obs) return obs;
+
+    // Same arrangement, same reason: what a button is made of is knowledge
+    // about the deck.
+    const deck = deckCommand(this.deps.deck, name, input.args);
+    if (deck) return deck;
 
     // Resolving the target module belongs to the cases that have one, which is
     // why these are closures. Doing it eagerly refused every core action that

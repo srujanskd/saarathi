@@ -33,3 +33,15 @@ export const OBS_CONNECT_TIMEOUT_MS = 10_000;
  * OBS has already answered once.
  */
 export const OBS_CALL_TIMEOUT_MS = 5_000;
+
+/** Namespace her deck persists under. */
+export const DECK_ID = "deck";
+
+/**
+ * How many buttons her deck holds. Two reasons meet at roughly the same number
+ * and this is under both: past two dozen she is scrolling to find a button
+ * mid-workout, which is the opposite of what a deck is for, and the whole list
+ * rides in every snapshot every client gets -- her phone included, on mobile
+ * data, in IRL mode.
+ */
+export const MAX_DECK_SLOTS = 24;
