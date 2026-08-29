@@ -137,6 +137,15 @@ a menu instead of taking the tray down, and it hands the child four env vars —
 the server; `spawnPlan` is where they live and `test/unit/server-process.test.ts` is what breaks
 when one is renamed. Nothing about a game module belongs in `apps/desktop`.
 
+For the same reason it does not import the server, it does not import the kernel either: a
+global hotkey reaches an action by opening a socket to `127.0.0.1` and calling `invoke`, exactly
+as her deck page does over the LAN. There is one code path into an action and there is not going
+to be a second. A hotkey is a value on a `DeckSlot`, picked from the closed list in `HOTKEYS` —
+never a string anyone types, because `globalShortcut.register` throws on one it cannot parse and
+because she arranges her grid on a phone, which cannot offer "press the combination you want".
+The floating deck window loads the same `deck.html` everything else does; its frame, its drag
+strip and its close button are injected by the shell, so the page stays one page.
+
 Server is on 4400, bound to `0.0.0.0` so the phone can reach it. Develop against mock chat.
 Only set `YT_CHANNEL_ID` or `YT_LIVE_ID` when you are specifically testing the adapter, and
 never while she is live.
@@ -186,7 +195,9 @@ The other two are the same tier in the other two workspaces. In `apps/overlays/t
 And in `apps/desktop/test/unit`:
 
 - **unit-desktop** pure functions from the tray app: which LAN address to show her, what the
-  menu says in each state, how the server child is spawned, where its state and pages live.
+  menu says in each state, how the server child is spawned, where its state and pages live,
+  which keys a grid claims and when a change to it is a change to the keys, and where the
+  floating window opens when the monitor it remembers is gone.
   Electron is the one thing in this repo nothing can boot, so `main.ts` holds no decisions and
   this project holds all of them. If you find yourself wanting to test `main.ts`, the thing you
   want to test is in the wrong file.

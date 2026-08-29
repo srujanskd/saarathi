@@ -14,10 +14,13 @@ import {
   encodeGrid,
   findAction,
   hasScene,
+  hotkeyChoices,
+  hotkeyLabel,
   moveSlot,
   removeSlot,
   sameGrid,
   sceneSlot,
+  setHotkey,
 } from "../../src/core/deckDraft.js";
 
 const slot = (over: Partial<DeckSlot> = {}): DeckSlot => ({
@@ -203,5 +206,49 @@ describe("the cap, in the fold", () => {
     expect(deckSizeNote(MAX_DECK_SLOTS)).toBe(`${MAX_DECK_SLOTS} buttons`);
     expect(deckSizeNote(MAX_DECK_SLOTS + 1)).toContain(`A deck holds ${MAX_DECK_SLOTS} buttons`);
     expect(deckSizeNote(MAX_DECK_SLOTS + 1)).toContain(`has ${MAX_DECK_SLOTS + 1}`);
+  });
+});
+
+describe("the key on a button", () => {
+  const grid: DeckSlot[] = [
+    { action: "wheel.spin", args: [], label: "Spin", icon: "", hotkey: "F13" },
+    { action: "core.obsScene", args: ["BRB"], label: "BRB", icon: "" },
+  ];
+
+  it("offers the keys nobody else has taken", () => {
+    const free = hotkeyChoices(grid, 1).map((choice) => choice.accelerator);
+    expect(free).not.toContain("F13");
+    expect(free).toContain("F14");
+    expect(free).toContain("Control+Alt+1");
+  });
+
+  it("still offers a button its own key, or reopening the picker would blank it", () => {
+    expect(hotkeyChoices(grid, 0).map((choice) => choice.accelerator)).toContain("F13");
+  });
+
+  it("clears to absent, not to blank, so Save eventually goes quiet", () => {
+    // The draft is compared to the server's grid field by field. A "" here
+    // against an undefined there reads as unsaved forever.
+    const cleared = setHotkey(grid, 0, "");
+    expect("hotkey" in cleared[0]!).toBe(false);
+    expect(sameGrid(cleared, [{ ...grid[0]!, hotkey: undefined }, grid[1]!])).toBe(true);
+  });
+
+  it("counts a key she changed as unsaved", () => {
+    expect(sameGrid(grid, setHotkey(grid, 1, "F14"))).toBe(false);
+    expect(sameGrid(grid, setHotkey(grid, 0, "F13"))).toBe(true);
+  });
+
+  it("leaves the grid it was given alone, like every other helper here", () => {
+    const before = JSON.stringify(grid);
+    setHotkey(grid, 0, "Control+Alt+5");
+    expect(JSON.stringify(grid)).toBe(before);
+  });
+
+  it("reads a key back in her words, and an unknown one as itself", () => {
+    expect(hotkeyLabel("Control+Alt+1")).toBe("Ctrl+Alt+1");
+    expect(hotkeyLabel(undefined)).toBe("");
+    // She has to be able to see the thing she is about to clear.
+    expect(hotkeyLabel("Control+Alt+Nope")).toBe("Control+Alt+Nope");
   });
 });

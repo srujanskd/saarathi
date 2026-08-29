@@ -20,7 +20,9 @@ export default {
 
   // Everything the app runs is inside these two bundles: there is no
   // node_modules to walk, which is the point. See build.mjs.
-  files: ["dist/main.cjs", "!dist/**/*.map"],
+  // The preload is inside the asar with main, because Electron is what loads
+  // it. Everything the plain Node child reads is in extraResources below.
+  files: ["dist/main.cjs", "dist/preload.cjs", "!dist/**/*.map"],
 
   extraResources: [
     // The server is spawned as a real file by a child process, so it stays

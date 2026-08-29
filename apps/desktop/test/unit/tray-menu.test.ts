@@ -10,6 +10,8 @@ const base: MenuView = {
   packaged: true,
   launchAtLogin: true,
   update: { phase: "idle" },
+  deckWindowOpen: false,
+  hotkeys: "No hotkeys set",
 };
 
 const ids = (view: MenuView) => trayMenu(view).map((item) => item.id);
@@ -98,5 +100,36 @@ describe("trayMenu", () => {
 describe("trayTooltip", () => {
   it("is the same truth, one line, without opening anything", () => {
     expect(trayTooltip(base)).toBe("Saarathi · Running · http://192.168.1.24:4400");
+  });
+});
+
+describe("the deck's other two faces", () => {
+  it("offers the floating deck as one item with two states, not two items", () => {
+    const closed = item(base, "deck-window")!;
+    expect(closed.type).toBe("checkbox");
+    expect(closed.checked).toBe(false);
+    expect(item({ ...base, deckWindowOpen: true }, "deck-window")!.checked).toBe(true);
+  });
+
+  it("greys the floating deck while the server is down, rather than hiding it", () => {
+    const down = { ...base, status: { phase: "stopped" } as const };
+    expect(ids(down)).toContain("deck-window");
+    expect(item(down, "deck-window")!.enabled).toBe(false);
+  });
+
+  it("says what the hotkeys are doing whatever the answer, and never as a button", () => {
+    const none = item(base, "hotkeys")!;
+    expect(none.label).toBe("No hotkeys set");
+    expect(none.enabled).toBe(false);
+    // Same position, same count: a line that only appears when something is
+    // wrong moves everything under her finger exactly when she is in a hurry.
+    const busy = { ...base, hotkeys: "Ctrl+Alt+1 in use by something else" };
+    expect(ids(busy)).toEqual(ids(base));
+    expect(item(busy, "hotkeys")!.label).toBe("Ctrl+Alt+1 in use by something else");
+  });
+
+  it("distinguishes the two ways to open her deck", () => {
+    expect(item(base, "open-deck")!.label).toBe("Open deck in browser");
+    expect(item(base, "deck-window")!.label).toBe("Floating deck");
   });
 });

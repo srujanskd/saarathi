@@ -30,6 +30,7 @@ export interface ResolvedPaths {
   readonly stateFile: string;
   readonly logDir: string;
   readonly trayIcon: string;
+  readonly preload: string;
 }
 
 export function resolvePaths(inputs: PathInputs): ResolvedPaths {
@@ -50,6 +51,10 @@ export function resolvePaths(inputs: PathInputs): ResolvedPaths {
     logDir: join(inputs.userData, "logs"),
     // A path rather than a buffer because Electron picks the @2x sibling up
     // itself, and her monitor and mine disagree about which one that is.
+    // The one thing that may live inside the asar, because Electron is what
+    // loads it: a preload is read by the renderer's own process, which has the
+    // archive support the plain Node child deliberately does not rely on.
+    preload: join(inputs.distDir, "preload.cjs"),
     trayIcon: inputs.packaged
       ? join(inputs.resourcesPath, "tray.png")
       : resolve(inputs.distDir, "..", "resources", "tray.png"),

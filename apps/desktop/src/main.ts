@@ -1,10 +1,29 @@
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
-import { app, BrowserWindow, clipboard, Menu, nativeImage, shell, Tray } from "electron";
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  globalShortcut,
+  ipcMain,
+  Menu,
+  nativeImage,
+  screen,
+  shell,
+  Tray,
+} from "electron";
 import { autoUpdater } from "electron-updater";
 import QRCode from "qrcode";
 import { SERVER_PORT } from "@saarathi/shared";
+import { ServerClient } from "./client.js";
 import { connectPageHtml, connectTargets, type ConnectEntry } from "./connect-page.js";
+import {
+  boundsToSave,
+  deckWindowBounds,
+  DECK_WINDOW_CHROME,
+  type Rect,
+} from "./deck-window.js";
+import { hotkeyNote, hotkeyPlan, sameBindings, type HotkeyBinding } from "./hotkeys.js";
 import { lanAddress, links as makeLinks, type Links } from "./net.js";
 import { ServerLog } from "./logs.js";
 import { resolvePaths } from "./paths.js";
@@ -14,9 +33,10 @@ import { trayMenu, trayTooltip, type MenuAction, type MenuView, type UpdateState
 import { Updates } from "./updates.js";
 
 /**
- * The tray. It owns four things and decides none of them: it starts the
- * server as a child, keeps a menu in sync with what that child is doing, opens
- * her pages in a browser, and shows a window with two QR codes on it.
+ * The tray. It owns six things and decides none of them: it starts the server
+ * as a child, keeps a menu in sync with what that child is doing, opens her
+ * pages in a browser, shows a window with two QR codes on it, floats her deck
+ * over OBS, and claims the keys she put on its buttons.
  *
  * Everything with a rule in it -- which address to show, what the menu says,
  * how the child is spawned -- lives in a pure module beside this one, because
@@ -57,6 +77,9 @@ async function main(): Promise<void> {
   let update: UpdateState = { phase: "idle" };
   let tray: Tray | null = null;
   let connectWindow: BrowserWindow | null = null;
+  let deckWindow: BrowserWindow | null = null;
+  let bindings: HotkeyBinding[] = [];
+  let failedKeys: HotkeyBinding[] = [];
 
   const server = new ServerProcess({
     execPath: process.execPath,
@@ -71,6 +94,52 @@ async function main(): Promise<void> {
     },
     onLog: (line) => log.write(line),
   });
+
+  /**
+   * The shell as a client of its own server, which is what makes a hotkey and
+   * a finger on the deck page the same press. It is started once and left to
+   * reconnect: a restart from the menu is a gap, not an event this has to know
+   * about.
+   */
+  const client = new ServerClient({
+    port,
+    onCore: (core) => applyHotkeys(core.deck.slots),
+    onState: (connected) => {
+      if (!connected) log.write("[tray] hotkeys waiting for the server\n");
+    },
+    log: (line) => log.write(line),
+  });
+
+  /**
+   * Claim the keys her grid asks for. Registration can fail -- Windows gives a
+   * shortcut to whoever asked first and never takes it back -- so a failure is
+   * a state the menu reports, not an error anyone throws.
+   */
+  function applyHotkeys(slots: Parameters<typeof hotkeyPlan>[0]): void {
+    const plan = hotkeyPlan(slots);
+    if (sameBindings(plan, bindings)) return;
+
+    globalShortcut.unregisterAll();
+    const failed: HotkeyBinding[] = [];
+    for (const binding of plan) {
+      // register() returns false, but it also throws on an accelerator it
+      // cannot parse -- which hotkeyPlan has already made impossible, and
+      // which would take the tray down if it ever became possible again.
+      let claimed = false;
+      try {
+        claimed = globalShortcut.register(binding.accelerator, () =>
+          client.invoke(binding.action, binding.args),
+        );
+      } catch (err) {
+        log.write(`[tray] hotkey ${binding.key} could not be registered: ${String(err)}\n`);
+      }
+      if (!claimed) failed.push(binding);
+    }
+    bindings = plan;
+    failedKeys = failed;
+    log.write(`[tray] ${hotkeyNote(bindings, failedKeys)}\n`);
+    render();
+  }
 
   const updates = new Updates(autoUpdater, {
     onState: (next) => {
@@ -96,6 +165,8 @@ async function main(): Promise<void> {
       packaged: app.isPackaged,
       launchAtLogin: app.getLoginItemSettings().openAtLogin,
       update,
+      deckWindowOpen: deckWindow !== null && !deckWindow.isDestroyed(),
+      hotkeys: hotkeyNote(bindings, failedKeys),
     };
   }
 
@@ -127,6 +198,12 @@ async function main(): Promise<void> {
         break;
       case "open-deck":
         if (current.links) await shell.openExternal(current.links.deck);
+        break;
+      case "deck-window":
+        if (current.deckWindowOpen) closeDeckWindow();
+        else openDeckWindow(current.links);
+        break;
+      case "hotkeys":
         break;
       case "connect-phone":
         await openConnectWindow(current.links);
@@ -161,6 +238,79 @@ async function main(): Promise<void> {
       case "status":
         break;
     }
+  }
+
+  /**
+   * Her deck, floating over OBS on the machine she is standing in front of.
+   *
+   * It loads the same `deck.html` her phone does, from the server that is
+   * already serving it -- there is no second grid and no second renderer, and
+   * a button she adds on her phone is on this window before she has put the
+   * phone down.
+   */
+  function openDeckWindow(current: Links | null): void {
+    if (deckWindow && !deckWindow.isDestroyed()) {
+      deckWindow.show();
+      deckWindow.focus();
+      return;
+    }
+    const saved = readPrefs(prefsFile).deckWindow;
+    const areas = screen.getAllDisplays().map((display) => display.workArea);
+    const window = new BrowserWindow({
+      ...deckWindowBounds(saved, areas),
+      // Frameless, so it reads as a deck rather than as a browser someone left
+      // open. The shell draws the strip she drags it by and the ✕ that closes
+      // it, because deck.html is also served to her phone and a tablet, and
+      // neither of those wants either.
+      frame: false,
+      resizable: true,
+      minWidth: 240,
+      minHeight: 220,
+      title: "Deck",
+      backgroundColor: "#0f1117",
+      skipTaskbar: true,
+      // Over OBS, which is the entire point. "floating" is enough for a
+      // windowed OBS and stays out of the way of anything the OS puts above
+      // it, which a screen-saver-level window would not.
+      alwaysOnTop: true,
+      webPreferences: {
+        preload: paths.preload,
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+    deckWindow = window;
+    window.setAlwaysOnTop(true, "floating");
+    window.setMenuBarVisibility(false);
+
+    window.webContents.on("did-finish-load", () => {
+      // After the load rather than before: the page is a React app and the
+      // strip is prepended to a body it has already rendered into.
+      void window.webContents.executeJavaScript(DECK_WINDOW_CHROME);
+    });
+
+    const remember = () => {
+      if (window.isDestroyed()) return;
+      const prefs = readPrefs(prefsFile);
+      writePrefs(prefsFile, { ...prefs, deckWindow: boundsToSave(window.getBounds() as Rect) });
+    };
+    window.on("moved", remember);
+    window.on("resized", remember);
+    window.once("closed", () => {
+      deckWindow = null;
+      render();
+    });
+
+    // The origin it was served from is this machine, so no ?server= -- the
+    // page's own fallback is right here and is the one case where it is.
+    void window.loadURL(current ? current.deck : `http://127.0.0.1:${port}/deck.html`);
+    render();
+  }
+
+  function closeDeckWindow(): void {
+    if (deckWindow && !deckWindow.isDestroyed()) deckWindow.close();
+    deckWindow = null;
+    render();
   }
 
   async function openConnectWindow(current: Links | null): Promise<void> {
@@ -215,7 +365,12 @@ async function main(): Promise<void> {
     writePrefs(prefsFile, { ...prefs, launchAtLogin: true });
   }
 
+  // The window's own ✕. It is the way out of something covering her scene, so
+  // it is wired before anything can open the window.
+  ipcMain.on("deck-window:close", () => closeDeckWindow());
+
   await server.start();
+  client.start();
   if (app.isPackaged) updates.start();
 
   app.on("second-instance", () => void openConnectWindow(currentLinks()));
@@ -234,6 +389,10 @@ async function main(): Promise<void> {
     quitting = true;
     void (async () => {
       updates.stop();
+      // Hers, and claimed process-wide: leaving one registered after the app
+      // is gone would be a key that does nothing until she reboots.
+      globalShortcut.unregisterAll();
+      client.stop();
       await server.stop();
       log.close();
       app.quit();

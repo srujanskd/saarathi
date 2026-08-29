@@ -66,6 +66,18 @@ export interface DeckSlot {
   label: string;
   /** One emoji, or blank. What she actually aims at, at arm's length. */
   icon: string;
+  /**
+   * A key on her PC that presses this button while something else has focus,
+   * as an Electron accelerator out of `HOTKEYS`. Absent on almost every
+   * button: this is the one field of a slot that means nothing to the two
+   * pages, because only the tray shell can register one.
+   *
+   * It lives on the slot rather than in a table of its own because a hotkey is
+   * a property of a button she already made, and a second list keyed by
+   * nothing -- the grid has no ids -- would need reconciling every time she
+   * reordered it.
+   */
+  hotkey?: string;
 }
 
 export interface DeckView {
@@ -116,7 +128,13 @@ export interface Patch {
   state: unknown;
 }
 
-export type Surface = "overlay" | "control" | "deck";
+/**
+ * Which of her surfaces a client is. "hotkey" is not a page: it is the tray
+ * shell, connected as a client like any other so that a global shortcut goes
+ * through the same `invoke` her deck page does. There is no second code path
+ * into an action, and there is not going to be one.
+ */
+export type Surface = "overlay" | "control" | "deck" | "hotkey";
 
 export interface Hello {
   surface: Surface;

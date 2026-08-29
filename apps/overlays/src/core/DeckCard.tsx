@@ -11,8 +11,10 @@ import {
   editSlot,
   encodeGrid,
   findAction,
+  hotkeyChoices,
   moveSlot,
   removeSlot,
+  setHotkey,
 } from "./deckDraft.js";
 import type { DeckDraft } from "./useDeckDraft.js";
 
@@ -96,6 +98,8 @@ export function DeckCard({
           <ul className="slots" data-testid="deck-slots">
             {slots.map((slot, index) => {
               const does = describeAction(slot, groups);
+              const keys = hotkeyChoices(slots, index);
+              const groupNames = [...new Set(keys.map((choice) => choice.group))];
               return (
               // Position is the key because a slot has no id -- a save replaces
               // the whole grid, the way her challenge list is replaced.
@@ -121,6 +125,45 @@ export function DeckCard({
                       autoComplete="off"
                       onChange={(event) => deck.set(editSlot(slots, index, { label: event.target.value }))}
                     />
+                </div>
+                {/* Her PC only: the tray registers these, so a phone-only
+                    setup will never see one fire. It is edited here anyway
+                    because here is where her buttons are, and she arranges
+                    them on the phone -- a picker that only appeared on the
+                    machine that uses it would be a picker she never found. */}
+                <div className="slot-key">
+                  <label className="field-inline">
+                    <span>Key</span>
+                    <select
+                      className="select key-pick"
+                      data-testid="deck-slot-hotkey"
+                      aria-label={`Hotkey for ${slot.label}`}
+                      value={slot.hotkey ?? ""}
+                      disabled={busy}
+                      onChange={(event) =>
+                        deck.set(setHotkey(slots, index, event.target.value))
+                      }
+                    >
+                      <option value="">No key</option>
+                      {/* A key she saved that this build no longer offers still
+                          shows, or the row would say "No key" about a button
+                          that has one. */}
+                      {slot.hotkey && !keys.some((c) => c.accelerator === slot.hotkey) ? (
+                        <option value={slot.hotkey}>{slot.hotkey}</option>
+                      ) : null}
+                      {groupNames.map((name) => (
+                        <optgroup key={name} label={name}>
+                          {keys
+                            .filter((choice) => choice.group === name)
+                            .map((choice) => (
+                              <option key={choice.accelerator} value={choice.accelerator}>
+                                {choice.label}
+                              </option>
+                            ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </label>
                 </div>
                 <div className="slot-foot">
                   {/* Only when it adds something. A button she has not renamed

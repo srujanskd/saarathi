@@ -63,13 +63,18 @@ describe("her deck over a socket", () => {
 
   it("survives the restart she does not think about", async () => {
     const first = await startServer();
-    await first.invoke(grid([{ action: "core.obsScene", args: ["BRB"], label: "Back soon" }]));
+    await first.invoke(
+      grid([{ action: "core.obsScene", args: ["BRB"], label: "Back soon", hotkey: "F13" }]),
+    );
     const stateFile = await restart(first);
 
     server = await startServer({ stateFile });
     const state = (await server.get("/api/state")) as { core: CoreState };
+    // The key comes back with the button. It is what the tray registers on
+    // boot, so a hotkey that only worked until the next restart would be a
+    // feature that fails exactly once, on the day she reboots before a stream.
     expect(state.core.deck.slots).toEqual([
-      { action: "core.obsScene", args: ["BRB"], label: "Back soon", icon: "" },
+      { action: "core.obsScene", args: ["BRB"], label: "Back soon", icon: "", hotkey: "F13" },
     ]);
   });
 });
@@ -100,6 +105,21 @@ describe("a spin she started from the deck", () => {
 
     expect((control.latest("wheel") as WheelState).spin!.via).toBe("control");
     await control.close();
+  });
+
+  it("is recorded as a hotkey when the tray pressed it", async () => {
+    // The shell is a client like any other: it presses a button by invoking
+    // the action the button holds, over this socket. The whole of what makes
+    // it different is the word in the history.
+    server = await startServer();
+    const shell = await server.connect({ surface: "hotkey", modules: [] });
+
+    expect(await shell.invoke({ action: "wheel.spin" })).toEqual({ ok: true });
+
+    const watcher = await server.connect({ surface: "control", modules: ["wheel"] });
+    expect((watcher.snapshots[0]!.modules.wheel as WheelState).spin!.via).toBe("hotkey");
+    await shell.close();
+    await watcher.close();
   });
 
   // Nothing sends this today: an overlay renders and does not decide. The test

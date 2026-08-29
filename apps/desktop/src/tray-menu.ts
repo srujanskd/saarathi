@@ -13,6 +13,8 @@ export type MenuAction =
   | "status"
   | "open-control"
   | "open-deck"
+  | "deck-window"
+  | "hotkeys"
   | "connect-phone"
   | "copy-overlay"
   | "restart-server"
@@ -46,6 +48,12 @@ export interface MenuView {
   readonly packaged: boolean;
   readonly launchAtLogin: boolean;
   readonly update: UpdateState;
+  /** The floating deck window is open. A checkbox rather than two items,
+   * because it is one thing with two states and she is reading this fast. */
+  readonly deckWindowOpen: boolean;
+  /** Already in her words -- `hotkeyNote` decides what it says, because what
+   * counts as a working hotkey is that file's business, not this one's. */
+  readonly hotkeys: string;
 }
 
 /**
@@ -96,7 +104,19 @@ export function trayMenu(view: MenuView): MenuItemSpec[] {
     // and shrinks moves everything else under her finger, and she is opening
     // this mid-workout.
     { id: "open-control", label: "Open control page", enabled: live },
-    { id: "open-deck", label: "Open deck", enabled: live },
+    { id: "open-deck", label: "Open deck in browser", enabled: live },
+    {
+      id: "deck-window",
+      label: "Floating deck",
+      type: "checkbox",
+      checked: view.deckWindowOpen,
+      enabled: live,
+    },
+    // Disabled, and there whatever the answer is. An item that only appeared
+    // when something was wrong would move everything under it exactly when she
+    // is opening this in a hurry, and "no hotkeys set" is the state she is
+    // most likely to be trying to confirm.
+    { id: "hotkeys", label: view.hotkeys, enabled: false },
     { id: "connect-phone", label: "Connect your phone…", enabled: reachable },
     { id: "copy-overlay", label: "Copy overlay URL for OBS", enabled: live },
     { id: "separator", type: "separator" },

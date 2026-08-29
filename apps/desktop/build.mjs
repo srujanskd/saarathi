@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Two bundles, no node_modules in the installer.
+ * Three bundles, no node_modules in the installer.
  *
  * That is the whole answer to the pnpm hazard the plan flags: electron-builder
  * does not reliably walk pnpm's symlinked tree, and the usual fix is a scoped
@@ -34,6 +34,18 @@ await build({
   outfile: join(here, "dist", "main.cjs"),
   format: "cjs",
   // The only thing that is genuinely provided by the runtime.
+  external: ["electron"],
+});
+
+// The floating deck window is frameless, so the shell draws its own close
+// button into the page and needs one channel back. A preload has to be a real
+// file on disk that Electron loads into the renderer, which is why this is a
+// third output and not part of main.
+await build({
+  ...common,
+  entryPoints: [join(here, "src", "preload.ts")],
+  outfile: join(here, "dist", "preload.cjs"),
+  format: "cjs",
   external: ["electron"],
 });
 

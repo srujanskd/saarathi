@@ -11,6 +11,12 @@ import { dirname, join } from "node:path";
 export interface Prefs {
   /** Undefined means never asked, which is what makes the first run default. */
   launchAtLogin?: boolean;
+  /**
+   * Where she last left the floating deck window. Here rather than in the
+   * server's state because it is about this machine's screens: her deck moves
+   * to a VPS one day and a window position does not go with it.
+   */
+  deckWindow?: { x?: number; y?: number; width?: number; height?: number };
 }
 
 export function readPrefs(file: string): Prefs {

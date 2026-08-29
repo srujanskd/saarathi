@@ -1,7 +1,10 @@
 import {
   CORE_ACTIONS,
+  HOTKEYS,
+  hotkeyChoice,
   MAX_DECK_SLOTS,
   type DeckSlot,
+  type HotkeyChoice,
   type ModuleStatus,
 } from "@saarathi/shared";
 
@@ -53,6 +56,7 @@ export function sameGrid(a: DeckSlot[], b: DeckSlot[]): boolean {
       slot.action === other.action &&
       slot.label === other.label &&
       slot.icon === other.icon &&
+      slot.hotkey === other.hotkey &&
       slot.args.length === other.args.length &&
       slot.args.every((arg, at) => arg === other.args[at])
     );
@@ -165,6 +169,46 @@ export function findAction(
  * decide -- Save stays live and the server's answer is the authority, because
  * a button that greys itself out explains nothing at arm's length.
  */
+/**
+ * The keys this button may be given: the free ones, plus the one it already
+ * holds so that reopening the picker does not show it as unset.
+ *
+ * Taken keys are removed rather than shown disabled, because the server
+ * refuses a duplicate and a picker that offers a choice it knows will be
+ * refused is a refusal she meets one tap later than she had to. This is the
+ * opposite call from the action picker, which lists switched-off modules --
+ * there the refusal is honest and the alternative was hiding half her deck.
+ */
+export function hotkeyChoices(slots: DeckSlot[], index: number): HotkeyChoice[] {
+  const taken = new Set(
+    slots.flatMap((slot, at) => (at === index || !slot.hotkey ? [] : [slot.hotkey])),
+  );
+  return HOTKEYS.filter((choice) => !taken.has(choice.accelerator));
+}
+
+/** What a saved key reads as. A key that is no longer in the list renders as
+ * itself rather than as nothing: she has to be able to see the thing she is
+ * about to clear. */
+export function hotkeyLabel(accelerator: string | undefined): string {
+  if (!accelerator) return "";
+  return hotkeyChoice(accelerator)?.label ?? accelerator;
+}
+
+/**
+ * Setting or clearing a button's key. Blank clears it to *absent* rather than
+ * to "", because the server stores it that way and `sameGrid` compares the
+ * field directly -- a draft holding "" against a saved slot holding nothing
+ * would read as unsaved forever and she would never get Save to go quiet.
+ */
+export function setHotkey(slots: DeckSlot[], index: number, accelerator: string): DeckSlot[] {
+  if (index < 0 || index >= slots.length) return slots;
+  return slots.map((slot, at) => {
+    if (at !== index) return slot;
+    const { hotkey: _dropped, ...rest } = slot;
+    return accelerator ? { ...rest, hotkey: accelerator } : rest;
+  });
+}
+
 export function deckSizeNote(count: number): string {
   if (count > MAX_DECK_SLOTS) {
     return `A deck holds ${MAX_DECK_SLOTS} buttons — that grid has ${count}`;

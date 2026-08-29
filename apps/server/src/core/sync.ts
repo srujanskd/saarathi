@@ -27,6 +27,10 @@ const VIA_FOR: Record<Surface, TriggerVia> = {
   overlay: "overlay",
   control: "control",
   deck: "deck",
+  // Not a page. The tray shell connects as a client so a global shortcut goes
+  // through this same invoke, and the history says which of her two decks it
+  // was.
+  hotkey: "hotkey",
 };
 
 /**

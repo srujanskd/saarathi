@@ -37,4 +37,17 @@ describe("resolvePaths", () => {
     expect(paths.overlaysDist).toBe(resolve("/repo/apps/overlays/dist"));
     expect(paths.trayIcon).toBe(resolve("/repo/apps/desktop/resources/tray.png"));
   });
+
+  it("finds the preload beside main either way, because it rides in the asar", () => {
+    // The one file Electron itself loads rather than the plain Node child, so
+    // it is the one file allowed to be inside the archive. It is packed by
+    // name in electron-builder.config.mjs -- a `files` list that still said
+    // only main.cjs would leave the floating deck with no way to close it,
+    // and only on an installed build.
+    for (const packaged of [true, false]) {
+      expect(resolvePaths({ ...inputs, packaged }).preload).toBe(
+        join(inputs.distDir, "preload.cjs"),
+      );
+    }
+  });
 });
