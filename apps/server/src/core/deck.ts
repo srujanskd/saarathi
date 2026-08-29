@@ -50,9 +50,9 @@ export class Deck implements DeckCommands {
 
     const slots: DeckSlot[] = [];
     for (const [index, raw] of input.entries()) {
-      const slot = normalize(raw);
-      if (typeof slot === "string") return { ok: false, reason: `Button ${index + 1} ${slot}.` };
-      slots.push(slot);
+      const checked = checkSlot(raw);
+      if (!checked.ok) return { ok: false, reason: `Button ${index + 1} ${checked.problem}.` };
+      slots.push(checked.slot);
     }
 
     this.slots = slots;
@@ -67,6 +67,11 @@ export class Deck implements DeckCommands {
  * Her deck actions, routed here rather than in the registry, the way OBS's are:
  * knowing that a grid arrives as JSON is knowledge about the deck, and the
  * registry's job is modules. `null` means "not one of ours".
+ *
+ * `InvokeRequest.args` is `string[]` and a button is four fields, so the grid
+ * travels as one JSON string and is parsed here and only here -- the same
+ * boundary rule `obsSettings` follows for its port. Nothing past this line
+ * carries a slot that has not been checked.
  */
 export function deckCommand(
   deck: DeckCommands,
@@ -74,28 +79,28 @@ export function deckCommand(
   args: string[],
 ): InvokeResult | null {
   if (name !== "deckSet") return null;
-  return parseSlots(deck, args[0] ?? "");
-}
 
-/**
- * `InvokeRequest.args` is `string[]` and a button is four fields, so the grid
- * travels as one JSON string and is parsed here and only here -- the same
- * boundary rule `obsSettings` follows for its port. Nothing past this line
- * carries a slot that has not been checked.
- */
-function parseSlots(deck: DeckCommands, json: string): InvokeResult {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(json);
+    parsed = JSON.parse(args[0] ?? "");
   } catch {
     return { ok: false, reason: "The deck did not arrive in one piece. Try saving again." };
   }
   return deck.setSlots(parsed);
 }
 
-/** A checked slot, or the half-sentence saying what is wrong with it. */
-function normalize(raw: unknown): DeckSlot | string {
-  if (typeof raw !== "object" || raw === null) return "is not a button";
+/**
+ * A checked slot, or the fragment saying what is wrong with it. The fragment is
+ * a predicate and never a whole sentence, because the two callers are talking
+ * to different people: one is refusing a save to her face, the other is a line
+ * in a log about something already on disk.
+ */
+type SlotCheck = { ok: true; slot: DeckSlot } | { ok: false; problem: string };
+
+function checkSlot(raw: unknown): SlotCheck {
+  const no = (problem: string): SlotCheck => ({ ok: false, problem });
+
+  if (typeof raw !== "object" || raw === null) return no("is not a button");
 
   const { action, args, label, icon } = raw as Record<string, unknown>;
 
@@ -103,22 +108,25 @@ function normalize(raw: unknown): DeckSlot | string {
   // The same shape `Registry.dispatch` splits on. Anything without the dot
   // could never reach an action, so it is a button that would only fail the
   // first time she pressed it, and she would be mid-workout when it did.
-  if (id.indexOf(".") < 1) return `points at "${id}", which is not an action`;
+  if (id.indexOf(".") < 1) return no(`points at "${id}", which is not an action`);
 
   const name = typeof label === "string" ? label.trim() : "";
-  if (!name) return "needs a label";
+  if (!name) return no("needs a label");
 
   if (args !== undefined && (!Array.isArray(args) || args.some((a) => typeof a !== "string"))) {
-    return "has arguments that are not text";
+    return no("has arguments that are not text");
   }
 
   return {
-    action: id,
-    // Not trimmed: an argument is a scene name or a challenge, and deciding
-    // its edges is the action's business, not the deck's.
-    args: (args as string[] | undefined) ?? [],
-    label: name,
-    icon: typeof icon === "string" ? icon.trim() : "",
+    ok: true,
+    slot: {
+      action: id,
+      // Not trimmed: an argument is a scene name or a challenge, and deciding
+      // its edges is the action's business, not the deck's.
+      args: (args as string[] | undefined) ?? [],
+      label: name,
+      icon: typeof icon === "string" ? icon.trim() : "",
+    },
   };
 }
 
@@ -134,10 +142,10 @@ function readSaved(store: StateStore, log: Logger): DeckSlot[] {
   if (!Array.isArray(saved)) return [];
 
   const slots: DeckSlot[] = [];
-  for (const raw of saved) {
-    const slot = normalize(raw);
-    if (typeof slot === "string") log.warn(`deck: dropped a saved button that ${slot}`);
-    else slots.push(slot);
+  for (const [index, raw] of saved.entries()) {
+    const checked = checkSlot(raw);
+    if (checked.ok) slots.push(checked.slot);
+    else log.warn(`deck: dropped saved button ${index + 1}, it ${checked.problem}`);
   }
   return slots;
 }

@@ -1,7 +1,17 @@
 import type { Author, EventOf, EventType, StreamEvent } from "./events.js";
 
 /** How an action was triggered. Every trigger converges on the same action. */
-export type TriggerVia = "chat" | "paid" | "gains" | "deck" | "control" | "auto";
+export type TriggerVia =
+  | "chat"
+  | "paid"
+  | "gains"
+  | "deck"
+  | "control"
+  // An overlay renders and does not decide, so nothing should send this. It
+  // exists so that if one ever does, the history says so instead of quietly
+  // filing it under the control page.
+  | "overlay"
+  | "auto";
 
 export interface ActionInput {
   /** Display name of whoever caused this, or "streamer" for her own surfaces. */

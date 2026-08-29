@@ -101,4 +101,18 @@ describe("a spin she started from the deck", () => {
     expect((control.latest("wheel") as WheelState).spin!.via).toBe("control");
     await control.close();
   });
+
+  // Nothing sends this today: an overlay renders and does not decide. The test
+  // exists because the mapping used to fold every surface that was not the deck
+  // into "control", which is a history that quietly lies.
+  it("is not recorded as the control page when it came from an overlay", async () => {
+    server = await startServer();
+    const overlay = await server.connect({ surface: "overlay", modules: ["wheel"] });
+
+    await overlay.invoke({ action: "wheel.spin" });
+    await overlay.waitFor("the spin", (c) => (c.latest("wheel") as WheelState)?.spin !== null);
+
+    expect((overlay.latest("wheel") as WheelState).spin!.via).toBe("overlay");
+    await overlay.close();
+  });
 });

@@ -34,7 +34,7 @@ export const OBS_CONNECT_TIMEOUT_MS = 10_000;
  */
 export const OBS_CALL_TIMEOUT_MS = 5_000;
 
-/** Namespace her deck persists under, and the surface it renders as. */
+/** Namespace her deck persists under. */
 export const DECK_ID = "deck";
 
 /**

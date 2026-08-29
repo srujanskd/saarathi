@@ -4,6 +4,7 @@ import {
   type ClientToServerEvents,
   type Logger,
   type ServerToClientEvents,
+  type Surface,
   type TriggerVia,
 } from "@saarathi/shared";
 import type { Kernel } from "./kernel.js";
@@ -11,6 +12,22 @@ import type { Kernel } from "./kernel.js";
 export type SaarathiServer = Server<ClientToServerEvents, ServerToClientEvents>;
 
 const room = (moduleId: string) => `m:${moduleId}`;
+
+/**
+ * Which of her surfaces this is. It changes nothing about what is allowed --
+ * every one of them is her -- it only makes the wheel's history say where a
+ * spin came from, which is the difference between "she spun it" and "her deck
+ * spun it" when she reads it back.
+ *
+ * Spelled out one surface at a time rather than defaulted, so the day a fourth
+ * one lands the compiler asks what it is instead of the history calling it the
+ * control page.
+ */
+const VIA_FOR: Record<Surface, TriggerVia> = {
+  overlay: "overlay",
+  control: "control",
+  deck: "deck",
+};
 
 /**
  * The only file that imports socket.io.
@@ -39,10 +56,8 @@ export function attachSync(io: SaarathiServer, kernel: Kernel, log: Logger): voi
     for (const id of kernel.registry.ids()) void socket.join(room(id));
     socket.emit("snapshot", kernel.snapshot());
 
-    // Which of her surfaces this is. It changes nothing about what is allowed
-    // -- every one of them is her -- it only makes the wheel's history say
-    // where a spin came from, which is the difference between "she spun it"
-    // and "her deck spun it" when she reads it back.
+    // Until hello says otherwise. A client that never sends one is her control
+    // page in every case we have.
     let via: TriggerVia = "control";
 
     socket.on("hello", (hello) => {
@@ -51,7 +66,7 @@ export function attachSync(io: SaarathiServer, kernel: Kernel, log: Logger): voi
         const subscribe = !wanted || wanted.includes(id);
         void (subscribe ? socket.join(room(id)) : socket.leave(room(id)));
       }
-      via = hello?.surface === "deck" ? "deck" : "control";
+      via = (hello?.surface && VIA_FOR[hello.surface]) ?? "control";
       // Overlays in OBS should not be paying to receive the chat log they never
       // render, and neither should her phone on mobile data.
       socket.emit("snapshot", kernel.snapshot(wanted));

@@ -91,7 +91,10 @@ app.post("/api/mock-chat", async (request) => {
 
 app.post("/api/invoke", async (request) => {
   const { action, args } = request.body as InvokeRequest;
-  return kernel.invoke(action, { args: args ?? [] });
+  // Explicit, not defaulted: this is the eyeballing path, and the socket is the
+  // one that knows which surface it is. Anything reaching here is a person with
+  // curl, so the history calls it what her control page does.
+  return kernel.invoke(action, { args: args ?? [], via: "control" });
 });
 
 const io: SaarathiServer = new Server(app.server, { cors: { origin: true } });
