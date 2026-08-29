@@ -48,13 +48,19 @@ export default {
     createStartMenuShortcut: true,
     shortcutName: "Saarathi",
   },
-  // Otherwise it is named after the package -- "@saarathidesktop-updater" --
-  // in a directory she may one day be asked to look in.
-  updaterCacheDirName: "saarathi-updater",
-
   // A macOS build exists so this can be run and looked at on a development
   // machine. She is on Windows and nothing publishes it.
   mac: { target: [{ target: "dir", arch: ["arm64"] }], icon: "resources/icon.png" },
 
-  publish: [{ provider: "github", owner: "srujanskd", repo: "saarathi" }],
+  publish: [
+    {
+      provider: "github",
+      owner: "srujanskd",
+      repo: "saarathi",
+      // Otherwise the cache is named after the package -- "@saarathidesktop-updater"
+      // -- in a directory she may one day be asked to look in. It is a publisher
+      // option in electron-builder 26, not a root one.
+      updaterCacheDirName: "saarathi-updater",
+    },
+  ],
 };

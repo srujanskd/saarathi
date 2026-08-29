@@ -2,6 +2,8 @@
   "name": "@saarathi/desktop",
   "version": "0.1.0",
   "private": true,
+  "description": "Saarathi tray app: runs the stream server and her deck on Windows.",
+  "author": "Saarathi contributors",
   "license": "MIT",
   "type": "module",
   "main": "dist/main.cjs",
