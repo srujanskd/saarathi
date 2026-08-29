@@ -1,0 +1,87 @@
+/*
+ * The deck's own pieces. The shell is base.css, shared with the control page.
+ *
+ * Everything here is sized for one hand, mid-set, at arm's length: nothing to
+ * scroll past, nothing to aim at.
+ */
+
+@import "./base.css";
+
+.grid {
+  display: grid;
+  /* Two per row on a phone held in one hand, more as the screen grows -- which
+     is the tablet propped next to her monitor, and the cheap touchscreen after
+     that. `auto-fit` rather than a media query, because the sizes she will use
+     this on are not a list anyone can write down. */
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.7rem;
+}
+
+.key {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  /* Square-ish and large: a miss here is a scene change that did not happen
+     while she is on camera. */
+  min-height: 6.5rem;
+  padding: 0.8rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+  color: var(--text);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.key:active:not(:disabled) {
+  background: var(--card-2);
+  transform: scale(0.97);
+}
+
+.key:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.key:disabled {
+  opacity: 0.45;
+}
+
+.key-icon {
+  font-size: 1.9rem;
+  line-height: 1;
+}
+
+.key-label {
+  /* Two lines at most, then it is cut: a label she cannot read in a glance is
+     a label she should shorten, and a button that grows to fit one would push
+     the rest of the grid off the screen. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  text-align: center;
+  font-size: 0.95rem;
+  line-height: 1.2;
+}
+
+/* The deck is a full-screen thing, so it gets more of the screen than the
+   control page's column does. */
+.page[data-surface="deck"] {
+  max-width: 40rem;
+}
+
+/* Small and out of the way: it is the way back, not somewhere she is going
+   mid-set. */
+.away {
+  margin: 1.4rem 0 0;
+  text-align: center;
+  font-size: 0.88rem;
+}
+
+.away a {
+  color: var(--muted);
+}

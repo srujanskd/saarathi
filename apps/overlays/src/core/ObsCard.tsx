@@ -1,6 +1,7 @@
 import { useState } from "react";
-import type { ConnectionStatus, ObsView } from "@saarathi/shared";
+import type { ConnectionStatus, DeckView, ObsView } from "@saarathi/shared";
 import type { Connection } from "../lib/connection.js";
+import { append, encodeGrid, hasScene, sceneSlot } from "./deckDraft.js";
 
 /**
  * OBS on her phone.
@@ -14,15 +15,24 @@ import type { Connection } from "../lib/connection.js";
  * settings underneath exist for the day the server is not on the same machine
  * as OBS; on her PC they should stay closed forever, because the server reads
  * the port and password out of OBS's own config.
+ *
+ * It also writes deck buttons, which is why it knows the grid. A scene button
+ * is the one deck action that needs an argument, and the argument is a scene
+ * name -- so it is added from the card that is already showing her the scenes,
+ * rather than by teaching the deck's picker to enumerate core actions and then
+ * ask her to type one. That is the decision recorded in the plan: less
+ * machinery, and the button is where she is already looking.
  */
 export function ObsCard({
   connection,
   obs,
   status,
+  deck,
 }: {
   connection: Connection;
   obs: ObsView;
   status: ConnectionStatus | undefined;
+  deck: DeckView;
 }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -47,6 +57,13 @@ export function ObsCard({
 
   async function save(): Promise<void> {
     if (await run("core.obsSettings", [fields.host, fields.port, fields.password])) setDraft(null);
+  }
+
+  /** Appends and saves in one go. The deck has no half-saved state -- a save
+   * replaces the whole grid -- and a full deck is refused by the server in its
+   * own words, which land in the notice above. */
+  async function addScene(scene: string): Promise<void> {
+    await run("core.deckSet", [encodeGrid(append(deck.slots, sceneSlot(scene)))]);
   }
 
   return (
@@ -95,6 +112,36 @@ export function ObsCard({
           else to set up.
         </p>
       )}
+
+      {connected && obs.scenes.length > 0 ? (
+        <details className="fold">
+          <summary>
+            <span>Put a scene on her deck</span>
+          </summary>
+          <p className="hint">
+            Saved straight away, on its own. Anything half-edited in the deck card stays hers
+            until she saves it.
+          </p>
+          <div className="scenes">
+            {obs.scenes.map((scene) => {
+              const already = hasScene(deck.slots, scene);
+              return (
+                <button
+                  key={scene}
+                  type="button"
+                  className="btn scene"
+                  data-on-deck={already}
+                  data-testid="obs-add-scene"
+                  disabled={busy || already}
+                  onClick={() => void addScene(scene)}
+                >
+                  {already ? `${scene} — on her deck` : `Add ${scene}`}
+                </button>
+              );
+            })}
+          </div>
+        </details>
+      ) : null}
 
       <details className="fold">
         <summary>

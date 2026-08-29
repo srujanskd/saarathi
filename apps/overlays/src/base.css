@@ -1,0 +1,353 @@
+/*
+ * The shell every page she touches is built out of: the palette, the card, the
+ * button, the fold, and the one status line that says whether any of it is
+ * live.
+ *
+ * It is its own file because there are two of these pages now -- the control
+ * page and the deck -- and they have to look like one product. A button that
+ * is 3.5rem tall on one of them and 3rem on the other is a button she misses
+ * mid-workout, and that is exactly the kind of drift a copied stylesheet gets.
+ */
+
+:root {
+  --bg: #0f1117;
+  --card: #171a23;
+  --card-2: #1f2330;
+  --line: #2a2f3e;
+  --text: #f4f5f8;
+  --muted: #9aa1b2;
+  --accent: #4ade80;
+  --accent-ink: #06210f;
+  --warn: #ffd9a0;
+  --pad: max(1rem, env(safe-area-inset-left));
+}
+
+html {
+  background: var(--bg);
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font: 17px/1.4 system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.page {
+  box-sizing: border-box;
+  max-width: 26.5rem;
+  margin: 0 auto;
+  padding: 1.1rem var(--pad) calc(2.2rem + env(safe-area-inset-bottom));
+  padding-right: max(1rem, env(safe-area-inset-right));
+}
+
+.top {
+  margin-bottom: 1.1rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.mark {
+  flex: 0 0 auto;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 0.7rem;
+  background: var(--card);
+  border: 1.5px solid var(--accent);
+  box-shadow: inset 0 0 0 5px var(--bg), inset 0 0 0 8px var(--accent);
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.35rem;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+h2 {
+  margin: 0 0 0.85rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.2rem 0 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.status::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: #5b6273;
+  flex: 0 0 auto;
+}
+
+.status[data-connected="true"]::before {
+  background: var(--accent);
+}
+
+.status[data-complain="true"] {
+  color: var(--warn);
+}
+
+.status[data-complain="true"]::before {
+  background: var(--warn);
+}
+
+.connections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.connections li {
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.connections [data-state="connected"] {
+  border-color: rgb(74 222 128 / 0.35);
+  color: var(--accent);
+}
+
+.connections [data-state="error"],
+.connections [data-state="disconnected"] {
+  border-color: rgb(255 217 160 / 0.4);
+  color: var(--warn);
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 1rem 1rem 1.1rem;
+}
+
+.notice,
+.hint {
+  margin: 0 0 0.85rem;
+  color: var(--muted);
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 0.4rem 0.65rem 0.8rem;
+  border-radius: 10px;
+  background: rgb(255 217 160 / 0.08);
+  border: 1px solid rgb(255 217 160 / 0.28);
+  color: var(--warn);
+}
+
+.notice[data-ok="true"] {
+  background: rgb(74 222 128 / 0.08);
+  border-color: rgb(74 222 128 / 0.25);
+  color: var(--accent);
+}
+
+.notice span {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A refusal she has read is a refusal she can put away. Sized for a thumb
+   rather than a cursor, like everything else she touches mid-workout. */
+.dismiss {
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dismiss:active {
+  background: rgb(255 217 160 / 0.14);
+}
+
+.dismiss:focus-visible {
+  outline: 2px solid var(--warn);
+  outline-offset: 2px;
+}
+
+.btn {
+  display: block;
+  width: 100%;
+  min-height: 3.5rem;
+  margin: 0 0 0.55rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card-2);
+  color: var(--text);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.btn:last-child {
+  margin-bottom: 0;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+}
+
+.btn-primary {
+  min-height: 3.85rem;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-size: 1.08rem;
+}
+
+.fold {
+  margin-top: 0.35rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.35rem;
+}
+
+.fold summary {
+  display: flex;
+  align-items: center;
+  min-height: 2.8rem;
+  cursor: pointer;
+  list-style: none;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.dirty {
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: rgb(255 217 160 / 0.14);
+  color: var(--warn);
+  font-size: 0.8rem;
+}
+
+.fold summary::-webkit-details-marker {
+  display: none;
+}
+
+.fold summary::after {
+  content: "";
+  margin-left: auto;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+}
+
+.fold[open] summary::after {
+  transform: rotate(-135deg);
+}
+
+.fold .field {
+  margin-top: 0.4rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0 0 0.7rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.input,
+.select,
+.textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 3.15rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  border-color: transparent;
+}
+
+.textarea {
+  min-height: 9.5rem;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.empty {
+  margin: 0.4rem 0 0;
+  padding: 0.9rem 0.2rem 0.2rem;
+  color: var(--muted);
+  text-align: center;
+}
