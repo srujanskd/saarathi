@@ -1,7 +1,6 @@
 import {
   CORE_ACTIONS,
   HOTKEYS,
-  hotkeyChoice,
   MAX_DECK_SLOTS,
   type DeckSlot,
   type HotkeyChoice,
@@ -160,16 +159,6 @@ export function findAction(
 }
 
 /**
- * What the fold says about the size of the grid she is editing. It counts the
- * draft rather than the saved list, so the cap turns up while she is adding
- * buttons instead of only when the server turns the save down.
- *
- * Over the cap it says the refusal itself, so the fold and the notice are one
- * sentence rather than two descriptions of one rule. It reports; it does not
- * decide -- Save stays live and the server's answer is the authority, because
- * a button that greys itself out explains nothing at arm's length.
- */
-/**
  * The keys this button may be given: the free ones, plus the one it already
  * holds so that reopening the picker does not show it as unset.
  *
@@ -184,14 +173,6 @@ export function hotkeyChoices(slots: DeckSlot[], index: number): HotkeyChoice[] 
     slots.flatMap((slot, at) => (at === index || !slot.hotkey ? [] : [slot.hotkey])),
   );
   return HOTKEYS.filter((choice) => !taken.has(choice.accelerator));
-}
-
-/** What a saved key reads as. A key that is no longer in the list renders as
- * itself rather than as nothing: she has to be able to see the thing she is
- * about to clear. */
-export function hotkeyLabel(accelerator: string | undefined): string {
-  if (!accelerator) return "";
-  return hotkeyChoice(accelerator)?.label ?? accelerator;
 }
 
 /**
@@ -209,6 +190,16 @@ export function setHotkey(slots: DeckSlot[], index: number, accelerator: string)
   });
 }
 
+/**
+ * What the fold says about the size of the grid she is editing. It counts the
+ * draft rather than the saved list, so the cap turns up while she is adding
+ * buttons instead of only when the server turns the save down.
+ *
+ * Over the cap it says the refusal itself, so the fold and the notice are one
+ * sentence rather than two descriptions of one rule. It reports; it does not
+ * decide -- Save stays live and the server's answer is the authority, because
+ * a button that greys itself out explains nothing at arm's length.
+ */
 export function deckSizeNote(count: number): string {
   if (count > MAX_DECK_SLOTS) {
     return `A deck holds ${MAX_DECK_SLOTS} buttons — that grid has ${count}`;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DeckSlot } from "@saarathi/shared";
-import { hotkeyNote, hotkeyPlan, sameBindings } from "../../src/hotkeys.js";
+import { hotkeyClaim, hotkeyNote, hotkeyPlan, sameBindings } from "../../src/hotkeys.js";
 
 const slot = (over: Partial<DeckSlot> = {}): DeckSlot => ({
   action: "wheel.spin",
@@ -104,5 +104,35 @@ describe("hotkeyNote", () => {
   it("does not say 0 active when nothing landed", () => {
     const one = bindings.slice(0, 1);
     expect(hotkeyNote(one, one)).toBe("F13 in use by something else");
+  });
+});
+
+describe("hotkeyClaim", () => {
+  const grid = [slot({ hotkey: "F13" }), slot({ label: "BRB", args: ["BRB"], hotkey: "F14" })];
+  const plan = hotkeyPlan(grid);
+
+  it("drops everything first when the grid changed, or a moved key fires the old button", () => {
+    const moved = hotkeyPlan([slot({ hotkey: "F14" }), slot({ label: "BRB", hotkey: "F13" })]);
+    expect(hotkeyClaim(moved, plan, [])).toEqual({ unregisterAll: true, claim: moved });
+  });
+
+  it("asks for nothing when the same grid is republished and everything landed", () => {
+    // OBS changing scene republishes the core slice, and she does that
+    // mid-workout. unregisterAll here would blink every key off.
+    expect(hotkeyClaim(hotkeyPlan([...grid]), plan, [])).toEqual({
+      unregisterAll: false,
+      claim: [],
+    });
+  });
+
+  it("re-asks for only the keys another app owned, leaving the working ones alone", () => {
+    // Windows hands the shortcut back when that app closes, and she will close
+    // it -- the menu just told her to. Without this the only way back is
+    // editing a grid she has no reason to think is wrong.
+    const failed = [plan[1]!];
+    expect(hotkeyClaim(hotkeyPlan([...grid]), plan, failed)).toEqual({
+      unregisterAll: false,
+      claim: failed,
+    });
   });
 });

@@ -23,11 +23,17 @@ import {
   DECK_WINDOW_CHROME,
   type Rect,
 } from "./deck-window.js";
-import { hotkeyNote, hotkeyPlan, sameBindings, type HotkeyBinding } from "./hotkeys.js";
+import {
+  hotkeyClaim,
+  hotkeyNote,
+  hotkeyPlan,
+  HOTKEY_RETRY_MS,
+  type HotkeyBinding,
+} from "./hotkeys.js";
 import { lanAddress, links as makeLinks, type Links } from "./net.js";
 import { ServerLog } from "./logs.js";
 import { resolvePaths } from "./paths.js";
-import { prefsPath, readPrefs, writePrefs } from "./prefs.js";
+import { prefsPath, readPrefs, shouldEnableLaunchAtLogin, writePrefs } from "./prefs.js";
 import { ServerProcess, type ServerStatus } from "./server-process.js";
 import { trayMenu, trayTooltip, type MenuAction, type MenuView, type UpdateState } from "./tray-menu.js";
 import { Updates } from "./updates.js";
@@ -80,6 +86,11 @@ async function main(): Promise<void> {
   let deckWindow: BrowserWindow | null = null;
   let bindings: HotkeyBinding[] = [];
   let failedKeys: HotkeyBinding[] = [];
+  let hotkeyLine = hotkeyNote(bindings, failedKeys);
+  /** The last grid the server published, so the retry below has something to
+   * ask for again without waiting for her to touch the deck. */
+  let deckSlots: Parameters<typeof hotkeyPlan>[0] = [];
+  let retryTimer: NodeJS.Timeout | null = null;
 
   const server = new ServerProcess({
     execPath: process.execPath,
@@ -103,7 +114,10 @@ async function main(): Promise<void> {
    */
   const client = new ServerClient({
     port,
-    onCore: (core) => applyHotkeys(core.deck.slots),
+    onCore: (core) => {
+      deckSlots = core.deck.slots;
+      applyHotkeys(deckSlots);
+    },
     onState: (connected) => {
       if (!connected) log.write("[tray] hotkeys waiting for the server\n");
     },
@@ -112,16 +126,18 @@ async function main(): Promise<void> {
 
   /**
    * Claim the keys her grid asks for. Registration can fail -- Windows gives a
-   * shortcut to whoever asked first and never takes it back -- so a failure is
-   * a state the menu reports, not an error anyone throws.
+   * shortcut to whoever asked first -- so a failure is a state the menu
+   * reports, not an error anyone throws. `hotkeyClaim` decides what that means
+   * for a given grid; this only makes the calls Electron needs.
    */
   function applyHotkeys(slots: Parameters<typeof hotkeyPlan>[0]): void {
     const plan = hotkeyPlan(slots);
-    if (sameBindings(plan, bindings)) return;
+    const { unregisterAll, claim } = hotkeyClaim(plan, bindings, failedKeys);
+    if (!unregisterAll && claim.length === 0) return;
 
-    globalShortcut.unregisterAll();
+    if (unregisterAll) globalShortcut.unregisterAll();
     const failed: HotkeyBinding[] = [];
-    for (const binding of plan) {
+    for (const binding of claim) {
       // register() returns false, but it also throws on an accelerator it
       // cannot parse -- which hotkeyPlan has already made impossible, and
       // which would take the tray down if it ever became possible again.
@@ -137,7 +153,14 @@ async function main(): Promise<void> {
     }
     bindings = plan;
     failedKeys = failed;
-    log.write(`[tray] ${hotkeyNote(bindings, failedKeys)}\n`);
+
+    // A retry that changed nothing is not news. Saying so every thirty seconds
+    // would bury the line that matters in a log she only opens when something
+    // is wrong.
+    const line = hotkeyNote(bindings, failedKeys);
+    if (line === hotkeyLine) return;
+    hotkeyLine = line;
+    log.write(`[tray] ${line}\n`);
     render();
   }
 
@@ -166,7 +189,7 @@ async function main(): Promise<void> {
       launchAtLogin: app.getLoginItemSettings().openAtLogin,
       update,
       deckWindowOpen: deckWindow !== null && !deckWindow.isDestroyed(),
-      hotkeys: hotkeyNote(bindings, failedKeys),
+      hotkeys: hotkeyLine,
     };
   }
 
@@ -283,10 +306,18 @@ async function main(): Promise<void> {
     window.setAlwaysOnTop(true, "floating");
     window.setMenuBarVisibility(false);
 
-    window.webContents.on("did-finish-load", () => {
+    const drawChrome = () => {
       // After the load rather than before: the page is a React app and the
       // strip is prepended to a body it has already rendered into.
       void window.webContents.executeJavaScript(DECK_WINDOW_CHROME);
+    };
+    window.webContents.on("did-finish-load", drawChrome);
+    // And onto whatever the failure left on screen. A frameless always-on-top
+    // window with no ✕ is a thing covering her scene that she cannot move and
+    // cannot close, which is worse than the load having failed.
+    window.webContents.on("did-fail-load", (_event, code, description) => {
+      log.write(`[tray] deck window failed to load: ${description || code}\n`);
+      drawChrome();
     });
 
     const remember = () => {
@@ -352,15 +383,15 @@ async function main(): Promise<void> {
   // close and then wonder where the app went. Windows has no equivalent.
   app.dock?.hide();
 
-  tray = new Tray(trayImage(paths.trayIcon));
+  // A missing icon comes back as an empty image rather than a throw, which is
+  // the failure we want: a clickable tray slot with nothing drawn in it beats a
+  // shell that will not start over a PNG.
+  tray = new Tray(nativeImage.createFromPath(paths.trayIcon));
   tray.setIgnoreDoubleClickEvents(true);
   render();
 
-  // First run on her machine turns this on, because "install once and it is
-  // just there" is the whole promise. Every run after reads what she chose,
-  // so unticking it sticks.
   const prefs = readPrefs(prefsFile);
-  if (process.platform === "win32" && prefs.launchAtLogin === undefined && app.isPackaged) {
+  if (shouldEnableLaunchAtLogin({ platform: process.platform, packaged: app.isPackaged, prefs })) {
     app.setLoginItemSettings({ openAtLogin: true });
     writePrefs(prefsFile, { ...prefs, launchAtLogin: true });
   }
@@ -371,6 +402,14 @@ async function main(): Promise<void> {
 
   await server.start();
   client.start();
+
+  // Ask again for the keys something else already owned. A grid that has none
+  // makes this a no-op, and one that does is the only case where she would
+  // otherwise have to edit a deck she has no reason to think is wrong.
+  retryTimer = setInterval(() => {
+    if (failedKeys.length > 0) applyHotkeys(deckSlots);
+  }, HOTKEY_RETRY_MS);
+  retryTimer.unref();
   if (app.isPackaged) updates.start();
 
   app.on("second-instance", () => void openConnectWindow(currentLinks()));
@@ -389,6 +428,7 @@ async function main(): Promise<void> {
     quitting = true;
     void (async () => {
       updates.stop();
+      if (retryTimer) clearInterval(retryTimer);
       // Hers, and claimed process-wide: leaving one registered after the app
       // is gone would be a key that does nothing until she reboots.
       globalShortcut.unregisterAll();
@@ -398,11 +438,4 @@ async function main(): Promise<void> {
       app.quit();
     })();
   });
-}
-
-/** An empty image still gives her a clickable tray slot, which is a better
- * failure than a shell that throws on startup over an icon. */
-function trayImage(file: string): Electron.NativeImage {
-  const image = nativeImage.createFromPath(file);
-  return image.isEmpty() ? nativeImage.createEmpty() : image;
 }

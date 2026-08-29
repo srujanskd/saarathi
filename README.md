@@ -30,7 +30,7 @@ rather than something you get with a clone.
 
 ## Status
 
-Early. Phase 1 of four.
+Early. Phases 1 and 2 of four.
 
 The server is built around the game module contract and runs. Chat events in, module state out,
 snapshot-synced over Socket.IO. Two modules ship with it: the challenge wheel and a chat log.
@@ -44,8 +44,11 @@ from the control page. All three render server state and decide nothing.
 a menu that says what the server is doing, shows a QR code her phone can scan, and updates
 itself from the GitHub release. Install once, never open a terminal.
 
-Next: the deck's other two faces — global hotkeys and a floating always-on-top window — which
-both live inside that shell and both render the same grid.
+The deck has all three of its faces now, and they are one grid: the touch page above, a global
+hotkey per button (`Ctrl+Alt+0-9` and `F13-F24`, picked from a list because she arranges the
+grid on a phone), and a frameless always-on-top window the tray floats over OBS. The tray is a
+client of its own server for this — a hotkey opens a socket to `127.0.0.1` and calls the same
+`invoke` her phone does, so there is one code path into an action rather than two.
 
 ## How it fits together
 
@@ -99,9 +102,9 @@ pnpm --filter @saarathi/desktop dev        # the tray app, against this checkout
 pnpm --filter @saarathi/desktop dist:local # a build for whatever you are on
 ```
 
-`pnpm dist` builds the pages, bundles the server and the tray into two files with esbuild, and
-hands them to electron-builder as an NSIS installer. Nothing ships a `node_modules`, which is
-what keeps electron-builder from having to walk pnpm's symlinked tree.
+`pnpm dist` builds the pages, bundles the server, the tray and its preload into three files with
+esbuild, and hands them to electron-builder as an NSIS installer. Nothing ships a
+`node_modules`, which is what keeps electron-builder from having to walk pnpm's symlinked tree.
 
 The installer is per-user and one-click: no admin prompt, no options page, and auto-update
 replaces it without one either. Her state lives in `%APPDATA%/Saarathi`, never in the install
@@ -156,7 +159,14 @@ apps/desktop/
   src/net.ts           which address to put in front of her; never localhost
   src/connect-page.ts  the QR page, the one thing this app renders itself
   src/paths.ts         where the state, the pages and the server live, packaged or not
-  build.mjs            two esbuild bundles, so the installer ships no node_modules
+  src/client.ts        the shell as a client of its own server, so a hotkey is an invoke
+  src/hotkeys.ts       which keys a grid claims, and what a key another app owns means
+  src/deck-window.ts   the floating deck: where it opens, and the chrome injected into it
+  src/preload.ts       one function, so the injected ✕ can reach the shell
+  src/prefs.ts         what the shell remembers about this machine, not about her
+  src/logs.ts          the log file behind "Open logs folder"
+  src/updates.ts       electron-updater, as four states the menu can say
+  build.mjs            three esbuild bundles, so the installer ships no node_modules
   electron-builder.config.mjs  packaging, and the root version it takes
 packages/shared        types and constants both sides import, including module state
 pnpm-workspace.yaml    workspace globs, and the allowBuilds list for postinstall scripts

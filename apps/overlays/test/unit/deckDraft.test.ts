@@ -15,7 +15,6 @@ import {
   findAction,
   hasScene,
   hotkeyChoices,
-  hotkeyLabel,
   moveSlot,
   removeSlot,
   sameGrid,
@@ -243,12 +242,5 @@ describe("the key on a button", () => {
     const before = JSON.stringify(grid);
     setHotkey(grid, 0, "Control+Alt+5");
     expect(JSON.stringify(grid)).toBe(before);
-  });
-
-  it("reads a key back in her words, and an unknown one as itself", () => {
-    expect(hotkeyLabel("Control+Alt+1")).toBe("Ctrl+Alt+1");
-    expect(hotkeyLabel(undefined)).toBe("");
-    // She has to be able to see the thing she is about to clear.
-    expect(hotkeyLabel("Control+Alt+Nope")).toBe("Control+Alt+Nope");
   });
 });

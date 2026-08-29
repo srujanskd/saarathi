@@ -81,6 +81,40 @@ export function sameBindings(a: readonly HotkeyBinding[], b: readonly HotkeyBind
 }
 
 /**
+ * How often to ask again for a key something else already owns.
+ *
+ * Windows hands a shortcut to whoever asked first, but it hands it back when
+ * that app closes -- and she will close it, because the fix she is told to
+ * apply is "something else has that key". Without a retry the only way back is
+ * editing the grid, which is a one-way door dressed up as a state.
+ */
+export const HOTKEY_RETRY_MS = 30_000;
+
+/**
+ * What to hand `globalShortcut` for a plan, given what is already claimed.
+ *
+ * Two cases, and the difference between them is the whole reason this is not
+ * one `register` loop. A grid that changed has to drop everything first,
+ * because a key that moved to another button would otherwise fire the old one.
+ * A grid that did not change must not: `unregisterAll` blinks every working
+ * key off for as long as it takes to claim them again, and the core slice is
+ * republished for reasons that have nothing to do with the deck -- OBS
+ * changing scene is the common one, and she does that mid-workout.
+ *
+ * What is left in the unchanged case is the keys that never landed. Re-asking
+ * costs one call each and is the only way she gets them back without editing
+ * a grid she has no reason to think is wrong.
+ */
+export function hotkeyClaim(
+  plan: readonly HotkeyBinding[],
+  current: readonly HotkeyBinding[],
+  failed: readonly HotkeyBinding[],
+): { readonly unregisterAll: boolean; readonly claim: readonly HotkeyBinding[] } {
+  if (!sameBindings(plan, current)) return { unregisterAll: true, claim: plan };
+  return { unregisterAll: false, claim: failed };
+}
+
+/**
  * The menu's one line about hotkeys. It is always there, whatever the answer,
  * because an item that appears only when something is wrong moves every item
  * below it under her finger at the worst possible moment -- and because "she

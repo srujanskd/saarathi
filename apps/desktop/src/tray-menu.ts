@@ -106,11 +106,15 @@ export function trayMenu(view: MenuView): MenuItemSpec[] {
     { id: "open-control", label: "Open control page", enabled: live },
     { id: "open-deck", label: "Open deck in browser", enabled: live },
     {
+      // Live to open it, and live *or already open* to close it. A window that
+      // outlived its server is frameless, always on top and sitting over her
+      // scene, so the menu has to stay a way out of it even when the thing that
+      // served the page is gone.
       id: "deck-window",
       label: "Floating deck",
       type: "checkbox",
       checked: view.deckWindowOpen,
-      enabled: live,
+      enabled: live || view.deckWindowOpen,
     },
     // Disabled, and there whatever the answer is. An item that only appeared
     // when something was wrong would move everything under it exactly when she

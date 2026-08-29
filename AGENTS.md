@@ -208,11 +208,13 @@ Helpers you should use instead of rolling your own:
   OBS and mock chat. Pass `store` to boot twice on the same state and prove a restart.
 - `test/helpers/collect.ts` — `collect(kernel)` taps patches and effects, which is exactly what a
   client receives and nothing more.
-- `apps/desktop/build.mjs` — the bundle the tray spawns. CI builds it on every push, because a
-  bundle that stopped bundling would otherwise surface on a tag.
 - `test/e2e/helpers/server.ts` — `startServer()` boots the real thing with `STATE_FILE` in a temp
   directory. It kills only the PID it spawned, and it never touches `data/`. Pass
   `stop({ keepState: true })` when a second run needs the same file.
+
+Not a test helper, but it is what CI runs beside them: `apps/desktop/build.mjs` produces the
+three bundles the installer ships, and CI builds it on every push, because a bundle that stopped
+bundling would otherwise surface on a tag with nowhere to fix forward from.
 
 Rules for this suite:
 

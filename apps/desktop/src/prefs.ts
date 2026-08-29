@@ -35,6 +35,27 @@ export function writePrefs(file: string, prefs: Prefs): void {
   writeFileSync(file, `${JSON.stringify(prefs, null, 2)}\n`);
 }
 
+/**
+ * Whether this run is the one that turns "start with Windows" on by itself.
+ *
+ * Only ever the first run of an installed copy on her machine: "install once
+ * and it is just there" is the whole promise, and every run after reads what
+ * she chose, so unticking it sticks. Never out of the repo -- a checkout that
+ * registered itself at login would follow whoever ran `pnpm dev` home -- and
+ * never off Windows, which has its own login-items model she is not on.
+ */
+export function shouldEnableLaunchAtLogin(inputs: {
+  platform: NodeJS.Platform;
+  packaged: boolean;
+  prefs: Prefs;
+}): boolean {
+  return (
+    inputs.platform === "win32" &&
+    inputs.packaged &&
+    inputs.prefs.launchAtLogin === undefined
+  );
+}
+
 export function prefsPath(userData: string): string {
   return join(userData, "desktop.json");
 }

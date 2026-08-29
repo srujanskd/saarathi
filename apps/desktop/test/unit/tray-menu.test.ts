@@ -117,6 +117,13 @@ describe("the deck's other two faces", () => {
     expect(item(down, "deck-window")!.enabled).toBe(false);
   });
 
+  it("stays the way out of a window that outlived its server", () => {
+    // Frameless, always on top, sitting over her scene. Greying this out
+    // because the server died leaves her nothing to close it with.
+    const orphaned = { ...base, status: { phase: "stopped" } as const, deckWindowOpen: true };
+    expect(item(orphaned, "deck-window")!.enabled).toBe(true);
+  });
+
   it("says what the hotkeys are doing whatever the answer, and never as a button", () => {
     const none = item(base, "hotkeys")!;
     expect(none.label).toBe("No hotkeys set");

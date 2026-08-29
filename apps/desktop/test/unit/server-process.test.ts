@@ -21,7 +21,23 @@ describe("spawnPlan", () => {
     expect(plan.env.STATE_FILE).toBe("/Users/her/Saarathi/state.json");
     expect(plan.env.OVERLAYS_DIST).toBe("/opt/Saarathi/resources/overlays");
     expect(plan.env.PORT).toBe("4400");
+    // The fourth, and the one nothing else would notice going missing: the
+    // child logs to a file she opens from the menu, so a level nobody set is a
+    // support story that says nothing.
+    expect(plan.env.LOG_LEVEL).toBe("info");
     expect(plan.args).toEqual(["/opt/Saarathi/resources/server.mjs"]);
+  });
+
+  it("lets the shell pick the level, since the log is the whole support story", () => {
+    const debug = spawnPlan({
+      execPath: "/x/Saarathi.exe",
+      entry: "/x/server.mjs",
+      stateFile: "/x/state.json",
+      overlaysDist: "/x/overlays",
+      port: 4400,
+      logLevel: "debug",
+    });
+    expect(debug.env.LOG_LEVEL).toBe("debug");
   });
 });
 
