@@ -11,6 +11,20 @@ import { readFileSync } from "node:fs";
  */
 const root = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
 
+/**
+ * Which kind of release electron-builder is allowed to upload onto.
+ *
+ * It defaults to "draft", and release.yml has already created a published
+ * release by the time this runs. Those two disagree, and electron-builder
+ * resolves the disagreement by skipping every upload and exiting 0 -- a green
+ * job on a release with no installer, which is a release she cannot install.
+ *
+ * So it is derived from the tag by the same rule release.yml uses: a hyphen
+ * means a pre-release. The two have to agree, because "not compatible" is
+ * silent.
+ */
+const releaseType = (process.env.GITHUB_REF_NAME ?? "").includes("-") ? "prerelease" : "release";
+
 export default {
   appId: "app.saarathi.tray",
   productName: "Saarathi",
@@ -61,6 +75,7 @@ export default {
       // -- in a directory she may one day be asked to look in. It is a publisher
       // option in electron-builder 26, not a root one.
       updaterCacheDirName: "saarathi-updater",
+      releaseType,
     },
   ],
 };

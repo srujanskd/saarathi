@@ -80,3 +80,21 @@ jobs:
       - run: pnpm --filter @saarathi/desktop exec electron-builder --config electron-builder.config.mjs --win --publish always
         env:
           GH_TOKEN: ${{ github.token }}
+
+      # electron-builder skips an upload it thinks is incompatible with the
+      # existing release and still exits 0, so a green job above is not proof
+      # that anything landed. The proof is the release having the three files
+      # on it: the installer, its blockmap, and the latest.yml the updater
+      # polls. A release missing any of them is one she cannot install or
+      # update, so it fails here rather than being discovered by her.
+      - name: Refuse a release the installer did not land on
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          names=$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')
+          echo "assets on ${GITHUB_REF_NAME}:"; echo "${names:-  (none)}"
+          for want in "Saarathi-Setup-${GITHUB_REF_NAME#v}.exe" "Saarathi-Setup-${GITHUB_REF_NAME#v}.exe.blockmap" latest.yml; do
+            grep -qxF "$want" <<<"$names" \
+              || { echo "::error::${want} is missing from ${GITHUB_REF_NAME}. electron-builder reported success but published nothing."; exit 1; }
+          done
