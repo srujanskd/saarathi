@@ -32,6 +32,13 @@ export interface FakeObsOptions {
   scenes?: string[];
   /** Reuse a port a previous fake had, to be the same OBS starting up again. */
   port?: number;
+  /**
+   * Sit on the Hello for this long. OBS is not usually slow, but a connect that
+   * is still in flight is the only window in which she can tap Disconnect and
+   * have an answer arrive afterwards, and that window is otherwise a millisecond
+   * wide and untestable.
+   */
+  helloDelayMs?: number;
 }
 
 export interface FakeObs {
@@ -88,11 +95,14 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
     const salt = randomBytes(16).toString("base64");
     const challenge = randomBytes(16).toString("base64");
 
-    send(socket, OP.hello, {
-      obsWebSocketVersion: "5.6.2",
-      rpcVersion: 1,
-      ...(password ? { authentication: { challenge, salt } } : {}),
-    });
+    const hello = () =>
+      send(socket, OP.hello, {
+        obsWebSocketVersion: "5.6.2",
+        rpcVersion: 1,
+        ...(password ? { authentication: { challenge, salt } } : {}),
+      });
+    if (options.helloDelayMs) setTimeout(hello, options.helloDelayMs).unref?.();
+    else hello();
 
     socket.on("message", (raw) => {
       const message = JSON.parse(String(raw)) as { op: number; d: Record<string, unknown> };

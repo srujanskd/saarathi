@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { CORE_ID, OBS_ID, type CoreState } from "@saarathi/shared";
+import { CORE_ID, OBS_ID, OBS_RETRY_MS, type CoreState } from "@saarathi/shared";
 import { startFakeObs, type FakeObs } from "./helpers/fake-obs.js";
 import { startServer, waitFor, type Client, type RunningServer } from "./helpers/server.js";
 
@@ -204,7 +204,47 @@ describe("OBS control, end to end", () => {
     const core = await until(control, "connected");
     expect(core.obs.mode).toBe("auto");
     expect(core.obs.detected).toBe(true);
+    // The port her card shows is the one we are actually talking to. The OS
+    // handed the fake a random one, so a card rendering the saved 4455 here
+    // would be pointing her at a socket nothing is on.
+    expect(core.obs.port).toBe(obs.port);
+    // Hers, and she never set one: the field offers nothing to keep and the
+    // Forget button nothing to forget, whatever OBS generated for itself.
     expect(core.obs.hasPassword).toBe(false);
+  });
+
+  it("stays off when she taps Disconnect, even mid-connect, until she taps try again", async () => {
+    // Slow enough that the Disconnect below lands while the connect is still in
+    // flight, which is the only window where an answer can arrive for a
+    // connection she has already said she does not want.
+    obs = await startFakeObs({ password: "s3cret", helloDelayMs: 400 });
+    server = await startServer();
+    const control = await server.connect({ surface: "control" });
+    // Not awaited: this invoke does not answer until the attempt it starts is
+    // over, and the whole point is to reach her Disconnect before then.
+    const pointed = point(control, obs.port, "s3cret");
+    await until(control, "connecting");
+
+    expect(await control.invoke({ action: "core.obsDisconnect" })).toEqual({ ok: true });
+    expect(await pointed).toEqual({ ok: true });
+    const off = await until(control, "disconnected", "switched off");
+    expect(off.connections[OBS_ID]!.detail).toContain("switched off");
+
+    // Neither the connect she interrupted nor the retry loop may put it back:
+    // a card that says off while the socket is open is worse than no card.
+    await expect(
+      control.waitFor(
+        "a connection she did not ask for",
+        () => obsStatusOf(control)?.state === "connected",
+        // Past both the handshake she interrupted and a retry interval, and no
+        // further: this one wait is most of what this file costs.
+        OBS_RETRY_MS * 1.5,
+      ),
+    ).rejects.toThrow();
+
+    // And the way back in.
+    expect(await control.invoke({ action: "core.obsConnect" })).toEqual({ ok: true });
+    await until(control, "connected", "connected again");
   });
 
   it("waits, without dialling, while OBS's WebSocket server is switched off", async () => {

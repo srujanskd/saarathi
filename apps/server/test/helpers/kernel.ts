@@ -1,4 +1,6 @@
 import {
+  OBS_DEFAULT_HOST,
+  OBS_DEFAULT_PORT,
   OBS_ID,
   type GameModuleDef,
   type InvokeResult,
@@ -9,7 +11,7 @@ import type { ChatAdapter } from "../../src/chat/adapter.js";
 import { MockChatAdapter } from "../../src/chat/mock.js";
 import { createKernel, type Kernel } from "../../src/core/kernel.js";
 import { obsStatus } from "../../src/core/obs-config.js";
-import type { ObsAdapter, ObsSink } from "../../src/core/obs.js";
+import type { ManualSettings, ObsAdapter, ObsSink } from "../../src/core/obs.js";
 import { MemoryStore, type StateStore } from "../../src/core/store.js";
 import { chatlog } from "../../src/modules/chatlog/index.js";
 import { wheel } from "../../src/modules/wheel/index.js";
@@ -21,7 +23,7 @@ export interface FakeObs extends ObsAdapter {
   readonly scenes: string[];
   readonly visibility: { scene: string; source: string; visible: boolean }[];
   /** Settings saved from her control page, in order. */
-  readonly saves: { host: string; port: string; password: string }[];
+  readonly saves: ManualSettings[];
   /** Pretend OBS came up, or went away. Pushes status the way the real one does. */
   arrive(scenes?: string[]): void;
   depart(): void;
@@ -40,10 +42,11 @@ export function fakeObs(): FakeObs {
   let sink: ObsSink | null = null;
   let live: string[] | null = null;
 
+  const where = { host: OBS_DEFAULT_HOST, port: OBS_DEFAULT_PORT };
+
   const view = (): ObsView => ({
     mode: "manual",
-    host: "127.0.0.1",
-    port: 4455,
+    ...where,
     hasPassword: false,
     detected: false,
     scenes: live ?? [],
@@ -72,7 +75,7 @@ export function fakeObs(): FakeObs {
     async start(next) {
       sink = next;
       publish();
-      sink.status(obsStatus({ phase: "down", host: "127.0.0.1", port: 4455 }));
+      sink.status(obsStatus({ phase: "down", ...where }));
     },
     async stop() {
       sink = null;
@@ -83,8 +86,8 @@ export function fakeObs(): FakeObs {
     disconnect: ok,
     useAuto: ok,
     forgetPassword: ok,
-    async setSettings(host, port, password) {
-      saves.push({ host, port, password });
+    async setSettings(settings) {
+      saves.push(settings);
       return { ok: true };
     },
     async setScene(name) {
@@ -97,12 +100,12 @@ export function fakeObs(): FakeObs {
     arrive(list = ["Workout", "Just Chatting"]) {
       live = list;
       publish();
-      sink?.status(obsStatus({ phase: "connected", host: "127.0.0.1", port: 4455, scenes: list.length }));
+      sink?.status(obsStatus({ phase: "connected", ...where, scenes: list.length }));
     },
     depart() {
       live = null;
       publish();
-      sink?.status(obsStatus({ phase: "down", host: "127.0.0.1", port: 4455 }));
+      sink?.status(obsStatus({ phase: "down", ...where }));
     },
   };
 }

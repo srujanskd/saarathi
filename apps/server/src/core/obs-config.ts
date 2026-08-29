@@ -106,8 +106,11 @@ export function resolveSettings(saved: ObsSettings, config: ObsConfig | null): O
   };
 }
 
+/** Exported so the adapter names it rather than retyping the union. */
+export type ObsPhase = "connecting" | "connected" | "down" | "rejected" | "off" | "stopped";
+
 export interface ObsCondition {
-  phase: "connecting" | "connected" | "down" | "rejected" | "off" | "stopped";
+  phase: ObsPhase;
   host: string;
   port: number;
   /** Scene count, for the connected line. */

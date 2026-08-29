@@ -11,9 +11,17 @@ export const CORE_ID = "core";
  */
 export interface ObsView {
   mode: "auto" | "manual";
-  /** Effective values -- what the next connect attempt will actually use. */
+  /**
+   * Effective values -- what the next connect attempt will actually use, which
+   * in auto mode is what OBS's own config file said and not what is stored.
+   */
   host: string;
   port: number;
+  /**
+   * True when a password of *hers* is stored. Deliberately not the one detected
+   * in OBS's config: this is what the password field and Forget password are
+   * about, and neither has anything to offer for a password she never set.
+   */
   hasPassword: boolean;
   /** True when these came from OBS's own config file rather than from her. */
   detected: boolean;

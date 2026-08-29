@@ -25,3 +25,11 @@ export const OBS_RETRY_MS = 5_000;
 
 /** A filtered port never refuses and never opens, so a connect needs its own clock. */
 export const OBS_CONNECT_TIMEOUT_MS = 10_000;
+
+/**
+ * The same hazard one layer down: a half-open socket answers a request never,
+ * not with an error, so a module calling `ctx.obs.setScene` mid-spin would wait
+ * for the rest of the stream. Shorter than the connect timeout because by here
+ * OBS has already answered once.
+ */
+export const OBS_CALL_TIMEOUT_MS = 5_000;

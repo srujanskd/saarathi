@@ -5,7 +5,9 @@ import { readFileSync } from "node:fs";
 // fake server in the tests can speak without pulling a codec in too.
 import OBSWebSocket, { OBSWebSocketError } from "obs-websocket-js/json";
 import {
+  OBS_CALL_TIMEOUT_MS,
   OBS_CONNECT_TIMEOUT_MS,
+  OBS_DEFAULT_PORT,
   OBS_ID,
   OBS_RETRY_MS,
   type ConnectionStatus,
@@ -19,6 +21,8 @@ import {
   obsStatus,
   readObsConfig,
   resolveSettings,
+  type ObsCondition,
+  type ObsPhase,
   type ObsSettings,
 } from "./obs-config.js";
 import type { StateStore } from "./store.js";
@@ -32,6 +36,25 @@ export interface ObsSink {
   view(view: ObsView): void;
 }
 
+/** Where she says OBS is, once it has been parsed out of her control page. */
+export interface ManualSettings {
+  host: string;
+  /** Already a number: the string never travels past `obsCommand`. */
+  port: number;
+  /** Blank means "leave the stored one alone". */
+  password: string;
+}
+
+/** Everything her surfaces can ask of OBS, and all `obsCommand` needs to route. */
+export interface ObsCommands {
+  connect(): Promise<InvokeResult>;
+  disconnect(): Promise<InvokeResult>;
+  useAuto(): Promise<InvokeResult>;
+  forgetPassword(): Promise<InvokeResult>;
+  setScene(name: string): Promise<InvokeResult>;
+  setSettings(settings: ManualSettings): Promise<InvokeResult>;
+}
+
 /**
  * The OBS seam, shaped like `ChatAdapter` because it is the same kind of thing:
  * a named external connection that starts, reports itself in words she can act
@@ -40,19 +63,54 @@ export interface ObsSink {
  * `actions` is the narrow view modules get as `ctx.obs`. Everything below it is
  * for her surfaces, and no module can reach any of it.
  */
-export interface ObsAdapter {
+export interface ObsAdapter extends ObsCommands {
   /** Also the key its connection status appears under on her control page. */
   readonly name: string;
   readonly actions: ObsActions;
   start(sink: ObsSink): Promise<void>;
   stop(): Promise<void>;
   view(): ObsView;
-  connect(): Promise<InvokeResult>;
-  disconnect(): Promise<InvokeResult>;
-  setSettings(host: string, port: string, password: string): Promise<InvokeResult>;
-  useAuto(): Promise<InvokeResult>;
-  forgetPassword(): Promise<InvokeResult>;
-  setScene(name: string): Promise<InvokeResult>;
+}
+
+/**
+ * Her control page's OBS actions, routed here rather than in the registry.
+ * Knowing that `obsScene` takes a scene name and `obsSettings` takes a port
+ * that has to parse is knowledge about OBS, and the registry's job is modules.
+ * `null` means "not one of ours", so the registry can carry on to its own.
+ */
+export function obsCommand(
+  obs: ObsCommands,
+  name: string,
+  args: string[],
+): Promise<InvokeResult> | null {
+  const run = OBS_COMMANDS.get(name);
+  return run ? run(obs, args) : null;
+}
+
+const OBS_COMMANDS = new Map<string, (obs: ObsCommands, args: string[]) => Promise<InvokeResult>>([
+  ["obsConnect", (obs) => obs.connect()],
+  ["obsDisconnect", (obs) => obs.disconnect()],
+  ["obsAuto", (obs) => obs.useAuto()],
+  ["obsForget", (obs) => obs.forgetPassword()],
+  ["obsScene", (obs, args) => obs.setScene(args[0] ?? "")],
+  ["obsSettings", (obs, args) => applySettings(obs, args)],
+]);
+
+/**
+ * Positional strings, because `InvokeRequest.args` is `string[]` -- the same
+ * constraint `wheel.setChallenges` already lives with. They are parsed here and
+ * only here, so nothing past this line carries a port that might not be one.
+ */
+async function applySettings(obs: ObsCommands, args: string[]): Promise<InvokeResult> {
+  const [host = "", port = "", password = ""] = args;
+  const number = Number(port.trim());
+  if (!Number.isInteger(number) || number < 1 || number > 65535) {
+    return {
+      ok: false,
+      reason: `"${port}" is not a port number. OBS uses ${OBS_DEFAULT_PORT} by default.`,
+    };
+  }
+  return obs.setSettings({ host: host.trim(), port: number, password });
 }
 
 export interface ObsOptions {
@@ -76,10 +134,25 @@ export class ObsWebSocketAdapter implements ObsAdapter {
   readonly actions: ObsActions;
 
   private settings: ObsSettings;
+  /**
+   * What the next attempt will actually dial, which in auto mode is what OBS's
+   * config file said rather than what is stored. Her card renders this: a port
+   * we detected and a port we saved are different numbers, and showing her the
+   * saved one while talking to the detected one is a lie on the one surface she
+   * has for working out why OBS is unhappy.
+   */
+  private effective: ObsSettings;
   private sink: ObsSink | null = null;
   private socket: OBSWebSocket | null = null;
   private timer: NodeJS.Timeout | null = null;
   private stopped = true;
+  /**
+   * She tapped Disconnect. Separate from `stopped`, which is the kernel's
+   * lifecycle: conflating them meant the card said "switched off" while the
+   * adapter was merely idle, and `connect()`'s refusal could never fire.
+   * In memory on purpose -- a restart should come back up talking to OBS.
+   */
+  private paused = false;
   /** Set by a refused password. Terminal until she changes a setting. */
   private rejected = false;
   private detected = false;
@@ -88,6 +161,7 @@ export class ObsWebSocketAdapter implements ObsAdapter {
 
   constructor(private readonly options: ObsOptions) {
     this.settings = this.load();
+    this.effective = this.settings;
 
     const connected = () => this.socket !== null;
     this.actions = {
@@ -95,9 +169,7 @@ export class ObsWebSocketAdapter implements ObsAdapter {
         return connected();
       },
       setScene: async (name) => {
-        await this.request("switch scene", (obs) =>
-          obs.call("SetCurrentProgramScene", { sceneName: name }),
-        );
+        await this.switchScene(name);
       },
       setSourceVisible: async (scene, source, visible) => {
         await this.request("change a source", async (obs) => {
@@ -135,16 +207,27 @@ export class ObsWebSocketAdapter implements ObsAdapter {
   }
 
   view(): ObsView {
-    return viewOf(this.settings, this.detected, this.scenes, this.currentScene);
+    return {
+      mode: this.settings.mode,
+      host: this.effective.host,
+      port: this.effective.port,
+      // Hers, not the detected one: this is what the password field and Forget
+      // password act on, and neither has anything to do for OBS's own.
+      hasPassword: this.settings.password !== "",
+      detected: this.detected,
+      scenes: [...this.scenes],
+      currentScene: this.currentScene,
+    };
   }
 
   // --- her surfaces ---------------------------------------------------------
 
   async connect(): Promise<InvokeResult> {
-    if (this.stopped) return { ok: false, reason: "OBS control is switched off" };
-    // Trying again is exactly what she means by tapping this, so a password
-    // OBS refused earlier stops being the last word.
+    if (this.stopped) return { ok: false, reason: "OBS control is not running" };
+    // Trying again is exactly what she means by tapping this, so neither a
+    // password OBS refused earlier nor a Disconnect she tapped is the last word.
     this.rejected = false;
+    this.paused = false;
     this.clearTimer();
     await this.drop();
     await this.tick();
@@ -152,23 +235,20 @@ export class ObsWebSocketAdapter implements ObsAdapter {
   }
 
   async disconnect(): Promise<InvokeResult> {
+    // Actually off, not merely idle: without this the retry loop would pick the
+    // connection back up behind her and the card would keep saying it was off.
+    this.paused = true;
     this.clearTimer();
     await this.drop();
     this.report({ phase: "stopped" });
     return { ok: true };
   }
 
-  async setSettings(host: string, port: string, password: string): Promise<InvokeResult> {
-    const address = host.trim() || this.settings.host;
-    const number = Number(port.trim());
-    if (!Number.isInteger(number) || number < 1 || number > 65535) {
-      return { ok: false, reason: `"${port}" is not a port number. OBS uses 4455 by default.` };
-    }
-
+  async setSettings({ host, port, password }: ManualSettings): Promise<InvokeResult> {
     this.save({
       mode: "manual",
-      host: address,
-      port: number,
+      host: host || this.settings.host,
+      port,
       // Blank means "leave it alone", because the password is never sent to a
       // client to prefill the field with. Forgetting it is its own button.
       password: password || this.settings.password,
@@ -192,10 +272,15 @@ export class ObsWebSocketAdapter implements ObsAdapter {
     if (this.scenes.length > 0 && !this.scenes.includes(name)) {
       return { ok: false, reason: `OBS has no scene called "${name}"` };
     }
-    const ok = await this.request("switch scene", (obs) =>
+    const ok = await this.switchScene(name);
+    return ok ? { ok: true } : { ok: false, reason: "OBS did not take that. Check the log." };
+  }
+
+  /** The one place a scene is switched, for her button and for `ctx.obs` alike. */
+  private switchScene(name: string): Promise<boolean> {
+    return this.request("switch scene", (obs) =>
       obs.call("SetCurrentProgramScene", { sceneName: name }),
     );
-    return ok ? { ok: true } : { ok: false, reason: "OBS did not take that. Check the log." };
   }
 
   // --- connecting -----------------------------------------------------------
@@ -208,32 +293,27 @@ export class ObsWebSocketAdapter implements ObsAdapter {
    * real OBS during a test run.
    */
   private async tick(): Promise<void> {
-    if (this.stopped || this.rejected || !this.sink) return;
+    if (this.stopped || this.paused || this.rejected || !this.sink) return;
 
     const config = this.settings.mode === "auto" ? this.readConfig() : null;
     this.detected = config !== null;
-    const resolved = resolveSettings(this.settings, config);
+    this.effective = resolveSettings(this.settings, config);
     this.publish();
 
     if (this.settings.mode === "auto") {
       if (!config) {
-        this.report({
-          phase: "down",
-          host: resolved.host,
-          port: resolved.port,
-          detail: "no OBS settings found on this machine",
-        });
+        this.report({ phase: "down", detail: "no OBS settings found on this machine" });
         this.schedule();
         return;
       }
       if (!config.enabled) {
-        this.report({ phase: "off", host: resolved.host, port: resolved.port });
+        this.report({ phase: "off" });
         this.schedule();
         return;
       }
     }
 
-    await this.attempt(resolved);
+    await this.attempt(this.effective);
   }
 
   private async attempt(settings: ObsSettings): Promise<void> {
@@ -251,6 +331,7 @@ export class ObsWebSocketAdapter implements ObsAdapter {
       // A timed-out connect leaves a socket half-open, and connect() itself
       // only cleans up the failures it saw.
       await obs.disconnect().catch(() => {});
+      if (this.abandoned()) return;
       if (err instanceof OBSWebSocketError && err.code === AUTH_FAILED) {
         this.rejected = true;
         this.report({ phase: "rejected", host, port, detail: err.message });
@@ -258,6 +339,14 @@ export class ObsWebSocketAdapter implements ObsAdapter {
       }
       this.report({ phase: "down", host, port, detail: String(err) });
       this.schedule();
+      return;
+    }
+
+    // A connect takes as long as OBS takes, and she can tap Disconnect in the
+    // middle of one. Adopting the socket anyway would flip her card back to
+    // connected after she asked for it off, which is a one-way door.
+    if (this.abandoned()) {
+      await obs.disconnect().catch(() => {});
       return;
     }
 
@@ -317,7 +406,13 @@ export class ObsWebSocketAdapter implements ObsAdapter {
       return false;
     }
     try {
-      await run(obs);
+      // A half-open socket never answers and never errors, so this needs its
+      // own clock for the same reason connect() does.
+      await withTimeout(
+        run(obs),
+        OBS_CALL_TIMEOUT_MS,
+        `OBS did not answer within ${OBS_CALL_TIMEOUT_MS / 1000}s`,
+      );
       return true;
     } catch (err) {
       this.options.log.error(`obs: could not ${what}`, err);
@@ -327,8 +422,13 @@ export class ObsWebSocketAdapter implements ObsAdapter {
 
   // --- plumbing -------------------------------------------------------------
 
+  /** She stopped wanting this connection while we were still making it. */
+  private abandoned(): boolean {
+    return this.stopped || this.paused;
+  }
+
   private schedule(): void {
-    if (this.stopped || this.rejected || this.timer) return;
+    if (this.stopped || this.paused || this.rejected || this.timer) return;
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.tick();
@@ -378,6 +478,10 @@ export class ObsWebSocketAdapter implements ObsAdapter {
 
   private save(settings: ObsSettings): void {
     this.settings = settings;
+    // Whatever we had detected is about to be recomputed by the next tick, and
+    // until then what she just typed is the honest answer to "where is OBS".
+    this.effective = settings;
+    this.detected = false;
     // Its own namespace, not core's: the registry rewrites the whole `core`
     // namespace every time she switches a module on or off.
     this.options.store.write(OBS_ID, { ...settings });
@@ -385,17 +489,12 @@ export class ObsWebSocketAdapter implements ObsAdapter {
     this.publish();
   }
 
-  private report(condition: {
-    phase: "connecting" | "connected" | "down" | "rejected" | "off" | "stopped";
-    host?: string;
-    port?: number;
-    scenes?: number;
-    detail?: string;
-  }): void {
+  /** Host and port default to what we would actually dial, not what is saved. */
+  private report(condition: Partial<ObsCondition> & { phase: ObsPhase }): void {
     const status = obsStatus({
       ...condition,
-      host: condition.host ?? this.settings.host,
-      port: condition.port ?? this.settings.port,
+      host: condition.host ?? this.effective.host,
+      port: condition.port ?? this.effective.port,
     });
     if (condition.detail) this.options.log.info(`obs: ${condition.detail}`);
     this.sink?.status(status);
@@ -406,29 +505,13 @@ export class ObsWebSocketAdapter implements ObsAdapter {
   }
 }
 
-function viewOf(
-  settings: ObsSettings,
-  detected: boolean,
-  scenes: string[],
-  currentScene: string | null,
-): ObsView {
-  return {
-    mode: settings.mode,
-    host: settings.host,
-    port: settings.port,
-    hasPassword: settings.password !== "",
-    detected,
-    scenes: [...scenes],
-    currentScene,
-  };
-}
-
 /**
- * obs-websocket-js waits for the socket to open with no clock of its own, so a
- * port that is filtered rather than refused -- a firewall, a VPN, a machine
- * that is simply gone -- hangs the retry loop for good instead of failing.
+ * obs-websocket-js has no clock of its own, at either end. A port that is
+ * filtered rather than refused -- a firewall, a VPN, a machine that is simply
+ * gone -- hangs a connect for good instead of failing, and a half-open socket
+ * does the same to a request. Both get this.
  */
-async function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+export async function withTimeout<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   try {
     return await Promise.race([

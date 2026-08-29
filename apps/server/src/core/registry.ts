@@ -12,7 +12,7 @@ import {
   type ModuleStatus,
   type StreamEvent,
 } from "@saarathi/shared";
-import type { ObsAdapter } from "./obs.js";
+import { obsCommand, type ObsAdapter } from "./obs.js";
 import type { StateStore } from "./store.js";
 import { ActionRefused } from "./triggers.js";
 
@@ -199,9 +199,14 @@ export class Registry {
    * so her control page never shows a button that does nothing.
    */
   private async dispatchCore(name: string, input: ActionInput): Promise<InvokeResult> {
-    // Resolving the target module belongs to the cases that have one. Doing it
-    // up here refused every core action that is not about a module -- which,
-    // once OBS arrived, was most of them.
+    // OBS routes itself. What its actions are called and what their arguments
+    // mean is knowledge about OBS, and this file is about modules.
+    const obs = obsCommand(this.deps.obs, name, input.args);
+    if (obs) return obs;
+
+    // Resolving the target module belongs to the cases that have one, which is
+    // why these are closures. Doing it eagerly refused every core action that
+    // is not about a module -- which, once OBS arrived, was most of them.
     const target = (): Runtime | null => this.modules.get(input.args[0] ?? "") ?? null;
     const missing = (): InvokeResult => ({
       ok: false,
@@ -209,22 +214,6 @@ export class Registry {
     });
 
     switch (name) {
-      case "obsConnect":
-        return this.deps.obs.connect();
-      case "obsDisconnect":
-        return this.deps.obs.disconnect();
-      case "obsAuto":
-        return this.deps.obs.useAuto();
-      case "obsForget":
-        return this.deps.obs.forgetPassword();
-      case "obsScene":
-        return this.deps.obs.setScene(input.args[0] ?? "");
-      case "obsSettings": {
-        // Positional strings, because InvokeRequest.args is string[] -- the
-        // same constraint wheel.setChallenges already lives with.
-        const [host = "", port = "", password = ""] = input.args;
-        return this.deps.obs.setSettings(host, port, password);
-      }
       case "enable":
       case "disable": {
         const runtime = target();

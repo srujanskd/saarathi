@@ -143,8 +143,8 @@ packages with `pnpm add -F @saarathi/server <pkg>`, and depend on workspace pack
 ## Testing
 
 ```bash
-pnpm test            # unit + unit-overlays + integration + e2e, about 6s
-pnpm test:fast       # skip e2e, for the tight loop
+pnpm test            # unit + unit-overlays + integration + e2e, about 30s
+pnpm test:fast       # skip e2e, for the tight loop -- under a second
 pnpm test:watch      # same, watching
 pnpm test:unit
 pnpm test:integration

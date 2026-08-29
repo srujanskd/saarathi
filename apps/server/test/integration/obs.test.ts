@@ -78,7 +78,18 @@ describe("her surfaces drive OBS through core actions", () => {
     expect(await h.kernel.invoke("core.obsSettings", { args: ["10.0.0.5", "4455", "pw"] })).toEqual({
       ok: true,
     });
-    expect(obs.saves).toEqual([{ host: "10.0.0.5", port: "4455", password: "pw" }]);
+    expect(obs.saves).toEqual([{ host: "10.0.0.5", port: 4455, password: "pw" }]);
+  });
+
+  // Parsing happens once, at the seam, so nothing past it holds a port that is
+  // not a number -- and she is told which of the three fields is wrong.
+  it("refuses a port that is not one, and saves nothing", async () => {
+    const { h, obs } = await start();
+    expect(await h.kernel.invoke("core.obsSettings", { args: ["10.0.0.5", "half", ""] })).toEqual({
+      ok: false,
+      reason: '"half" is not a port number. OBS uses 4455 by default.',
+    });
+    expect(obs.saves).toEqual([]);
   });
 
   it("has a way out of every way in", async () => {
