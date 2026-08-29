@@ -1,4 +1,4 @@
-import type { ActiveSpin } from "@saarathi/shared";
+import { MAX_CHALLENGES, type ActiveSpin } from "@saarathi/shared";
 
 export type SpinPhase = "idle" | "spinning" | "landed";
 
@@ -49,11 +49,34 @@ export function phaseKicker(caption: SpinCaption): string {
  */
 export function queueSummary(count: number, nextBy: string, hasChallenges: boolean): string | null {
   if (count < 1) return null;
-  if (!hasChallenges) {
-    return count === 1
-      ? "1 spin waiting, nothing on the wheel yet"
-      : `${count} spins waiting, nothing on the wheel yet`;
-  }
+  if (!hasChallenges) return `${plural(count, "spin", "spins")} waiting, nothing on the wheel yet`;
   if (count === 1) return `${nextBy} is next`;
   return `${count} waiting, ${nextBy} is next`;
+}
+
+/** "1 spin", "3 spins". Two lines on this card count things, and hand-rolling
+ * the plural in each is how one of them keeps its stray s the day somebody
+ * edits the other. */
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/**
+ * What the fold says about the size of the list she is editing. It counts the
+ * draft rather than the saved list so the cap shows up while she is typing,
+ * not only when the server turns the save down.
+ *
+ * Over the cap it says the refusal itself, word for word, so the fold and the
+ * notice are one sentence rather than two descriptions of one rule -- and so a
+ * list that was already too big when it loaded explains itself on sight.
+ *
+ * It reports; it does not decide. The server owns the rule -- the Save button
+ * stays live and its refusal is the authority, because a button that silently
+ * greys out tells her nothing at arm's length.
+ */
+export function countLabel(count: number): string {
+  if (count > MAX_CHALLENGES) {
+    return `A wheel holds ${MAX_CHALLENGES} challenges — that list has ${count}`;
+  }
+  return plural(count, "challenge", "challenges");
 }

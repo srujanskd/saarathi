@@ -1,4 +1,4 @@
-import { WHEEL_ID, type WheelState } from "@saarathi/shared";
+import { MAX_CHALLENGES, WHEEL_ID, type WheelState } from "@saarathi/shared";
 import { controlUrl, expect, test } from "./helpers/fixtures.js";
 
 /**
@@ -138,4 +138,46 @@ test("says so, visibly, when the address in the URL goes nowhere", async ({ page
     timeout: 15_000,
   });
   await expect(page.getByTestId("status")).toContainText("127.0.0.1:1");
+});
+
+/**
+ * The cap is the server's rule and the server's tests prove it. What only a
+ * browser can show is that she finds out before she taps: the fold counts the
+ * text in the box rather than the list on the server, and a refused save
+ * leaves that text where she can fix it instead of snapping back.
+ */
+test("says a list is too long before she saves it, and keeps it when refused", async ({
+  page,
+  pages,
+  saarathi,
+}) => {
+  await page.goto(controlUrl(pages, saarathi));
+  await expect(page.getByTestId("status")).toHaveText("Connected");
+
+  await page.locator(".fold > summary").click();
+  const textarea = page.getByTestId("wheel-challenges");
+  const before = (await saarathi.get("/api/state")) as { modules: Record<string, WheelState> };
+  const saved = before.modules[WHEEL_ID]!.challenges;
+
+  const tooMany = Array.from({ length: MAX_CHALLENGES + 1 }, (_, i) => `challenge ${i}`);
+  const overCap = `A wheel holds ${MAX_CHALLENGES} challenges \u2014 that list has ${tooMany.length}`;
+  await textarea.fill(tooMany.join("\n"));
+
+  // The complaint is about what she typed, while the server still holds the
+  // old list. Counting the saved list would say nothing until after the save.
+  await expect(page.getByTestId("wheel-count")).toHaveText(overCap);
+
+  await page.getByTestId("wheel-save").click();
+  await expect(page.getByTestId("wheel-notice")).toContainText(overCap);
+  await expect(textarea).toHaveValue(tooMany.join("\n"));
+  await expect(page.getByTestId("wheel-unsaved")).toBeVisible();
+
+  const after = (await saarathi.get("/api/state")) as { modules: Record<string, WheelState> };
+  expect(after.modules[WHEEL_ID]?.challenges).toEqual(saved);
+
+  // Dropping one line is all it takes, and the fold stops complaining first.
+  await textarea.fill(tooMany.slice(0, MAX_CHALLENGES).join("\n"));
+  await expect(page.getByTestId("wheel-count")).toHaveText(`${MAX_CHALLENGES} challenges`);
+  await page.getByTestId("wheel-save").click();
+  await expect(page.getByTestId("wheel-unsaved")).toHaveCount(0);
 });

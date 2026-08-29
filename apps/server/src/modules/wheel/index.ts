@@ -1,5 +1,6 @@
 import {
   DEFAULT_CHALLENGES,
+  MAX_CHALLENGES,
   MAX_HISTORY,
   MAX_QUEUE,
   SPIN_COOLDOWN_MS,
@@ -159,9 +160,20 @@ export const wheel: GameModuleDef<WheelState> = {
     setChallenges: {
       label: "Save challenges",
       hidden: true,
+      // The cap is enforced on the write and nowhere else, so a list already
+      // over it in her state file keeps loading and spinning; only her next
+      // save is refused. Clamping on load would want a per-module hydrate hook
+      // in the core, and a wheel-shaped hook is the thing the module contract
+      // says to fix elsewhere. Her control page flags an over-cap list on
+      // sight, so it is visible without one.
       run(input, ctx) {
         const challenges = input.args.map((line) => line.trim()).filter(Boolean);
         if (challenges.length === 0) return ctx.refuse("A wheel needs at least one challenge");
+        if (challenges.length > MAX_CHALLENGES) {
+          return ctx.refuse(
+            `A wheel holds ${MAX_CHALLENGES} challenges — that list has ${challenges.length}`,
+          );
+        }
         ctx.setState({ challenges });
         drain(ctx);
       },

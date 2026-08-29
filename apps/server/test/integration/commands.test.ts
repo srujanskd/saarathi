@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { CORE_ID, SPIN_COOLDOWN_MS, type ChatLogState } from "@saarathi/shared";
+import {
+  CORE_ID,
+  MAX_CHALLENGES,
+  SPIN_COOLDOWN_MS,
+  type ChatLogState,
+} from "@saarathi/shared";
 import { harness, wheelState, type Harness } from "../helpers/kernel.js";
 
 let live: Harness | null = null;
@@ -173,6 +178,34 @@ describe("refusals are legible", () => {
     const result = await h.kernel.invoke("wheel.setChallenges", { args: ["  ", ""] });
     expect(result).toEqual({ ok: false, reason: "A wheel needs at least one challenge" });
     expect(wheelState(h.kernel).challenges.length).toBeGreaterThan(0);
+  });
+
+  it("refuses a list past the cap, and keeps the one she is running", async () => {
+    const h = await start();
+    const before = wheelState(h.kernel).challenges;
+    const tooMany = Array.from({ length: MAX_CHALLENGES + 1 }, (_, i) => `challenge ${i}`);
+    const result = await h.kernel.invoke("wheel.setChallenges", { args: tooMany });
+    expect(result).toEqual({
+      ok: false,
+      reason: `A wheel holds ${MAX_CHALLENGES} challenges \u2014 that list has ${tooMany.length}`,
+    });
+    expect(wheelState(h.kernel).challenges).toEqual(before);
+  });
+
+  it("takes a list that is exactly the cap, so the limit is not off by one", async () => {
+    const h = await start();
+    const full = Array.from({ length: MAX_CHALLENGES }, (_, i) => `challenge ${i}`);
+    expect(await h.kernel.invoke("wheel.setChallenges", { args: full })).toEqual({ ok: true });
+    expect(wheelState(h.kernel).challenges).toEqual(full);
+  });
+
+  it("counts what it saves, so blank lines do not spend the budget", async () => {
+    const h = await start();
+    const padded = Array.from({ length: MAX_CHALLENGES }, (_, i) => `challenge ${i}`).flatMap(
+      (line) => [line, "   "],
+    );
+    expect(await h.kernel.invoke("wheel.setChallenges", { args: padded })).toEqual({ ok: true });
+    expect(wheelState(h.kernel).challenges).toHaveLength(MAX_CHALLENGES);
   });
 
   it("refuses cancel with nothing on the wheel", async () => {

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { WHEEL_ID, type WheelState } from "@saarathi/shared";
+import { MAX_CHALLENGES, WHEEL_ID, type WheelState } from "@saarathi/shared";
 import { useModuleState } from "../../lib/connection.js";
 import type { CardProps } from "../types.js";
-import { phaseKicker, queueSummary, spinCaption } from "./caption.js";
+import { countLabel, phaseKicker, queueSummary, spinCaption } from "./caption.js";
 import { toLines, toText } from "./challenges.js";
 
 export function WheelCard({ connection, status }: CardProps) {
@@ -43,6 +43,7 @@ export function WheelCard({ connection, status }: CardProps) {
   const saved = toText(challenges);
   const editor = draft ?? saved;
   const unsaved = draft !== null && draft !== saved;
+  const drafted = toLines(editor);
 
   /** Fires an action and reports whether the server took it. The notice is
    * cleared on the way in as well as set on the way out, so a refusal she has
@@ -59,7 +60,7 @@ export function WheelCard({ connection, status }: CardProps) {
   async function save(): Promise<void> {
     // The draft is dropped only on the way through. A refused save has to
     // leave her text where she can fix it, and the notice says why.
-    if (await run("wheel.setChallenges", toLines(editor))) setDraft(null);
+    if (await run("wheel.setChallenges", drafted)) setDraft(null);
   }
 
   return (
@@ -117,7 +118,7 @@ export function WheelCard({ connection, status }: CardProps) {
 
       <details className="fold">
         <summary>
-          <span>{challenges.length === 1 ? "1 challenge" : `${challenges.length} challenges`}</span>
+          <span data-testid="wheel-count">{countLabel(drafted.length)}</span>
           {unsaved ? <span className="dirty" data-testid="wheel-unsaved">unsaved</span> : null}
         </summary>
         <label className="field">
@@ -125,7 +126,10 @@ export function WheelCard({ connection, status }: CardProps) {
           <textarea
             className="textarea"
             data-testid="wheel-challenges"
-            rows={Math.max(6, challenges.length + 1)}
+            // Sized to the draft so the box grows as she types, but the cap
+            // bounds it: a paste of three hundred lines is refused anyway, and
+            // a three-hundred-row textarea on her phone is unscrollable past.
+            rows={Math.min(MAX_CHALLENGES + 1, Math.max(6, drafted.length + 1))}
             value={editor}
             onChange={(event) => setDraft(event.target.value)}
           />
