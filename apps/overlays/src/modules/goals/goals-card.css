@@ -1,0 +1,41 @@
+/* Her goals on her phone. The overlay's own bar lives in goals.css: this page
+   is a list she taps, not something OBS composites over her camera. */
+
+.goal-rows {
+  margin: 0 0 0.85rem;
+  padding: 0;
+  list-style: none;
+}
+
+.goal-row {
+  padding: 0.75rem 0.2rem;
+  border-top: 1px solid var(--line);
+}
+
+.goal-row:first-child {
+  border-top: none;
+}
+
+.goal-row-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 1ch;
+  margin: 0 0 0.2rem;
+  font-weight: 650;
+}
+
+.goal-row[data-landed="true"] .goal-row-count {
+  color: var(--accent);
+}
+
+.goal-row-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.goal-row-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}

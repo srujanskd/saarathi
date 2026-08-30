@@ -78,7 +78,9 @@ function Control({ url, connection }: { url: string; connection: Connection }) {
         ) : null}
         {(core?.modules ?? []).map((status) => {
           const Card = clients[status.id]?.card ?? GenericCard;
-          return <Card key={status.id} connection={connection} status={status} />;
+          return (
+            <Card key={status.id} connection={connection} status={status} deck={deck} />
+          );
         })}
       </main>
     </div>

@@ -1,4 +1,5 @@
 import type { ModuleStatus } from "@saarathi/shared";
+import type { DeckDraft } from "../core/useDeckDraft.js";
 import type { Connection } from "../lib/connection.js";
 
 /** What a module's OBS browser source is handed. It draws one module and knows
@@ -12,4 +13,13 @@ export interface OverlayProps {
 export interface CardProps {
   connection: Connection;
   status: ModuleStatus;
+  /**
+   * The one grid she is editing, shared with the deck card and the OBS card.
+   * A module gets it because a module action that takes an argument can only
+   * become a deck button from the card that knows what the argument is -- the
+   * goals card writes a "+1" for a goal, as the OBS card writes a scene. A
+   * draft owned by one card and written behind by another is a button she saw
+   * work and then lost to her next Save.
+   */
+  deck: DeckDraft;
 }
