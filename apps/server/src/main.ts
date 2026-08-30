@@ -41,8 +41,13 @@ const chat: ChatAdapter[] = [new MockChatAdapter()];
 
 const channelId = process.env.YT_CHANNEL_ID;
 const liveId = process.env.YT_LIVE_ID;
+const apiKey = process.env.YT_API_KEY;
 if (channelId || liveId) {
-  chat.push(new YouTubeAdapter({ channelId, liveId }));
+  chat.push(new YouTubeAdapter({ channelId, liveId, apiKey }));
+  // The counts are the one thing here that costs quota and needs a credential,
+  // so their absence is its own line rather than a silence she would have to
+  // notice as an empty goal bar.
+  if (!apiKey) log.info("No YT_API_KEY set — subscriber and like counts are off");
 } else {
   log.info("No YT_CHANNEL_ID or YT_LIVE_ID set — running on mock chat only");
 }
