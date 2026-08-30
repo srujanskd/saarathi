@@ -1,4 +1,4 @@
-import type { Author, MockChatInput, StreamEvent } from "@saarathi/shared";
+import type { Author, ChannelStats, MockChatInput, StreamEvent } from "@saarathi/shared";
 import type { ChatAdapter, ChatSink } from "./adapter.js";
 
 /**
@@ -9,6 +9,7 @@ import type { ChatAdapter, ChatSink } from "./adapter.js";
 export class MockChatAdapter implements ChatAdapter {
   readonly name = "mock";
   private sink: ChatSink | null = null;
+  private polls = 0;
 
   async start(sink: ChatSink): Promise<void> {
     this.sink = sink;
@@ -17,6 +18,28 @@ export class MockChatAdapter implements ChatAdapter {
 
   async stop(): Promise<void> {
     this.sink = null;
+  }
+
+  /**
+   * Numbers that climb, so a goal can be watched filling up without a live
+   * stream. This is the same rule that makes mock chat unconditional: a feature
+   * nobody can demo without going live is a feature only its author can test,
+   * and she is not going live to find out whether a bar moves.
+   *
+   * They climb per call rather than per second so a test that advances fake
+   * timers gets the same answer every run. Subscribers start under 1,000 --
+   * where she is, and where YouTube still reports an exact figure -- and move
+   * far slower than likes, because that is what the real pair does.
+   */
+  async stats(): Promise<ChannelStats> {
+    this.polls += 1;
+    return {
+      counts: {
+        subscribers: 940 + Math.floor(this.polls / 5),
+        likes: 12 + this.polls,
+      },
+      detail: "Mock numbers, climbing",
+    };
   }
 
   send(input: MockChatInput): void {

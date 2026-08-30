@@ -19,6 +19,7 @@ import { Deck } from "./deck.js";
 import { Gains } from "./gains.js";
 import type { ObsAdapter } from "./obs.js";
 import { Registry } from "./registry.js";
+import { Stats } from "./stats.js";
 import type { StateStore } from "./store.js";
 import { CommandGate, parseCommand } from "./triggers.js";
 
@@ -41,6 +42,7 @@ export class Kernel {
   readonly registry: Registry;
   private readonly gains: Gains;
   private readonly deck: Deck;
+  private readonly stats: Stats;
   private readonly gate: CommandGate;
   private readonly mock?: MockChatAdapter;
   private readonly connections: Record<string, ConnectionStatus> = {};
@@ -53,6 +55,9 @@ export class Kernel {
     this.gains = new Gains(deps.store, deps.log);
     this.deck = new Deck(deps.store, deps.log, () => this.emitPatch(CORE_ID, this.coreState()));
     this.obsView = deps.obs.view();
+    this.stats = new Stats(deps.chat, deps.log, () =>
+      this.emitPatch(CORE_ID, this.coreState()),
+    );
     this.gate = new CommandGate(this.gains);
     this.mock = deps.chat.find((adapter): adapter is MockChatAdapter => adapter instanceof MockChatAdapter);
 
@@ -89,6 +94,12 @@ export class Kernel {
       }
     }
 
+    // After the adapters are started, never before: an adapter learns what it
+    // can answer with by connecting -- YouTube only finds out which video is
+    // live when its chat reader does -- so polling first would ask every one of
+    // them a question none of them can answer yet.
+    this.stats.start();
+
     // After the chat adapters, so a slow OBS handshake never delays chat: the
     // stream is happening either way, and OBS retries on its own.
     try {
@@ -105,6 +116,7 @@ export class Kernel {
   }
 
   async stop(): Promise<void> {
+    this.stats.stop();
     for (const adapter of this.deps.chat) await adapter.stop().catch(() => {});
     await this.deps.obs.stop().catch(() => {});
     await this.registry.stop();
@@ -120,6 +132,7 @@ export class Kernel {
       modules: this.registry.statuses(),
       obs: this.obsView,
       deck: this.deck.view(),
+      stats: this.stats.view(),
     };
   }
 
