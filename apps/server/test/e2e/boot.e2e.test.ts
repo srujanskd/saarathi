@@ -44,11 +44,18 @@ describe("the server she starts", () => {
     expect(snapshot.core.modules.map((m) => m.id).sort()).toEqual(["chatlog", "wheel"]);
   });
 
-  it("reports mock chat connected and no YouTube adapter at all", async () => {
+  it("reports mock chat connected and YouTube waiting to be set up", async () => {
+    // YouTube is registered on every run now, because she sets her channel up
+    // from her phone and an adapter that only exists when an env var is set is
+    // one she can never switch on. With nothing set it says so, which is a
+    // status she can act on rather than a silence.
     const snapshot = (await server.get("/api/state")) as Snapshot;
     const core: CoreState = snapshot.core;
     expect(core.connections.mock).toEqual({ state: "connected", detail: "Mock chat ready" });
-    expect(core.connections.youtube).toBeUndefined();
+    expect(core.connections.youtube!.detail).toContain("No YouTube channel set yet");
+    expect(core.chat.youtube).toMatchObject({ channelId: "", hasKey: false });
+    // Mock chat has nothing to set up, so it is absent here rather than empty.
+    expect(core.chat.mock).toBeUndefined();
   });
 
   it("did not write to her data directory", () => {

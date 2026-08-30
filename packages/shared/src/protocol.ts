@@ -20,6 +20,8 @@ export const CORE_ACTIONS = {
   obsForget: `${CORE_ID}.obsForget`,
   obsScene: `${CORE_ID}.obsScene`,
   obsSettings: `${CORE_ID}.obsSettings`,
+  chatSettings: `${CORE_ID}.chatSettings`,
+  chatForgetKey: `${CORE_ID}.chatForgetKey`,
   deckSet: `${CORE_ID}.deckSet`,
 } as const;
 
@@ -57,6 +59,31 @@ export interface ObsView {
  * same button moved -- and a deck that is a plain list is a deck she can
  * reorder by dragging without the server learning a second verb.
  */
+/**
+ * What she may know about one chat adapter's settings.
+ *
+ * Deliberately not the credential, for the reason `ObsView` is not the OBS
+ * password: this slice reaches every client, and in IRL mode one of them is her
+ * phone over somebody else's network. `hasKey` is enough to render the field
+ * and to know whether Forget has anything to do.
+ *
+ * `title` and `hint` are written by the adapter rather than by the page, on the
+ * same rule as `ChannelStats.detail`: where a channel id is found is a fact
+ * about YouTube, and the point of the adapter seam is that nothing past it has
+ * to know one. A second platform with settings brings its own two sentences and
+ * the card renders them unchanged.
+ */
+export interface ChatView {
+  /** What she reads on the card: "YouTube". */
+  title: string;
+  /** The channel it is reading, or blank when she has not said. */
+  channelId: string;
+  /** True when a key of hers is stored. Never the key itself. */
+  hasKey: boolean;
+  /** Where to find the channel id, in her words. */
+  hint: string;
+}
+
 export interface DeckSlot {
   /** Fully qualified, exactly as `invoke` takes it: "wheel.spin", `CORE_ACTIONS.obsScene`. */
   action: string;
@@ -144,6 +171,13 @@ export interface CoreState {
    * empty until the first poll lands.
    */
   stats: Record<string, ChannelStats>;
+  /**
+   * The settings of the chat adapters that have any, keyed by adapter name the
+   * way `connections` and `stats` are. Mock chat has nothing to set, so it is
+   * absent here rather than present and empty -- the same rule that keeps an
+   * adapter which cannot count out of `stats`.
+   */
+  chat: Record<string, ChatView>;
 }
 
 export interface Snapshot {

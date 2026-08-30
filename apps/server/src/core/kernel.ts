@@ -13,7 +13,7 @@ import {
   type Snapshot,
   type StreamEvent,
 } from "@saarathi/shared";
-import type { ChatAdapter, ChatSink } from "../chat/adapter.js";
+import { chatViews, type ChatAdapter, type ChatSink } from "../chat/adapter.js";
 import { MockChatAdapter } from "../chat/mock.js";
 import { Deck } from "./deck.js";
 import { Gains } from "./gains.js";
@@ -65,12 +65,13 @@ export class Kernel {
       store: deps.store,
       gains: this.gains,
       obs: deps.obs,
+      chat: deps.chat,
       deck: this.deck,
       log: deps.log,
       say: (text) => this.say(text),
       onPatch: (module, state) => this.emitPatch(module, state),
       onEffect: (effect) => this.emitEffect(effect),
-      onLifecycleChange: () => this.emitPatch(CORE_ID, this.coreState()),
+      onCoreChange: () => this.emitPatch(CORE_ID, this.coreState()),
     });
 
     for (const module of deps.modules) this.registry.register(module);
@@ -133,6 +134,7 @@ export class Kernel {
       obs: this.obsView,
       deck: this.deck.view(),
       stats: this.stats.view(),
+      chat: chatViews(this.deps.chat),
     };
   }
 

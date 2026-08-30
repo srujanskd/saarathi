@@ -12,6 +12,7 @@ import {
   type ModuleStatus,
   type StreamEvent,
 } from "@saarathi/shared";
+import { chatCommand, type ChatAdapter } from "../chat/adapter.js";
 import { deckCommand, type DeckCommands } from "./deck.js";
 import { obsCommand, type ObsAdapter } from "./obs.js";
 import type { StateStore } from "./store.js";
@@ -26,13 +27,15 @@ export interface RegistryDeps {
   store: StateStore;
   gains: GainsLedger;
   obs: ObsAdapter;
+  /** For her settings only. Events arrive through the kernel, not through here. */
+  chat: readonly ChatAdapter[];
   deck: DeckCommands;
   log: Logger;
   say(text: string): void;
   onPatch(module: string, state: unknown): void;
   onEffect(effect: Effect): void;
-  /** Enabled or armed changed, so the core slice needs republishing. */
-  onLifecycleChange(): void;
+  /** Something in the core slice changed, so it needs republishing. */
+  onCoreChange(): void;
 }
 
 type Handler = (event: never) => void;
@@ -211,6 +214,17 @@ export class Registry {
     const obs = obsCommand(this.deps.obs, actionId, input.args);
     if (obs) return obs;
 
+    // Same arrangement, same reason: which adapter a name refers to, and what
+    // a channel id looks like, are knowledge about the chat layer.
+    const chat = chatCommand(this.deps.chat, actionId, input.args);
+    if (chat) {
+      const result = await chat;
+      // Explicitly, rather than leaning on the reconnect a save happens to
+      // cause: forgetting a key changes `hasKey` and reconnects nothing.
+      this.deps.onCoreChange();
+      return result;
+    }
+
     // Same arrangement, same reason: what a button is made of is knowledge
     // about the deck.
     const deck = deckCommand(this.deps.deck, actionId, input.args);
@@ -236,7 +250,7 @@ export class Registry {
         if (enabled) await this.startModule(runtime);
         else await this.stopModule(runtime);
         this.saveLifecycle();
-        this.deps.onLifecycleChange();
+        this.deps.onCoreChange();
         return { ok: true };
       }
       case "arm":
@@ -248,7 +262,7 @@ export class Registry {
         }
         runtime.armed = name === "arm";
         this.saveLifecycle();
-        this.deps.onLifecycleChange();
+        this.deps.onCoreChange();
         return { ok: true };
       }
       default:

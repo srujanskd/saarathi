@@ -39,18 +39,21 @@ const store = new JsonStore(process.env.STATE_FILE ?? defaultStorePath(), log);
 // a live stream, or nobody can test it.
 const chat: ChatAdapter[] = [new MockChatAdapter()];
 
-const channelId = process.env.YT_CHANNEL_ID;
-const liveId = process.env.YT_LIVE_ID;
-const apiKey = process.env.YT_API_KEY;
-if (channelId || liveId) {
-  chat.push(new YouTubeAdapter({ channelId, liveId, apiKey }));
-  // The counts are the one thing here that costs quota and needs a credential,
-  // so their absence is its own line rather than a silence she would have to
-  // notice as an empty goal bar.
-  if (!apiKey) log.info("No YT_API_KEY set — subscriber and like counts are off");
-} else {
-  log.info("No YT_CHANNEL_ID or YT_LIVE_ID set — running on mock chat only");
-}
+// Unconditional, unlike everything else here: she sets her channel and her API
+// key up from her phone, and an adapter that only exists when an env var is set
+// is an adapter she can never switch on. The three env vars are seeds for a dev
+// run now, used only while she has saved nothing.
+chat.push(
+  new YouTubeAdapter({
+    store,
+    log,
+    seed: {
+      channelId: process.env.YT_CHANNEL_ID,
+      liveId: process.env.YT_LIVE_ID,
+      apiKey: process.env.YT_API_KEY,
+    },
+  }),
+);
 
 // OBS keeps its own WebSocket port and password in a file next to its config,
 // and reading it is what spares her copying a generated password out of a
