@@ -10,6 +10,7 @@ import {
   type Logger,
   type ModuleContext,
   type ModuleStatus,
+  type StatsView,
   type StreamEvent,
 } from "@saarathi/shared";
 import { chatCommand, type ChatAdapter } from "../chat/adapter.js";
@@ -30,6 +31,8 @@ export interface RegistryDeps {
   /** For her settings only. Events arrive through the kernel, not through here. */
   chat: readonly ChatAdapter[];
   deck: DeckCommands;
+  /** The counts, read-only. A core service every module shares, like OBS. */
+  stats: StatsView;
   log: Logger;
   say(text: string): void;
   onPatch(module: string, state: unknown): void;
@@ -46,6 +49,13 @@ interface Runtime {
   ctx: ModuleContext<Record<string, unknown>>;
   subs: Map<EventType, Set<Handler>>;
   timers: Set<NodeJS.Timeout>;
+  /**
+   * Everything else this module holds open on a core service -- a stats
+   * subscription today. Same contract as `timers` and `subs`: the module asked
+   * for it, the core drops it when the module stops, and no module writes a
+   * teardown to undo something the core handed it.
+   */
+  cancels: Set<Cancel>;
   enabled: boolean;
   armed: boolean;
   started: boolean;
@@ -81,6 +91,7 @@ export class Registry {
       ctx: null as unknown as ModuleContext<Record<string, unknown>>,
       subs: new Map(),
       timers: new Set(),
+      cancels: new Set(),
       enabled: lifecycle?.enabled ?? true,
       armed: lifecycle?.armed ?? false,
       started: false,
@@ -290,6 +301,8 @@ export class Registry {
     }
     for (const timer of runtime.timers) clearTimeout(timer as NodeJS.Timeout);
     runtime.timers.clear();
+    for (const cancel of runtime.cancels) cancel();
+    runtime.cancels.clear();
     runtime.subs.clear();
   }
 
@@ -355,6 +368,19 @@ export class Registry {
       },
       gains: this.deps.gains,
       obs: this.deps.obs.actions,
+      stats: {
+        all: () => this.deps.stats.all(),
+        count: (name) => this.deps.stats.count(name),
+        stream: () => this.deps.stats.stream(),
+        onChange: (fn) => {
+          const cancel = this.deps.stats.onChange(fn);
+          runtime.cancels.add(cancel);
+          return () => {
+            runtime.cancels.delete(cancel);
+            cancel();
+          };
+        },
+      },
       after: (ms, fn) => track(setTimeout(fn, ms), false),
       every: (ms, fn) => track(setInterval(fn, ms), true),
       say: (text) => this.deps.say(text),

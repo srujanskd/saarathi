@@ -40,6 +40,16 @@ export interface ChatAdapter {
    */
   stats?(): Promise<ChannelStats>;
   /**
+   * True for an adapter that is standing in for a real one.
+   *
+   * Mock chat is registered on every run, hers included, because a feature
+   * nobody can demo without going live is a feature only its author can test.
+   * That makes it the one adapter whose counts must never win an argument: the
+   * core asks a stand-in last, so its climbing numbers show up on a goal bar
+   * during development and get out of the way the moment YouTube can answer.
+   */
+  readonly standIn?: boolean;
+  /**
    * What she can set up for this adapter, if there is anything.
    *
    * One member rather than three methods, on the shape `ObsAdapter.actions`

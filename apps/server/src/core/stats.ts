@@ -1,8 +1,15 @@
-import { STATS_POLL_MS, type ChannelStats, type Logger } from "@saarathi/shared";
+import {
+  STATS_POLL_MS,
+  type Cancel,
+  type ChannelStats,
+  type Logger,
+  type StatCounts,
+  type StatsView,
+} from "@saarathi/shared";
 import type { ChatAdapter } from "../chat/adapter.js";
 
 /** The narrow half of a `ChatAdapter` this file needs. */
-export type StatSource = Pick<ChatAdapter, "name" | "stats">;
+export type StatSource = Pick<ChatAdapter, "name" | "stats" | "standIn">;
 
 /**
  * The counts, polled.
@@ -22,21 +29,74 @@ export class Stats {
   private readonly sources: StatSource[];
   private current: Record<string, ChannelStats> = {};
   private timer: NodeJS.Timeout | null = null;
+  private readonly listeners = new Set<() => void>();
 
   constructor(
     adapters: StatSource[],
     private readonly log: Logger,
     /** A number moved, so the core slice needs republishing. */
-    private readonly onChange: () => void,
+    private readonly publish: () => void,
     private readonly pollMs: number = STATS_POLL_MS,
   ) {
-    this.sources = adapters.filter((adapter) => typeof adapter.stats === "function");
+    // Real adapters first, stand-ins last, and that order is what `count` and
+    // `stream` below read in. Mock chat is registered on every run and its
+    // numbers climb on their own, so without this a goal on her stream would
+    // render test data the moment both could answer -- and it would look
+    // entirely plausible while doing it.
+    this.sources = adapters
+      .filter((adapter) => typeof adapter.stats === "function")
+      .sort((a, b) => Number(a.standIn ?? false) - Number(b.standIn ?? false));
+  }
+
+  /**
+   * The read-only half, as a module sees it. One object per kernel rather than
+   * one per module: it holds nothing per-module, and `onChange` hands back the
+   * cancel that the registry drops on teardown.
+   */
+  moduleView(): StatsView {
+    return {
+      all: () => this.view(),
+      count: (name) => this.count(name),
+      stream: () => this.stream(),
+      onChange: (fn) => this.onChange(fn),
+    };
+  }
+
+  /**
+   * The count from the best-placed adapter that has one.
+   *
+   * "Best-placed" is the order above and nothing cleverer. A count that is
+   * absent is skipped rather than treated as zero, so YouTube with no live
+   * stream yet does not shadow the stand-in that could have shown her a bar
+   * moving.
+   */
+  count(name: keyof StatCounts): number | undefined {
+    for (const source of this.sources) {
+      const value = this.current[source.name]?.counts[name];
+      if (value !== undefined) return value;
+    }
+    return undefined;
+  }
+
+  /** The stream token of the best-placed adapter on one. */
+  stream(): string | undefined {
+    for (const source of this.sources) {
+      const token = this.current[source.name]?.stream;
+      if (token !== undefined) return token;
+    }
+    return undefined;
+  }
+
+  /** Told when a poll actually moved something, never on a poll that did not. */
+  onChange(listener: () => void): Cancel {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
   }
 
   view(): Record<string, ChannelStats> {
     const copy: Record<string, ChannelStats> = {};
     for (const [name, stats] of Object.entries(this.current)) {
-      copy[name] = { counts: { ...stats.counts }, detail: stats.detail };
+      copy[name] = { counts: { ...stats.counts }, detail: stats.detail, stream: stats.stream };
     }
     return copy;
   }
@@ -79,6 +139,7 @@ export class Stats {
         // network that came and went.
         next[source.name] = {
           counts: this.current[source.name]?.counts ?? {},
+          stream: this.current[source.name]?.stream,
           detail: `Could not reach ${source.name} just now. Trying again shortly.`,
         };
         this.log.warn(`stats: ${source.name} poll failed — ${String(err)}`);
@@ -91,7 +152,16 @@ export class Stats {
     // therefore send nothing.
     if (sameStats(this.current, next)) return;
     this.current = next;
-    this.onChange();
+    this.publish();
+    for (const listener of [...this.listeners]) {
+      try {
+        listener();
+      } catch (err) {
+        // A module that throws on a poll must not stop the next module hearing
+        // about it, and must not take the poll timer down with it.
+        this.log.warn(`stats: a listener threw — ${String(err)}`);
+      }
+    }
   }
 }
 
@@ -117,6 +187,9 @@ export function sameStats(
     if (left.detail !== right.detail) return false;
     if (left.counts.subscribers !== right.counts.subscribers) return false;
     if (left.counts.likes !== right.counts.likes) return false;
+    // A new stream with identical numbers is still a change: it is what re-arms
+    // a stream-scoped goal, and nothing else says so.
+    if (left.stream !== right.stream) return false;
   }
   return true;
 }

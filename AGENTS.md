@@ -301,6 +301,12 @@ Do not open a browser or use computer use to verify unless I ask for it.
 ## Taste
 
 - Platform weirdness stays in the adapter. The core sees normalized events only.
+- Counts are polled, not pushed, and `ctx.stats` is the only way a module reads one. It sits
+  beside `ctx.obs` and `ctx.gains` because it is the same kind of thing: a core service no
+  module owns. A poll landing is not a platform event, so it never goes on the bus; a module
+  that wants to hear one subscribes with `ctx.stats.onChange`, and the core cancels that when
+  the module stops. Mock chat is a `standIn`, so its climbing numbers answer only when nothing
+  real can -- otherwise a goal on her stream renders test data that looks plausible.
 - The server is authoritative. Clients render and send intents. No client-side game logic.
 - Inferred types over annotations. `any` is the enemy, and `no-explicit-any` is an error, so
   the two places it is tolerated are named in `eslint.config.js` and in the code itself:

@@ -54,6 +54,7 @@ export async function collectStats(input: StatsInput, get: StatFetch): Promise<C
   if (!apiKey) {
     return {
       counts: {},
+      stream: videoId ?? undefined,
       detail: "No YouTube API key yet, so there are no counts to show.",
     };
   }
@@ -75,6 +76,10 @@ export async function collectStats(input: StatsInput, get: StatFetch): Promise<C
 
   return {
     counts,
+    // The video she is live on *is* the stream, so the id is the token -- and
+    // nothing downstream is allowed to know that is what it is. It carries one
+    // fact: a different one means the like count started over.
+    stream: videoId ?? undefined,
     detail: notes.length > 0 ? notes.join(" ") : "Counting subscribers and likes.",
   };
 }

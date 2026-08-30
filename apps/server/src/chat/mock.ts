@@ -8,8 +8,16 @@ import type { ChatAdapter, ChatSink } from "./adapter.js";
  */
 export class MockChatAdapter implements ChatAdapter {
   readonly name = "mock";
+  /** Real counts always win over these. See `ChatAdapter.standIn`. */
+  readonly standIn = true;
   private sink: ChatSink | null = null;
   private polls = 0;
+  /**
+   * One run is one stream, which is honest for a stand-in: the counts below
+   * start over when the process does, and this is what says so. It is what
+   * lets a stream-scoped goal be watched re-arming without a live stream.
+   */
+  private readonly streamKey = `mock:${Date.now()}`;
 
   async start(sink: ChatSink): Promise<void> {
     this.sink = sink;
@@ -38,6 +46,7 @@ export class MockChatAdapter implements ChatAdapter {
         subscribers: 940 + Math.floor(this.polls / 5),
         likes: 12 + this.polls,
       },
+      stream: this.streamKey,
       detail: "Mock numbers, climbing",
     };
   }

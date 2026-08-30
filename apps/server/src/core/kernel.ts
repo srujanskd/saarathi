@@ -67,6 +67,7 @@ export class Kernel {
       obs: deps.obs,
       chat: deps.chat,
       deck: this.deck,
+      stats: this.stats.moduleView(),
       log: deps.log,
       say: (text) => this.say(text),
       onPatch: (module, state) => this.emitPatch(module, state),

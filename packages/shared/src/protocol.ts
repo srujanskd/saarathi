@@ -148,6 +148,18 @@ export interface StatCounts {
 export interface ChannelStats {
   counts: StatCounts;
   detail: string;
+  /**
+   * An opaque token for the stream the per-stream counts belong to, or absent
+   * when the adapter is not on one.
+   *
+   * Nothing downstream may read anything into it -- it is a video id today and
+   * something else on the next platform. The only fact it carries is that when
+   * it changes, every per-stream number started over from nothing, which is
+   * what tells a stream-scoped goal to arm itself again. Without it the like
+   * goal she hit last night is still showing as complete at 3 likes tonight,
+   * and that is a wrong number on screen while she is live.
+   */
+  stream?: string;
 }
 
 export interface CoreState {
