@@ -1,0 +1,90 @@
+/* The queue and the rules, on her phone. There is no overlay counterpart: a
+   moderation layer draws nothing over her camera, because everything it has to
+   say is either for her eyes or for nobody's. */
+
+.flag-rows {
+  margin: 0 0 0.85rem;
+  padding: 0;
+  list-style: none;
+}
+
+.flag-row {
+  padding: 0.75rem 0.2rem;
+  border-top: 1px solid var(--line);
+}
+
+.flag-row:first-child {
+  border-top: none;
+}
+
+.flag-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1ch;
+  margin: 0 0 0.25rem;
+}
+
+.flag-who {
+  font-weight: 650;
+  /* A display name is whatever somebody chose, emoji and all, and a long one
+     may not push the reason off the row: the reason is the half she reads. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flag-why {
+  flex: none;
+  color: var(--warn);
+  font-size: 0.82rem;
+}
+
+.flag-text {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  /* The one place on this page that renders something a stranger wrote, so it
+     wraps anywhere rather than letting a 180-character word widen the card. */
+  overflow-wrap: anywhere;
+}
+
+.rule {
+  padding: 0.8rem 0.2rem;
+  border-top: 1px solid var(--line);
+}
+
+.rule-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1ch;
+}
+
+.rule-label {
+  font-weight: 650;
+}
+
+/* On and off have to be told apart at arm's length, which two words in the
+   same colour do not manage. */
+.rule-top .tool[data-on="yes"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.rule-top .tool[data-on="no"] {
+  color: var(--muted);
+}
+
+.rule-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+/* The list rules take a couple of lines of typing, and a textarea that scrolls
+   at two rows is worse than one that grows to what she typed. */
+.rule textarea.input {
+  min-height: 3.4rem;
+  resize: vertical;
+}

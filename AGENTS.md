@@ -311,6 +311,13 @@ Do not open a browser or use computer use to verify unless I ask for it.
   before she goes live has a subscriber count and no like count, and falling through on that
   one field alone would put invented likes on a bar over her camera.
 - The server is authoritative. Clients render and send intents. No client-side game logic.
+- Mock chat sends as any role — `role: "viewer" | "member" | "mod" | "streamer"` on `MockChatInput`.
+  Every rule that reads an author flag has to be drivable from there, or the only way to test
+  "moderation never flags her mods" is to go live and ask a mod to say something bad.
+- Anything she can type that runs against text her viewers type is a hazard, not a setting. The
+  moderation pattern rule is the only one so far: JavaScript cannot time a regex match out, so
+  `safePattern` refuses unbounded quantifiers on a group and the text it sees is bounded. A
+  linear-time engine would be the real fix and there is no MIT one that stays off native code.
 - Inferred types over annotations. `any` is the enemy, and `no-explicit-any` is an error, so
   the two places it is tolerated are named in `eslint.config.js` and in the code itself:
   `chat/youtube.ts`, where an untyped library is converted at the boundary, and the `S = any`

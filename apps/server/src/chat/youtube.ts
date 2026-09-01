@@ -353,7 +353,16 @@ export function normalize(item: any): StreamEvent | null {
     isMember: Boolean(item?.isMembership || item?.author?.badge),
   };
 
-  const base = { source: "youtube", author, at: Date.now(), text };
+  const base = {
+    source: "youtube",
+    author,
+    at: Date.now(),
+    text,
+    // YouTube's own id for the message, which is the handle a delete needs.
+    // Absent rather than empty when the library did not give us one: a row in
+    // her queue that cannot be acted on has to look like one.
+    ...(typeof item?.id === "string" && item.id ? { messageId: item.id } : {}),
+  };
 
   if (item?.superchat) {
     return {
