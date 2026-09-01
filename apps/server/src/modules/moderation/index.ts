@@ -20,7 +20,7 @@ import {
   noteMessage,
   readRules,
   trimText,
-  type Compiled,
+  type CompiledRules,
 } from "./rules.js";
 
 type ModContext = ModuleContext<ModerationState>;
@@ -32,9 +32,9 @@ type ModContext = ModuleContext<ModerationState>;
  * platform -- deleting a message and banning an account need a Google sign-in
  * that does not exist yet, and the detection half is the half she can have
  * without one. That split is deliberate rather than partial work: a queue she
- * can see from her phone is useful on its own with YouTube Studio open in the
- * next tab, and it means every rule in here was proven against mock chat before
- * anything acquired the power to delete.
+ * can see from her phone is useful on its own with the live dashboard open in
+ * the next tab, and it means every rule in here was proven against mock chat
+ * before anything acquired the power to delete.
  *
  * A module and not a core service, and that was the design question worth
  * getting right. Nothing here needs a hook in the pipeline: `chat-message` is
@@ -130,7 +130,7 @@ export const moderation: GameModuleDef<ModerationState> = {
     // starts out matching whichever of the two branches above just ran.
     let lastRules = ctx.state.rules;
     let compiled = compileRules(lastRules);
-    const current = (): Compiled => {
+    const current = (): CompiledRules => {
       if (ctx.state.rules !== lastRules) {
         lastRules = ctx.state.rules;
         compiled = compileRules(lastRules);
@@ -163,7 +163,7 @@ export const moderation: GameModuleDef<ModerationState> = {
  * her phone's data plan cannot afford in IRL mode, so the coalescing window in
  * the registry is doing real work here.
  */
-function watch(ctx: ModContext, event: StreamEvent, rules: Compiled): void {
+function watch(ctx: ModContext, event: StreamEvent, rules: CompiledRules): void {
   if (event.type !== "chat-message" && event.type !== "chat-command") return;
 
   // Her own line and her mods' lines are counted and never judged. Counted,
@@ -209,11 +209,6 @@ function watch(ctx: ModContext, event: StreamEvent, rules: Compiled): void {
   ctx.log.info(
     `moderation: ${MOD_RULES[hit.kind].label} — ${event.author.name}: ${hit.reason}`,
   );
-
-  // Her overlay draws nothing for this and her chat hears nothing about it. A
-  // bot line saying a message was flagged tells the scammer which rule caught
-  // them, and tells everyone else that a message they cannot see was removed.
-  ctx.effect({ name: "flagged", payload: { kind: hit.kind, reason: hit.reason } });
 }
 
 function sameRules(a: ModerationState["rules"], b: ModerationState["rules"]): boolean {

@@ -38,8 +38,8 @@ interface EventBase {
    * to the platform, and nothing downstream can reconstruct that from the text.
    * Optional because it is genuinely absent on most sources -- mock chat has no
    * ids and neither does a tips webhook -- and a missing id is a row she cannot
-   * act on rather than a bug. Opaque everywhere past the adapter: what it looks
-   * like is YouTube's business, on the rule `ChannelStats.stream` follows.
+   * act on rather than a bug. Opaque everywhere past the adapter: the shape of
+   * the id is the adapter's, on the rule `ChannelStats.stream` follows.
    */
   messageId?: string;
 }

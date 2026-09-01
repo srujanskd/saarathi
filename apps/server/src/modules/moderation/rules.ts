@@ -77,6 +77,10 @@ export function makeRule(args: string[]): RuleEdit {
   const enabled = (args[1] ?? "").trim() !== "off";
   const value = (args[2] ?? "").trim();
 
+  // Off does not care what is in the box. A cleared threshold would otherwise
+  // refuse the switch, and a rule she cannot turn off is a rule she leaves on.
+  if (!enabled) return { ok: true, rule: { kind, enabled, value } };
+
   if (info.input === "number") {
     // Explicitly, because `Number("")` is 0 and 0 would read as a rule that
     // flags everything. A cleared box is not a threshold.
@@ -115,12 +119,12 @@ export function makeRule(args: string[]): RuleEdit {
  * There is no library fix that stays MIT and stays off native code, so what
  * bounds it is refusing the shape that does it.
  *
- * Unbounded quantifiers on a group are the shape: `*`, `+` and `{n,}`. `(abc)?`
- * and `(abc){2}` cannot blow up and stay allowed, because a rule she cannot
- * write is a rule she works around in a worse way.
+ * Unbounded quantifiers on a group are the shape: `*`, `+` and `{n,}`. `(abc)?`,
+ * `(abc){2}` and `(abc){2,3}` cannot blow up and stay allowed, because a rule
+ * she cannot write is a rule she works around in a worse way.
  */
 export function safePattern(source: string): boolean {
-  return !/\)\s*(?:[*+]|\{\s*\d*\s*,\s*\}?)/.test(source);
+  return !/\)\s*(?:[*+]|\{\s*\d*\s*,\s*\})/.test(source);
 }
 
 function compile(source: string): RegExp | null {
@@ -225,7 +229,7 @@ export function emojiCount(text: string): number {
  * would not compile is dropped here and the rest of the layer carries on,
  * because one bad regex may not take moderation down mid-stream.
  */
-export interface Compiled {
+export interface CompiledRules {
   scams: boolean;
   links: { on: boolean; allowlist: string[] };
   words: string[];
@@ -235,7 +239,7 @@ export interface Compiled {
   emoji: number;
 }
 
-export function compileRules(rules: readonly ModRule[]): Compiled {
+export function compileRules(rules: readonly ModRule[]): CompiledRules {
   const on = (kind: ModRuleKind): ModRule | undefined =>
     rules.find((rule) => rule.kind === kind && rule.enabled);
 
@@ -326,7 +330,7 @@ export function forgetIdle(history: FloodHistory, now: number): FloodHistory {
  */
 export function inspect(params: {
   text: string;
-  rules: Compiled;
+  rules: CompiledRules;
   /** This author's message count in the flood window, from `noteMessage`. */
   recent: number;
 }): Hit | null {

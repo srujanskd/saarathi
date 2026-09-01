@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, type ChangeEvent } from "react";
 import {
   MODERATION_ID,
   MOD_RULES,
   type ModFlag,
   type ModRule,
+  type ModRuleInput,
   type ModRuleKind,
   type ModerationState,
 } from "@saarathi/shared";
@@ -37,6 +38,10 @@ export function ModerationCard({ connection, deck, status }: CardProps) {
     return drafts[rule.kind] ?? rule.value;
   }
 
+  function setDraft(kind: ModRuleKind, value: string | undefined): void {
+    setDrafts((current) => ({ ...current, [kind]: value }));
+  }
+
   async function save(rule: ModRule, next: Partial<ModRule>): Promise<void> {
     const merged = { ...rule, value: draftOf(rule), ...next };
     const ok = await run(`${MODERATION_ID}.setRule`, [
@@ -46,7 +51,7 @@ export function ModerationCard({ connection, deck, status }: CardProps) {
     ]);
     // Only on success, so a refusal leaves what she typed on screen to fix.
     // The server is the authority on whether a pattern is safe to keep.
-    if (ok) setDrafts((current) => ({ ...current, [rule.kind]: undefined }));
+    if (ok) setDraft(rule.kind, undefined);
   }
 
   return (
@@ -72,7 +77,7 @@ export function ModerationCard({ connection, deck, status }: CardProps) {
           {/* She cannot delete from here yet, and the card says so rather than
               offering a button that does nothing. Removing a message needs a
               Google sign-in this build does not have. */}
-          <p className="hint">Remove anything bad from YouTube Studio, then leave it here.</p>
+          <p className="hint">Remove anything bad from the live dashboard, then leave it here.</p>
           <ul className="flag-rows" data-testid="moderation-flags">
             {flags.map((flag) => (
               <FlagRow
@@ -131,28 +136,12 @@ export function ModerationCard({ connection, deck, status }: CardProps) {
               {info.input === "none" ? null : (
                 <label className="field">
                   <span>{info.field}</span>
-                  {info.input === "list" ? (
-                    <textarea
-                      className="input"
-                      rows={2}
-                      data-testid={`moderation-value-${rule.kind}`}
-                      value={draft}
-                      onChange={(event) =>
-                        setDrafts((current) => ({ ...current, [rule.kind]: event.target.value }))
-                      }
-                    />
-                  ) : (
-                    <input
-                      className="input"
-                      // A number pad for a threshold, a keyboard for a pattern.
-                      inputMode={info.input === "number" ? "numeric" : "text"}
-                      data-testid={`moderation-value-${rule.kind}`}
-                      value={draft}
-                      onChange={(event) =>
-                        setDrafts((current) => ({ ...current, [rule.kind]: event.target.value }))
-                      }
-                    />
-                  )}
+                  <RuleValue
+                    kind={rule.kind}
+                    input={info.input}
+                    value={draft}
+                    onChange={(next) => setDraft(rule.kind, next)}
+                  />
                 </label>
               )}
 
@@ -170,9 +159,7 @@ export function ModerationCard({ connection, deck, status }: CardProps) {
                   <button
                     type="button"
                     className="btn"
-                    onClick={() =>
-                      setDrafts((current) => ({ ...current, [rule.kind]: undefined }))
-                    }
+                    onClick={() => setDraft(rule.kind, undefined)}
                   >
                     Discard
                   </button>
@@ -213,6 +200,45 @@ export function ModerationCard({ connection, deck, status }: CardProps) {
         </button>
       </details>
     </section>
+  );
+}
+
+function RuleValue({
+  kind,
+  input,
+  value,
+  onChange,
+}: {
+  kind: ModRuleKind;
+  input: Exclude<ModRuleInput, "none">;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  function edit(event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>): void {
+    onChange(event.target.value);
+  }
+
+  if (input === "list") {
+    return (
+      <textarea
+        className="input"
+        rows={2}
+        data-testid={`moderation-value-${kind}`}
+        value={value}
+        onChange={edit}
+      />
+    );
+  }
+
+  return (
+    <input
+      className="input"
+      // A number pad for a threshold, a keyboard for a pattern.
+      inputMode={input === "number" ? "numeric" : "text"}
+      data-testid={`moderation-value-${kind}`}
+      value={value}
+      onChange={edit}
+    />
   );
 }
 

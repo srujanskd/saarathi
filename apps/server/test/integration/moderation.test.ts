@@ -100,7 +100,7 @@ describe("watching her chat", () => {
     kit.chat({ author: "Spammer", text: "bit.ly/free-stuff" });
 
     expect(kit.seen.said()).toEqual([]);
-    expect(kit.seen.effectsNamed("flagged")).toHaveLength(1);
+    expect(kit.seen.effectsNamed("flagged")).toHaveLength(0);
   });
 
   it("holds the newest flags and no more than the cap", async () => {

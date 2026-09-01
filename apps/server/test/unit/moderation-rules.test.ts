@@ -137,6 +137,10 @@ describe("saving a rule", () => {
       ok: true,
       rule: { kind: "words", enabled: false, value: "" },
     });
+    expect(makeRule(["flood", "off", ""])).toEqual({
+      ok: true,
+      rule: { kind: "flood", enabled: false, value: "" },
+    });
   });
 
   it("refuses a pattern that could hang the server", () => {
@@ -166,7 +170,7 @@ describe("pattern safety", () => {
   });
 
   it("allows the bounded ones, because a rule she cannot write is worse", () => {
-    for (const fine of ["(abc)?", "(abc){2}", "a+b", "[a-z]*x", "(cat|dog)"]) {
+    for (const fine of ["(abc)?", "(abc){2}", "(abc){2,3}", "a+b", "[a-z]*x", "(cat|dog)"]) {
       expect(safePattern(fine)).toBe(true);
     }
   });
