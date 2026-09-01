@@ -7,6 +7,7 @@ import type {
   Money,
   StreamEvent,
 } from "@saarathi/shared";
+import type { ChatType } from "youtube-chat-next";
 import type { StateStore } from "../core/store.js";
 import type { ChatAdapter, ChatSettings, ChatSink } from "./adapter.js";
 import { collectStats, httpGet, type StatFetch } from "./youtube-stats.js";
@@ -57,6 +58,16 @@ export interface YouTubeOptions {
 }
 
 const RETRY_MS = 60_000;
+
+/**
+ * Every message, not YouTube's filtered "top" chat. The library defaults to
+ * "top" -- the subset its UI hides the full feed behind a toggle -- so the
+ * default meant we were reading a version of her chat with messages missing,
+ * chosen by YouTube. Two things break on that and both are silent: a
+ * moderation rule cannot flag a scam it was never shown, and gains under-pay
+ * the viewers whose lines got filtered.
+ */
+const CHAT_TYPE: ChatType = "live";
 
 /** A channel id is UC and 22 more, and nothing else is one. */
 const CHANNEL_ID = /^UC[A-Za-z0-9_-]{22}$/;
@@ -221,7 +232,8 @@ export class YouTubeAdapter implements ChatAdapter {
     }
 
     const { LiveChat } = await import("youtube-chat-next");
-    this.chat = new LiveChat(source);
+    // Middle argument is the poll interval. The library's default is fine.
+    this.chat = new LiveChat(source, undefined, CHAT_TYPE);
 
     this.chat.on("start", (liveId: string) => {
       this.videoId = liveId;

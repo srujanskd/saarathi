@@ -19,6 +19,7 @@ const chats = vi.hoisted(() => [] as FakeChat[]);
 
 interface FakeChat {
   source: unknown;
+  chatType: string | undefined;
   emit(name: string, arg?: unknown): void;
   stopped: boolean;
 }
@@ -27,7 +28,11 @@ vi.mock("youtube-chat-next", () => {
   class LiveChat {
     private handlers = new Map<string, (arg?: unknown) => void>();
     stopped = false;
-    constructor(public source: unknown) {
+    constructor(
+      public source: unknown,
+      _interval?: number,
+      public chatType?: string,
+    ) {
       chats.push(this as unknown as FakeChat);
     }
     on(name: string, handler: (arg?: unknown) => void): void {
@@ -76,6 +81,15 @@ function testSink(): ChatSink {
 
 beforeEach(() => {
   chats.length = 0;
+});
+
+describe("the chat it reads", () => {
+  it("asks for every message, not YouTube's filtered top chat", async () => {
+    const adapter = adapterWith({ channelId: CHANNEL, apiKey: KEY }, fakeGet());
+    await adapter.start(testSink());
+
+    expect(chats[0]!.chatType).toBe("live");
+  });
 });
 
 describe("the live video id", () => {
