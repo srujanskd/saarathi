@@ -162,6 +162,34 @@ export interface ChannelStats {
   stream?: string;
 }
 
+/**
+ * What she may know about the bot's own writes to chat.
+ *
+ * A count of writes, never a count of units. The Data API answers no request
+ * with what it charged or what is left, so a units bar would be this repo
+ * inventing a number and drawing it confidently -- the 50-units-per-write
+ * figure Google publishes generically is what turns `ceiling` into a number of
+ * writes, and it does not appear anywhere she can read.
+ *
+ * `adapter` names which chat adapter is doing the writing, on the rule the
+ * counts follow: her page renders this beside the adapter it belongs to, and a
+ * platform that cannot write at all has no meter to show.
+ */
+export interface ChatWritesView {
+  /** The adapter these writes go through, or null when nothing can write. */
+  adapter: string | null;
+  /** Writes spent since the last reset. */
+  used: number;
+  /** What this counter will not go past on its own. */
+  ceiling: number;
+  /**
+   * Writes held back for moderation, which replies may never spend. A delete
+   * is worth more than anything the bot could say, so it spends last and it
+   * spends alone.
+   */
+  reserve: number;
+}
+
 export interface CoreState {
   startedAt: number;
   /** One entry per external connection, keyed by adapter name: chat, and OBS. */
@@ -190,6 +218,12 @@ export interface CoreState {
    * adapter which cannot count out of `stats`.
    */
   chat: Record<string, ChatView>;
+  /**
+   * What the bot has spent writing to chat today. Not keyed by adapter: she
+   * streams one platform at a time and the allowance is one number, so this is
+   * the meter rather than a set of them.
+   */
+  writes: ChatWritesView;
 }
 
 export interface Snapshot {

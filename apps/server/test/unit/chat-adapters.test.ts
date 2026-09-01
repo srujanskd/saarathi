@@ -149,6 +149,48 @@ describe("MockChatAdapter", () => {
   });
 });
 
+describe("MockChatAdapter writes", () => {
+  it("echoes what the bot said back as a message, the way a real reply lands", async () => {
+    const { sink, events } = testSink();
+    const adapter = new MockChatAdapter();
+    await adapter.start(sink);
+    await adapter.writes.say("@TestViewer 12 gains");
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "chat-message",
+      source: "mock",
+      text: "@TestViewer 12 gains",
+      // As her, because that is who the grant belongs to on the real path --
+      // and it is what keeps the bot out of her own moderation queue.
+      author: { id: "mock:Saarathi", name: "Saarathi", isStreamer: true },
+    });
+  });
+
+  it("records a delete and a ban rather than pretending to do them", async () => {
+    const { sink } = testSink();
+    const adapter = new MockChatAdapter();
+    await adapter.start(sink);
+    await adapter.writes.deleteMessage("msg-1");
+    await adapter.writes.ban("mock:Spammer");
+
+    expect(adapter.deleted).toEqual(["msg-1"]);
+    expect(adapter.banned).toEqual(["mock:Spammer"]);
+  });
+
+  it("says nothing after stop, and nothing about nothing", async () => {
+    const { sink, events } = testSink();
+    const adapter = new MockChatAdapter();
+    await adapter.start(sink);
+    await adapter.writes.say("   ");
+    expect(events).toHaveLength(0);
+
+    await adapter.stop();
+    await adapter.writes.say("anyone there");
+    expect(events).toHaveLength(0);
+  });
+});
+
 describe("youtube normalize", () => {
   const author = { name: "Viewer", channelId: "UC123" };
   const message = (text: string) => [{ text }];

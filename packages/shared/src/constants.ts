@@ -22,6 +22,15 @@ export const GAINS = {
 export const LEDGER_ID = "ledger";
 
 /**
+ * Store namespace the chat write counter persists under.
+ *
+ * It survives a restart for the reason a balance does: the thing it protects is
+ * a daily allowance from Google, and a counter that starts over every time she
+ * restarts the tray is a counter that cannot protect anything.
+ */
+export const WRITES_ID = "writes";
+
+/**
  * OBS's WebSocket server. The port and the fact that it wants a password are
  * OBS's defaults, not ours: it ships disabled, on 4455, with auth required and
  * a random password generated on first run. We read that password out of OBS's

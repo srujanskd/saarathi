@@ -37,7 +37,12 @@ export interface RegistryDeps {
   /** The counts, read-only. A core service every module shares, like OBS. */
   stats: StatsView;
   log: Logger;
-  say(text: string): void;
+  /**
+   * A bot reply, with what it is about: replies about the same thing are merged
+   * into one message, so a module's says coalesce with each other and not with
+   * the kernel's refusals. Tier is not the module's to pick -- see `SayTier`.
+   */
+  say(text: string, key: string): void;
   onPatch(module: string, state: unknown): void;
   onEffect(effect: Effect): void;
   /** Something in the core slice changed, so it needs republishing. */
@@ -412,7 +417,7 @@ export class Registry {
       },
       after: (ms, fn) => track(setTimeout(fn, ms), false),
       every: (ms, fn) => track(setInterval(fn, ms), true),
-      say: (text) => this.deps.say(text),
+      say: (text) => this.deps.say(text, runtime.def.id),
       log: this.deps.log,
     };
   }

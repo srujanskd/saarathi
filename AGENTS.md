@@ -310,6 +310,14 @@ Do not open a browser or use computer use to verify unless I ask for it.
   once a real adapter has answered anything at all -- not field by field, because YouTube
   before she goes live has a subscriber count and no like count, and falling through on that
   one field alone would put invented likes on a bar over her camera.
+- Writing to chat is an adapter capability, `adapter.writes?`, and `Kernel.say` is additive: it
+  still emits the effect her control page renders, and sends to chat as well when something can.
+  So dev, CI, a VPS with no grant and a revoked grant all behave the way they did before the
+  write path existed. A module cannot pick a tier -- `ctx.say` is always the informational one,
+  refusals are cut first, and replies about the same thing merge on a five-second window.
+  Moderation is not a tier: a delete is a different method and spends against a reserve replies
+  may never touch. The meter counts writes and never units, because the Data API reports neither
+  what it charged nor what is left, and it resets on Google's Pacific midnight rather than hers.
 - The server is authoritative. Clients render and send intents. No client-side game logic.
 - Mock chat sends as any role — `role: "viewer" | "member" | "mod" | "streamer"` on `MockChatInput`.
   Every rule that reads an author flag has to be drivable from there, or the only way to test

@@ -3,12 +3,14 @@ import {
   CORE_ACTIONS,
   type ChannelStats,
   type ChatView,
+  type ChatWritesView,
   type ConnectionStatus,
 } from "@saarathi/shared";
 import type { Connection } from "../lib/connection.js";
 import { useInvoke } from "../lib/invoke.js";
 import { Notice } from "./Notice.js";
 import { countsLine } from "./counts.js";
+import { writesLine } from "./writes.js";
 
 /**
  * Where she tells Saarathi which channel to read.
@@ -33,6 +35,7 @@ export function ChatSourceCard({
   view,
   status,
   stats,
+  writes,
 }: {
   connection: Connection;
   /** The adapter's name, which is what the two actions are addressed to. */
@@ -40,6 +43,8 @@ export function ChatSourceCard({
   view: ChatView;
   status: ConnectionStatus | undefined;
   stats: ChannelStats | undefined;
+  /** The whole meter, not this adapter's share: it says whose it is itself. */
+  writes: ChatWritesView;
 }) {
   const invoke = useInvoke(connection);
   const [draft, setDraft] = useState<{ channelId: string; apiKey: string } | null>(null);
@@ -52,6 +57,7 @@ export function ChatSourceCard({
   const fields = draft ?? { channelId: view.channelId, apiKey: "" };
   const dirty = draft !== null;
   const counts = countsLine(stats);
+  const written = writesLine(writes, name);
 
   const { run } = invoke;
 
@@ -74,6 +80,11 @@ export function ChatSourceCard({
       {counts ? (
         <p className="counts" data-testid="chat-counts">
           {counts}
+        </p>
+      ) : null}
+      {written ? (
+        <p className="hint" data-testid="chat-writes">
+          {written}
         </p>
       ) : null}
       {stats?.detail ? (

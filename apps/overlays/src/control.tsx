@@ -64,6 +64,7 @@ function Control({ url, connection }: { url: string; connection: Connection }) {
             view={view}
             status={core!.connections[name]}
             stats={core!.stats[name]}
+            writes={core!.writes}
           />
         ))}
         {/* Also core rather than a module, and for the same reason: every

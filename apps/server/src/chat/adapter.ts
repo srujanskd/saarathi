@@ -57,6 +57,39 @@ export interface ChatAdapter {
    * -- which is always registered beside the real one -- has nothing to omit.
    */
   readonly settings?: ChatSettings;
+  /**
+   * What this adapter can write back to chat, if it can write anything.
+   *
+   * One optional member on the shape `settings` already uses, rather than three
+   * loose optional methods: writing is one capability an adapter either has or
+   * has not got, and the core asks that question once. An adapter may grow it
+   * and lose it while running -- a grant is revoked, a token expires -- so it is
+   * read at the moment of a write and never cached.
+   *
+   * Everything past this file still only knows `Kernel.say` and, later, a
+   * moderation action. Which HTTP call a delete is, and what it costs, is
+   * platform knowledge and stays here.
+   */
+  readonly writes?: ChatWrites;
+}
+
+/**
+ * The writing half of an adapter: three calls, because three is what moderation
+ * and replies between them need.
+ *
+ * Every one of them throws on failure rather than answering false. A write
+ * failing is the normal case, not the exceptional one -- her Wi-Fi, a revoked
+ * grant, a quota that ran out at 4pm -- and the caller has to tell those apart
+ * from each other anyway, which is what an error carries and a boolean does not.
+ * The same call `stats` makes, for the same reason.
+ */
+export interface ChatWrites {
+  /** Post a line as her channel. Never queued: see `Kernel.say`. */
+  say(text: string): Promise<void>;
+  /** Delete one message, named by the platform's own id for it. */
+  deleteMessage(messageId: string): Promise<void>;
+  /** Ban an account from her chat, named by the author id events carry. */
+  ban(authorId: string): Promise<void>;
 }
 
 export interface ChatSettingsInput {
