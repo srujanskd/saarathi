@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  CORE_ID,
-  MAX_CHALLENGES,
-  SPIN_COOLDOWN_MS,
-  type ChatLogState,
-} from "@saarathi/shared";
+import { CORE_ID, GAINS, MAX_CHALLENGES, SPIN_COST, type ChatLogState } from "@saarathi/shared";
 import { harness, wheelState, type Harness } from "../helpers/kernel.js";
 
 let live: Harness | null = null;
@@ -13,8 +8,12 @@ afterEach(async () => {
   live = null;
 });
 
-async function start() {
-  live = await harness();
+/**
+ * !spin is priced, so a viewer with an empty ledger cannot reach the action at
+ * all. Every test here that chats one starts them able to afford a few.
+ */
+async function start(balances: Record<string, number> = { TestViewer: SPIN_COST * 4 }) {
+  live = await harness({ balances });
   return live;
 }
 
@@ -29,7 +28,9 @@ describe("chat commands reach the action", () => {
 
     const state = wheelState(h.kernel);
     expect(state.spin).not.toBeNull();
-    expect(state.spin!.via).toBe("chat");
+    // "gains", not "chat": the gate charged for it, so downstream it is a paid
+    // trigger and the wheel treats it like one.
+    expect(state.spin!.via).toBe("gains");
     expect(state.spin!.by).toBe("TestViewer");
     expect(state.challenges).toContain(state.spin!.label);
   });
@@ -41,7 +42,7 @@ describe("chat commands reach the action", () => {
 
     const state = wheelState(h.kernel);
     expect(state.history).toHaveLength(1);
-    expect(state.history[0]).toMatchObject({ label: state.spin!.label, via: "chat" });
+    expect(state.history[0]).toMatchObject({ label: state.spin!.label, via: "gains" });
   });
 
   it("announces the spin as an effect the overlay can hear", async () => {
@@ -119,32 +120,47 @@ describe("a command is not also a message", () => {
   });
 });
 
-describe("the cooldown belongs to the binding", () => {
-  it("refuses a second !spin and tells chat why", async () => {
-    const h = await start();
+describe("the price belongs to the binding", () => {
+  it("takes the gains and spins", async () => {
+    const h = await start({ TestViewer: SPIN_COST });
     h.chat("!spin");
     await settled();
-    h.seen.clear();
 
+    expect(wheelState(h.kernel).spin).not.toBeNull();
+    expect(h.balance("TestViewer")).toBe(0);
+  });
+
+  it("refuses a viewer who cannot afford it, and says both numbers", async () => {
+    const h = await start({ TestViewer: SPIN_COST - 1 });
     h.chat("!spin");
     await settled();
 
     const said = h.seen.said();
     expect(said).toHaveLength(1);
     expect(said[0]).toContain("@TestViewer");
-    expect(said[0]).toContain("cooling down");
-    expect(h.seen.effectsNamed("spin-started")).toHaveLength(0);
+    expect(said[0]).toContain(String(SPIN_COST));
+    expect(said[0]).toContain(String(SPIN_COST - 1));
+    expect(said[0]).toContain(GAINS.plural);
+    expect(wheelState(h.kernel).spin).toBeNull();
+    // Refused means not charged. A viewer who was told no still has their gains.
+    expect(h.balance("TestViewer")).toBe(SPIN_COST - 1);
   });
 
-  it("applies to chat as a whole, not per viewer", async () => {
-    const h = await start();
+  it("charges the spender and nobody else, unlike the cooldown it replaced", async () => {
+    const h = await start({ First: SPIN_COST, Second: SPIN_COST });
     h.chat({ author: "First", text: "!spin" });
     await settled();
-    h.seen.clear();
 
+    expect(h.balance("First")).toBe(0);
+    expect(h.balance("Second")).toBe(SPIN_COST);
+
+    // And the second viewer is not locked out by the first one's turn: their
+    // own balance is the only thing standing between them and the wheel.
+    await h.kernel.invoke("wheel.cancel");
     h.chat({ author: "Second", text: "!spin" });
     await settled();
-    expect(h.seen.said()[0]).toContain("cooling down");
+    expect(h.balance("Second")).toBe(0);
+    expect(wheelState(h.kernel).spin!.by).toBe("Second");
   });
 
   it("does not stand in the way of her own control page", async () => {
@@ -153,7 +169,7 @@ describe("the cooldown belongs to the binding", () => {
     await settled();
 
     // The wheel is busy, so this is refused by the spin rules -- but for the
-    // wheel being busy, never for a cooldown she is not subject to.
+    // wheel being busy, never for a price she is not subject to.
     const result = await h.kernel.invoke("wheel.cancel");
     expect(result).toEqual({ ok: true });
 
@@ -162,13 +178,14 @@ describe("the cooldown belongs to the binding", () => {
     expect(wheelState(h.kernel).spin!.via).toBe("control");
   });
 
-  it("quotes the cooldown length her control page shows", async () => {
+  it("quotes the price her control page shows, and no cooldown beside it", async () => {
     const h = await start();
     const spin = h.kernel
       .coreState()
       .modules.find((m) => m.id === "wheel")!
       .commands.find((c) => c.name === "spin");
-    expect(spin).toMatchObject({ action: "wheel.spin", cooldownMs: SPIN_COOLDOWN_MS });
+    expect(spin).toMatchObject({ action: "wheel.spin", cost: SPIN_COST });
+    expect(spin!.cooldownMs).toBeUndefined();
   });
 });
 

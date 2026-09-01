@@ -1,4 +1,10 @@
-import type { Author, CommandSpec, GainsLedger, InvokeResult } from "@saarathi/shared";
+import type {
+  Author,
+  CommandSpec,
+  GainsLedger,
+  InvokeResult,
+  TriggerVia,
+} from "@saarathi/shared";
 import { GAINS } from "@saarathi/shared";
 
 /**
@@ -78,7 +84,23 @@ export function decideCommand(params: {
   return { ok: true };
 }
 
-export type GateResult = { ok: true; release(): void } | Exclude<InvokeResult, { ok: true }>;
+/**
+ * Which trigger a chat command turns into once it has been paid for.
+ *
+ * A priced command is not "chat" downstream. The viewer spent something, and
+ * modules owe a paid trigger more than a free one -- the wheel makes one wait
+ * its turn behind a busy spin rather than turning it away, because gains taken
+ * for a spin that never happened is the one failure here that costs somebody
+ * something real. Provenance is the gate's to report because the gate is what
+ * took the payment.
+ */
+export function triggerVia(spec: CommandSpec): TriggerVia {
+  return spec.cost ? "gains" : "chat";
+}
+
+export type GateResult =
+  | { ok: true; via: TriggerVia; release(): void }
+  | Exclude<InvokeResult, { ok: true }>;
 
 /**
  * The single enforcement point for permission, cooldown and price. Charging
@@ -119,6 +141,7 @@ export class CommandGate {
 
     return {
       ok: true,
+      via: triggerVia(spec),
       release: () => {
         if (previous === undefined) this.lastUsed.delete(key);
         else this.lastUsed.set(key, previous);

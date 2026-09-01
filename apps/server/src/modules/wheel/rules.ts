@@ -35,8 +35,8 @@ export function spinBlockedFor(spin: ActiveSpin | null, now: number): number {
  *    including hers, because two overlapping spins have no meaning on screen
  *
  * Rate limiting is deliberately not here. It belongs to the !spin command
- * binding, so a paid trigger or her own deck button reaches this function
- * without a cooldown to argue with.
+ * binding, which charges gains for it, so a superchat or her own deck button
+ * reaches this function with nothing to pay and nothing to argue with.
  */
 export function planSpin(state: WheelState, input: SpinInput): SpinOutcome {
   if (state.challenges.length === 0) {

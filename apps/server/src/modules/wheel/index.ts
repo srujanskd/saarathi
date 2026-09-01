@@ -1,9 +1,10 @@
 import {
   DEFAULT_CHALLENGES,
+  GAINS,
   MAX_CHALLENGES,
   MAX_HISTORY,
   MAX_QUEUE,
-  SPIN_COOLDOWN_MS,
+  SPIN_COST,
   WHEEL_ID,
   type Cancel,
   type GameModuleDef,
@@ -86,9 +87,12 @@ export const wheel: GameModuleDef<WheelState> = {
     {
       name: "spin",
       action: "spin",
-      cooldownMs: SPIN_COOLDOWN_MS,
+      // Priced rather than rate-limited, and the price is doing both jobs. See
+      // SPIN_COST: a balance is per viewer where a cooldown was per binding,
+      // and a paid trigger is one the wheel queues instead of refusing.
+      cost: SPIN_COST,
       allow: "everyone",
-      help: "Spin the wheel for a random challenge",
+      help: `Spin the wheel for a random challenge — ${SPIN_COST} ${GAINS.plural}`,
     },
   ],
 
@@ -183,8 +187,9 @@ export const wheel: GameModuleDef<WheelState> = {
   },
 
   setup(ctx) {
-    // Money buys a spin outright: it skips the chat cooldown because the
-    // cooldown lives on the !spin binding, not on the action.
+    // Real money buys a spin without spending gains for it: the price lives on
+    // the !spin binding, not on the action, so every other way in reaches this
+    // free. She has already been paid.
     ctx.on("paid-event", (event) => {
       void ctx.invoke("spin", { by: event.author.name, via: "paid", event });
     });

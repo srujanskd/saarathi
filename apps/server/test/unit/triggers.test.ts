@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Author, CommandSpec, GainsLedger } from "@saarathi/shared";
-import { CommandGate, decideCommand, parseCommand } from "../../src/core/triggers.js";
+import { CommandGate, decideCommand, parseCommand, triggerVia } from "../../src/core/triggers.js";
 
 const viewer: Author = { id: "u1", name: "Viewer" };
 const member: Author = { id: "u2", name: "Member", isMember: true };
@@ -164,7 +164,32 @@ function fakeLedger(initial: Record<string, number> = {}): GainsLedger & { log: 
   };
 }
 
+describe("triggerVia", () => {
+  it("calls a priced command a gains trigger", () => {
+    expect(triggerVia(spec({ cost: 500 }))).toBe("gains");
+  });
+
+  it("calls a free one chat, however else it is configured", () => {
+    expect(triggerVia(spec())).toBe("chat");
+    expect(triggerVia(spec({ cooldownMs: 1_000, allow: "mods" }))).toBe("chat");
+  });
+
+  it("treats a price of zero as free, because nothing was spent", () => {
+    expect(triggerVia(spec({ cost: 0 }))).toBe("chat");
+  });
+});
+
 describe("CommandGate", () => {
+  it("reports how the trigger was paid for, so nothing downstream has to guess", () => {
+    const gate = new CommandGate(fakeLedger({ u1: 500 }));
+
+    const paid = gate.consume("wheel.spin", spec({ cost: 500 }), viewer, 0);
+    expect(paid).toMatchObject({ ok: true, via: "gains" });
+
+    const free = gate.consume("other.thing", spec(), viewer, 0);
+    expect(free).toMatchObject({ ok: true, via: "chat" });
+  });
+
   it("charges before dispatch, so two triggers in one tick cannot both pass", () => {
     const ledger = fakeLedger({ u1: 500 });
     const gate = new CommandGate(ledger);

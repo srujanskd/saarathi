@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAX_QUEUE, SPIN_DURATION_MS } from "@saarathi/shared";
+import { MAX_QUEUE, SPIN_COST, SPIN_DURATION_MS } from "@saarathi/shared";
 import { SETTLE_MS } from "../../src/modules/wheel/rules.js";
 import { harness, wheelState, type Harness } from "../helpers/kernel.js";
 
@@ -20,8 +20,9 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
-async function start() {
-  live = await harness();
+/** !spin is priced, so a chat trigger needs somebody who can afford it. */
+async function start(balances: Record<string, number> = {}) {
+  live = await harness({ balances });
   return live;
 }
 
@@ -29,22 +30,11 @@ async function start() {
 const settled = () => vi.advanceTimersByTimeAsync(0);
 
 describe("free triggers are refused when the wheel is busy", () => {
-  // The !spin cooldown (45s) outlasts the busy window (7s), so a chat trigger
-  // is turned away by the gate long before the wheel itself would refuse it.
-  // Either way it must not end up in the paid queue.
-  it("refuses a second chat spin outright rather than queueing it", async () => {
-    const h = await start();
-    h.chat({ author: "A", text: "!spin" });
-    await settled();
-
-    h.chat({ author: "B", text: "!spin" });
-    await settled();
-
-    expect(wheelState(h.kernel).queue).toEqual([]);
-    expect(h.seen.said().join(" ")).toContain("cooling down");
-  });
-
-  it("refuses a free gains-style trigger by name once the wheel is busy", async () => {
+  // Her own surfaces are the free ones now: !spin costs gains, so a chat
+  // trigger is paid and waits its turn in the block below. Hers does not wait
+  // -- she is standing there, and a spin arriving forty seconds later is worse
+  // than one that says no now.
+  it("refuses a free trigger by name once the wheel is busy", async () => {
     const h = await start();
     await h.kernel.invoke("wheel.spin");
     const result = await h.kernel.invoke("wheel.spin", { via: "auto", by: "timer" });
@@ -59,6 +49,71 @@ describe("free triggers are refused when the wheel is busy", () => {
     expect(result).toEqual({ ok: false, reason: "The wheel is still spinning" });
     expect(wheelState(h.kernel).queue).toEqual([]);
   });
+
+  it("refuses her deck button too, and never queues it", async () => {
+    const h = await start();
+    await h.kernel.invoke("wheel.spin");
+    const result = await h.kernel.invoke("wheel.spin", { via: "deck", by: "Deck" });
+    expect(result).toEqual({ ok: false, reason: "The wheel is still spinning" });
+    expect(wheelState(h.kernel).queue).toEqual([]);
+  });
+});
+
+describe("gains buy a spin, and a bought spin waits", () => {
+  it("spins straight away when the wheel is free, and takes the gains", async () => {
+    const h = await start({ Asha: SPIN_COST });
+    h.chat({ author: "Asha", text: "!spin" });
+    await settled();
+
+    expect(wheelState(h.kernel).spin).toMatchObject({ by: "Asha", via: "gains" });
+    expect(h.balance("Asha")).toBe(0);
+  });
+
+  it("queues one that arrives mid-spin rather than taking gains for nothing", async () => {
+    const h = await start({ Asha: SPIN_COST });
+    await h.kernel.invoke("wheel.spin");
+    h.seen.clear();
+
+    h.chat({ author: "Asha", text: "!spin" });
+    await settled();
+
+    expect(wheelState(h.kernel).queue).toEqual([
+      { by: "Asha", via: "gains", at: expect.any(Number) },
+    ]);
+    expect(h.seen.effectsNamed("spin-queued")[0]!.payload).toEqual({ by: "Asha", position: 1 });
+    expect(h.balance("Asha")).toBe(0);
+
+    // And the spin they bought actually happens, which is the whole reason it
+    // queued instead of being turned away.
+    await vi.advanceTimersByTimeAsync(BUSY_MS);
+    expect(wheelState(h.kernel).spin).toMatchObject({ by: "Asha", via: "gains" });
+  });
+
+  it("gives the gains back when the queue is too full to take the spin", async () => {
+    const h = await start({ Asha: SPIN_COST });
+    await h.kernel.invoke("wheel.spin");
+    for (let i = 0; i < MAX_QUEUE; i++) {
+      h.chat({ author: `Tipper${i}`, text: "money", type: "superchat" });
+    }
+    await settled();
+
+    h.chat({ author: "Asha", text: "!spin" });
+    await settled();
+
+    expect(wheelState(h.kernel).queue).toHaveLength(MAX_QUEUE);
+    expect(h.balance("Asha")).toBe(SPIN_COST);
+    expect(h.seen.said().join(" ")).toContain("queue is full");
+  });
+
+  it("takes nothing from someone who cannot afford it", async () => {
+    const h = await start({ Asha: SPIN_COST - 1 });
+    h.chat({ author: "Asha", text: "!spin" });
+    await settled();
+
+    expect(wheelState(h.kernel).spin).toBeNull();
+    expect(wheelState(h.kernel).queue).toEqual([]);
+    expect(h.balance("Asha")).toBe(SPIN_COST - 1);
+  });
 });
 
 describe("paid triggers wait their turn", () => {
@@ -72,15 +127,15 @@ describe("paid triggers wait their turn", () => {
     expect(state.queue).toEqual([]);
   });
 
-  it("ignores the !spin cooldown, because she was paid for it", async () => {
+  it("costs no gains, because she was paid real money for it", async () => {
     const h = await start();
-    h.chat("!spin");
+    h.chat({ author: "Tipper", text: "take it", type: "superchat" });
     await settled();
-    await h.kernel.invoke("wheel.cancel");
 
-    h.chat({ author: "Tipper", text: "again", type: "superchat" });
-    await settled();
     expect(wheelState(h.kernel).spin).toMatchObject({ via: "paid" });
+    // The price is on the !spin binding, not on the action, so a superchat
+    // reaches the wheel without an account to draw on at all.
+    expect(h.balance("Tipper")).toBe(0);
   });
 
   it("queues a paid spin that arrives mid-spin, and says where in line it is", async () => {
@@ -183,7 +238,7 @@ describe("paid triggers wait their turn", () => {
 
 describe("every trigger lands in the same action", () => {
   const cases = [
-    ["chat", async (h: Harness) => void h.chat("!spin")],
+    ["chat", async (h: Harness) => void h.chat({ author: "Asha", text: "!spin" })],
     ["paid", async (h: Harness) => void h.chat({ text: "money", type: "superchat" })],
     ["control", async (h: Harness) => void (await h.kernel.invoke("wheel.spin"))],
     [
@@ -194,7 +249,7 @@ describe("every trigger lands in the same action", () => {
 
   for (const [name, trigger] of cases) {
     it(`${name} produces a spin, a history entry and one effect`, async () => {
-      const h = await start();
+      const h = await start({ Asha: SPIN_COST });
       await trigger(h);
       await settled();
 
