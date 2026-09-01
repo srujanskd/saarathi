@@ -200,6 +200,15 @@ export function gainsState(kernel: Kernel) {
   >;
 }
 
+/** The moderation slice, typed, straight out of a snapshot. Published only:
+ * the flood history is server-only, so a snapshot does not carry it. */
+export function moderationState(kernel: Kernel) {
+  return kernel.snapshot().modules.moderation as Omit<
+    import("@saarathi/shared").ModerationState,
+    "floods"
+  >;
+}
+
 /** The wheel's slice, typed, straight out of a snapshot. */
 export function wheelState(kernel: Kernel) {
   return kernel.snapshot().modules.wheel as import("@saarathi/shared").WheelState;

@@ -19,6 +19,7 @@ import { attachSync, type SaarathiServer } from "./core/sync.js";
 import { chatlog } from "./modules/chatlog/index.js";
 import { gains } from "./modules/gains/index.js";
 import { goals } from "./modules/goals/index.js";
+import { moderation } from "./modules/moderation/index.js";
 import { wheel } from "./modules/wheel/index.js";
 
 /**
@@ -66,7 +67,7 @@ const obsConfig =
   process.env.OBS_CONFIG ?? obsConfigPath(process.platform, process.env) ?? "";
 
 const kernel = createKernel({
-  modules: [wheel, goals, gains, chatlog],
+  modules: [wheel, goals, gains, moderation, chatlog],
   chat,
   store,
   obs: new ObsWebSocketAdapter({ store, log, configPath: obsConfig || null }),

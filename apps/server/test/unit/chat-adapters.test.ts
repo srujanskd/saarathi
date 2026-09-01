@@ -52,7 +52,47 @@ describe("MockChatAdapter", () => {
     const adapter = new MockChatAdapter();
     await adapter.start(sink);
     adapter.send({ author: "Someone", text: "hi" });
-    expect(events[0]!.author).toEqual({ id: "mock:Someone", name: "Someone", isMember: false });
+    // All three flags stated rather than left off, exactly as the YouTube
+    // adapter states them: a rule reading `isMod` should not be able to tell
+    // which adapter a message came through.
+    expect(events[0]!.author).toEqual({
+      id: "mock:Someone",
+      name: "Someone",
+      isStreamer: false,
+      isMod: false,
+      isMember: false,
+    });
+  });
+
+  it("sends as whoever the role says, so a rule about mods can be driven", async () => {
+    const { sink, events } = testSink();
+    const adapter = new MockChatAdapter();
+    await adapter.start(sink);
+
+    adapter.send({ author: "Her", text: "hi", role: "streamer" });
+    adapter.send({ author: "Mod", text: "hi", role: "mod" });
+    adapter.send({ author: "Fan", text: "hi", role: "member" });
+    adapter.send({ author: "Viewer", text: "hi" });
+
+    expect(events.map((event) => event.author)).toEqual([
+      { id: "mock:Her", name: "Her", isStreamer: true, isMod: false, isMember: false },
+      { id: "mock:Mod", name: "Mod", isStreamer: false, isMod: true, isMember: false },
+      { id: "mock:Fan", name: "Fan", isStreamer: false, isMod: false, isMember: true },
+      { id: "mock:Viewer", name: "Viewer", isStreamer: false, isMod: false, isMember: false },
+    ]);
+  });
+
+  it("counts a join as a member talking, whatever the role said", async () => {
+    // `type: "member"` is the join event and `role: "member"` is a member
+    // talking. Someone whose membership starts this second is a member for
+    // every rule that asks, so the join implies the flag.
+    const { sink, events } = testSink();
+    const adapter = new MockChatAdapter();
+    await adapter.start(sink);
+    adapter.send({ author: "Fan", text: "just joined!", type: "member" });
+
+    expect(events[0]!.type).toBe("new-member");
+    expect(events[0]!.author.isMember).toBe(true);
   });
 
   it("trims the text and drops a line with nothing in it", async () => {

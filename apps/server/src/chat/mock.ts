@@ -68,10 +68,15 @@ export class MockChatAdapter implements ChatAdapter {
     const text = input.text?.trim();
     if (!text) return;
 
+    const role = input.role ?? "viewer";
     const author: Author = {
       id: mockAuthorId(input.author || "TestViewer"),
       name: input.author || "TestViewer",
-      isMember: input.type === "member",
+      isStreamer: role === "streamer",
+      isMod: role === "mod",
+      // The join event says member as much as the role does: someone whose
+      // membership starts this second is a member for every rule that asks.
+      isMember: role === "member" || input.type === "member",
     };
     const base = { source: this.name, author, at: Date.now(), text };
 

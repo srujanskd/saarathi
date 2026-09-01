@@ -1,10 +1,11 @@
 import type { ComponentType } from "react";
-import { CHATLOG_ID, GAINS_ID, GOALS_ID, WHEEL_ID } from "@saarathi/shared";
+import { CHATLOG_ID, GAINS_ID, GOALS_ID, MODERATION_ID, WHEEL_ID } from "@saarathi/shared";
 import { ChatCard } from "./chatlog/ChatCard.js";
 import { GainsCard } from "./gains/GainsCard.js";
 import { GainsOverlay } from "./gains/GainsOverlay.js";
 import { GoalsCard } from "./goals/GoalsCard.js";
 import { GoalsOverlay } from "./goals/GoalsOverlay.js";
+import { ModerationCard } from "./moderation/ModerationCard.js";
 import type { CardProps, OverlayProps } from "./types.js";
 import { WheelCard } from "./wheel/WheelCard.js";
 import { WheelOverlay } from "./wheel/WheelOverlay.js";
@@ -32,6 +33,7 @@ export const clients: Record<string, ModuleClient> = {
   [WHEEL_ID]: { overlay: WheelOverlay, card: WheelCard },
   [GOALS_ID]: { overlay: GoalsOverlay, card: GoalsCard },
   [GAINS_ID]: { overlay: GainsOverlay, card: GainsCard },
+  [MODERATION_ID]: { card: ModerationCard },
   [CHATLOG_ID]: { card: ChatCard },
 };
 

@@ -7,3 +7,4 @@ export * from "./modules/wheel.js";
 export * from "./modules/chatlog.js";
 export * from "./modules/goals.js";
 export * from "./modules/gains.js";
+export * from "./modules/moderation.js";

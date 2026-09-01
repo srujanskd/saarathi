@@ -31,6 +31,17 @@ interface EventBase {
   source: string;
   author: Author;
   at: number;
+  /**
+   * The platform's own id for this message, where the adapter has one.
+   *
+   * The only handle a moderation action has: deleting a message means naming it
+   * to the platform, and nothing downstream can reconstruct that from the text.
+   * Optional because it is genuinely absent on most sources -- mock chat has no
+   * ids and neither does a tips webhook -- and a missing id is a row she cannot
+   * act on rather than a bug. Opaque everywhere past the adapter: what it looks
+   * like is YouTube's business, on the rule `ChannelStats.stream` follows.
+   */
+  messageId?: string;
 }
 
 export interface ChatMessageEvent extends EventBase {

@@ -241,6 +241,18 @@ export interface MockChatInput {
   type?: "chat" | "superchat" | "member";
   /** Display amount for superchats, e.g. "$5.00". */
   amount?: string;
+  /**
+   * Who mock chat should say sent it.
+   *
+   * Every rule that reads `Author` has to be drivable without a live stream,
+   * which the three flags on an event made impossible from here: moderation
+   * exempts her mods and a mods-only command refuses everyone else, and neither
+   * could be demonstrated -- or tested through the mock path -- while every
+   * mock message came from an ordinary viewer. "member" is separate from
+   * `type: "member"` on purpose: that one is the join event, this one is a
+   * member talking, and they are different events about the same person.
+   */
+  role?: "viewer" | "member" | "mod" | "streamer";
 }
 
 export type InvokeResult =
