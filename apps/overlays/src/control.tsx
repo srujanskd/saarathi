@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { OBS_ID } from "@saarathi/shared";
+import { ChatSourceCard } from "./core/ChatSourceCard.js";
 import { DeckCard } from "./core/DeckCard.js";
 import { ObsCard } from "./core/ObsCard.js";
 import { Status } from "./core/Status.js";
@@ -51,6 +52,20 @@ function Control({ url, connection }: { url: string; connection: Connection }) {
             deck={deck}
           />
         ) : null}
+        {/* One per adapter that has anything to set up, which today is
+            YouTube and never mock chat. Core rather than a module for the same
+            reason OBS is: every module reads the events these produce, and no
+            module owns one. */}
+        {Object.entries(core?.chat ?? {}).map(([name, view]) => (
+          <ChatSourceCard
+            key={name}
+            connection={connection}
+            name={name}
+            view={view}
+            status={core!.connections[name]}
+            stats={core!.stats[name]}
+          />
+        ))}
         {/* Also core rather than a module, and for the same reason: every
             surface renders the grid and no module owns it. */}
         {core ? (
@@ -63,7 +78,9 @@ function Control({ url, connection }: { url: string; connection: Connection }) {
         ) : null}
         {(core?.modules ?? []).map((status) => {
           const Card = clients[status.id]?.card ?? GenericCard;
-          return <Card key={status.id} connection={connection} status={status} />;
+          return (
+            <Card key={status.id} connection={connection} status={status} deck={deck} />
+          );
         })}
       </main>
     </div>

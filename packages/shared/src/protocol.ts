@@ -20,6 +20,8 @@ export const CORE_ACTIONS = {
   obsForget: `${CORE_ID}.obsForget`,
   obsScene: `${CORE_ID}.obsScene`,
   obsSettings: `${CORE_ID}.obsSettings`,
+  chatSettings: `${CORE_ID}.chatSettings`,
+  chatForgetKey: `${CORE_ID}.chatForgetKey`,
   deckSet: `${CORE_ID}.deckSet`,
 } as const;
 
@@ -47,6 +49,31 @@ export interface ObsView {
   /** Transient: OBS tells us on connect, and we forget on disconnect. */
   scenes: string[];
   currentScene: string | null;
+}
+
+/**
+ * What she may know about one chat adapter's settings.
+ *
+ * Deliberately not the credential, for the reason `ObsView` is not the OBS
+ * password: this slice reaches every client, and in IRL mode one of them is her
+ * phone over somebody else's network. `hasKey` is enough to render the field
+ * and to know whether Forget has anything to do.
+ *
+ * `title` and `hint` are written by the adapter rather than by the page, on the
+ * same rule as `ChannelStats.detail`: where a channel id is found is a fact
+ * about YouTube, and the point of the adapter seam is that nothing past it has
+ * to know one. A second platform with settings brings its own two sentences and
+ * the card renders them unchanged.
+ */
+export interface ChatView {
+  /** What she reads on the card: "YouTube". */
+  title: string;
+  /** The channel it is reading, or blank when she has not said. */
+  channelId: string;
+  /** True when a key of hers is stored. Never the key itself. */
+  hasKey: boolean;
+  /** Where to find the channel id, in her words. */
+  hint: string;
 }
 
 /**
@@ -84,6 +111,57 @@ export interface DeckView {
   slots: DeckSlot[];
 }
 
+/**
+ * What one adapter can currently say about the channel it is reading.
+ *
+ * Every field is optional because "we do not have this number" is the normal
+ * case, not the error case: likes belong to a video and there is no video until
+ * she goes live, and a subscriber count she has hidden in YouTube Studio is not
+ * available to anyone at any price. A goal rendering 0 because nothing has been
+ * fetched yet is the same class of bug as a completion re-firing on a browser
+ * source reload -- it is wrong only while she is live, which is the only time
+ * anyone is looking.
+ */
+export interface StatCounts {
+  /**
+   * Channel subscribers. YouTube rounds this down to three significant figures
+   * above 1,000 -- in the API as much as on the page, and even for an
+   * authorized request about her own channel -- so it is exact for her today
+   * and arrives in steps of 10, then 100, as she grows. Whatever renders it
+   * must not animate through the values in between: they do not exist.
+   */
+  subscribers?: number;
+  /** Likes on the video she is live on right now. Exact, and it can go down. */
+  likes?: number;
+}
+
+/**
+ * One adapter's answer to the poll, and what to tell her when a number is
+ * missing.
+ *
+ * `detail` is written by the adapter because only the adapter knows why: "no
+ * live stream yet", "she hides her subscriber count", "no API key set" are
+ * three different sentences and one absent field. Everything else in this repo
+ * that can be unavailable carries its own words for the same reason -- see
+ * `ConnectionStatus.detail`.
+ */
+export interface ChannelStats {
+  counts: StatCounts;
+  detail: string;
+  /**
+   * An opaque token for the stream the per-stream counts belong to, or absent
+   * when the adapter is not on one.
+   *
+   * Nothing downstream may read anything into it -- it is a video id today and
+   * something else on the next platform. The only fact it carries is that when
+   * it changes, every per-stream number started over from nothing, which is
+   * what tells a stream-scoped goal to arm itself again. Without it the like
+   * goal she hit last night is still showing as complete at 3 likes tonight,
+   * and that is a wrong number on screen while she is live.
+   */
+  stream?: string;
+}
+
 export interface CoreState {
   startedAt: number;
   /** One entry per external connection, keyed by adapter name: chat, and OBS. */
@@ -97,6 +175,21 @@ export interface CoreState {
    * are all looking at one list that changed everywhere at once.
    */
   deck: DeckView;
+  /**
+   * Counts polled from the chat adapters, keyed by adapter name exactly as
+   * `connections` is -- it is the same set of adapters, answering a second
+   * question. Transient on purpose: a subscriber count from last week is worse
+   * than no number at all, so nothing here is persisted and a restart starts
+   * empty until the first poll lands.
+   */
+  stats: Record<string, ChannelStats>;
+  /**
+   * The settings of the chat adapters that have any, keyed by adapter name the
+   * way `connections` and `stats` are. Mock chat has nothing to set, so it is
+   * absent here rather than present and empty -- the same rule that keeps an
+   * adapter which cannot count out of `stats`.
+   */
+  chat: Record<string, ChatView>;
 }
 
 export interface Snapshot {

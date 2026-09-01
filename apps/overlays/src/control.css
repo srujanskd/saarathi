@@ -165,6 +165,17 @@
   color: var(--warn);
 }
 
+/* The numbers, at arm's length, mid-workout. Nothing animates: YouTube rounds
+   a subscriber count to three significant figures above 1,000, so counting up
+   through the values in between would be counting through numbers that do not
+   exist. */
+.counts {
+  margin: 0 0 0.35rem;
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
 .scenes {
   display: flex;
   flex-wrap: wrap;

@@ -17,6 +17,7 @@ import { ObsWebSocketAdapter } from "./core/obs.js";
 import { JsonStore, defaultStorePath } from "./core/store.js";
 import { attachSync, type SaarathiServer } from "./core/sync.js";
 import { chatlog } from "./modules/chatlog/index.js";
+import { goals } from "./modules/goals/index.js";
 import { wheel } from "./modules/wheel/index.js";
 
 /**
@@ -39,13 +40,21 @@ const store = new JsonStore(process.env.STATE_FILE ?? defaultStorePath(), log);
 // a live stream, or nobody can test it.
 const chat: ChatAdapter[] = [new MockChatAdapter()];
 
-const channelId = process.env.YT_CHANNEL_ID;
-const liveId = process.env.YT_LIVE_ID;
-if (channelId || liveId) {
-  chat.push(new YouTubeAdapter({ channelId, liveId }));
-} else {
-  log.info("No YT_CHANNEL_ID or YT_LIVE_ID set — running on mock chat only");
-}
+// Unconditional, unlike everything else here: she sets her channel and her API
+// key up from her phone, and an adapter that only exists when an env var is set
+// is an adapter she can never switch on. The three env vars are seeds for a dev
+// run now, used only while she has saved nothing.
+chat.push(
+  new YouTubeAdapter({
+    store,
+    log,
+    seed: {
+      channelId: process.env.YT_CHANNEL_ID,
+      liveId: process.env.YT_LIVE_ID,
+      apiKey: process.env.YT_API_KEY,
+    },
+  }),
+);
 
 // OBS keeps its own WebSocket port and password in a file next to its config,
 // and reading it is what spares her copying a generated password out of a
@@ -56,7 +65,7 @@ const obsConfig =
   process.env.OBS_CONFIG ?? obsConfigPath(process.platform, process.env) ?? "";
 
 const kernel = createKernel({
-  modules: [wheel, chatlog],
+  modules: [wheel, goals, chatlog],
   chat,
   store,
   obs: new ObsWebSocketAdapter({ store, log, configPath: obsConfig || null }),

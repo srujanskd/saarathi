@@ -115,17 +115,26 @@ Releases carry it: the `v*` tag builds the installer on a Windows runner and upl
 `latest.yml`, which is the file `electron-updater` polls. The version comes from the root
 `package.json` rather than the package it is built from, because the product is one version.
 
-With no YouTube config it runs on mock chat, which is how you develop. To point it at a real
-stream, set one of these:
+Mock chat is registered on every run, hers included, so a feature is demonstrable without going
+live. It is a `standIn`, which means the moment a real adapter can answer, mock chat stops being
+asked -- otherwise a goal bar on her stream renders invented numbers that look entirely
+plausible.
+
+She points it at her channel from her phone, because she cannot set an environment variable.
+These three are seeds, used only while she has saved nothing, and only worth setting when you
+are specifically testing the adapter:
 
 ```bash
 YT_CHANNEL_ID=UC...   # watches the channel, reconnects when she goes live
 YT_LIVE_ID=...        # attaches to one specific broadcast
+YT_API_KEY=...        # subscriber and like counts, nothing else
 ```
 
 Reading chat needs no API key and no OAuth. It goes through `youtube-chat-next`, which reads
-what the web page reads. The official API is only for sending bot replies and moderation
-actions later, because polling chat through it burns the 10k/day quota in an afternoon.
+what the web page reads. The key is a YouTube Data API key on the public-data path, and it buys
+the counts the goal bars fill from: one quota unit a call against 10,000 a day. It is stored in
+her state server-side and never sent to a client, which carries `hasKey` and never the key.
+Never compile one in: this repo is public and so is the installer.
 
 ## Layout
 
@@ -138,11 +147,14 @@ apps/server/src/
   core/sync.ts         the only file that imports socket.io
   core/store.ts        namespaced slices, atomic debounced writes
   core/gains.ts        the channel currency ledger
+  core/stats.ts        the counts, polled off the adapters and published as core state
   core/obs.ts          the OBS seam, and the live obs-websocket connection in it
   core/obs-config.ts   OBS's own config file, and the words her card shows
   chat/                the one platform-specific layer: adapter.ts, youtube.ts, mock.ts
+  chat/youtube-stats.ts the Data API half: two public reads, and her words for a failure
   modules/wheel/       the first game module; rules.ts is pure and testable
   modules/chatlog/     the second, and the proof the contract holds
+  modules/goals/       subscriber, like and counted-by-hand goals; rules.ts is pure
 apps/overlays/
   overlay.html         one browser source per module: ?module=wheel
   control.html         her phone: wheel card, chat log, mock-chat panel

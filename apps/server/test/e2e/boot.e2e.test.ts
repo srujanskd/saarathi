@@ -40,15 +40,22 @@ describe("the server she starts", () => {
 
   it("serves the same snapshot over HTTP that a client gets", async () => {
     const snapshot = (await server.get("/api/state")) as Snapshot;
-    expect(Object.keys(snapshot.modules).sort()).toEqual(["chatlog", "wheel"]);
-    expect(snapshot.core.modules.map((m) => m.id).sort()).toEqual(["chatlog", "wheel"]);
+    expect(Object.keys(snapshot.modules).sort()).toEqual(["chatlog", "goals", "wheel"]);
+    expect(snapshot.core.modules.map((m) => m.id).sort()).toEqual(["chatlog", "goals", "wheel"]);
   });
 
-  it("reports mock chat connected and no YouTube adapter at all", async () => {
+  it("reports mock chat connected and YouTube waiting to be set up", async () => {
+    // YouTube is registered on every run now, because she sets her channel up
+    // from her phone and an adapter that only exists when an env var is set is
+    // one she can never switch on. With nothing set it says so, which is a
+    // status she can act on rather than a silence.
     const snapshot = (await server.get("/api/state")) as Snapshot;
     const core: CoreState = snapshot.core;
     expect(core.connections.mock).toEqual({ state: "connected", detail: "Mock chat ready" });
-    expect(core.connections.youtube).toBeUndefined();
+    expect(core.connections.youtube!.detail).toContain("No YouTube channel set yet");
+    expect(core.chat.youtube).toMatchObject({ channelId: "", hasKey: false });
+    // Mock chat has nothing to set up, so it is absent here rather than empty.
+    expect(core.chat.mock).toBeUndefined();
   });
 
   it("did not write to her data directory", () => {
@@ -106,13 +113,13 @@ describe("a client that connects", () => {
 
   it("still gets core state, since that is how she sees the server is alive", async () => {
     const client = await server.connect({ surface: "overlay", modules: ["wheel"] });
-    expect(client.snapshots.at(-1)!.core.modules.length).toBe(2);
+    expect(client.snapshots.at(-1)!.core.modules.length).toBe(3);
     await client.close();
   });
 
   it("can ask for everything explicitly", async () => {
     const client = await server.connect({ surface: "control" });
-    expect(Object.keys(client.snapshots.at(-1)!.modules).sort()).toEqual(["chatlog", "wheel"]);
+    expect(Object.keys(client.snapshots.at(-1)!.modules).sort()).toEqual(["chatlog", "goals", "wheel"]);
     await client.close();
   });
 });
@@ -149,6 +156,6 @@ describe("once the overlay pages are built", () => {
   it("still answers the API underneath them", async () => {
     expect(await built.get("/health")).toEqual({ ok: true });
     const snapshot = (await built.get("/api/state")) as Snapshot;
-    expect(Object.keys(snapshot.modules).sort()).toEqual(["chatlog", "wheel"]);
+    expect(Object.keys(snapshot.modules).sort()).toEqual(["chatlog", "goals", "wheel"]);
   });
 });

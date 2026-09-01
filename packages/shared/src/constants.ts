@@ -91,3 +91,19 @@ export const HOTKEYS: readonly HotkeyChoice[] = [
 export function hotkeyChoice(accelerator: string): HotkeyChoice | undefined {
   return HOTKEYS.find((choice) => choice.accelerator === accelerator);
 }
+
+/**
+ * How often the core asks each chat adapter for its counts.
+ *
+ * Measured rather than guessed: a spike against a live stream on Aug 30, 2026
+ * watched `likeCount` move twice inside one minute, so a minute is fast enough
+ * for a like goal to feel live. It is also the cheap end of the quota -- the
+ * YouTube Data API charges 1 unit per call against 10,000 a day, so polling two
+ * endpoints this often for an eight hour stream spends under a tenth of it,
+ * leaving room for the retries and the dev runs that share the same key.
+ *
+ * Faster buys very little: subscriber counts round to three significant figures
+ * above 1,000, so past that they cannot move more than once every few minutes
+ * anyway.
+ */
+export const STATS_POLL_MS = 60_000;

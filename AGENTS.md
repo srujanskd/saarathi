@@ -147,8 +147,20 @@ The floating deck window loads the same `deck.html` everything else does; its fr
 strip and its close button are injected by the shell, so the page stays one page.
 
 Server is on 4400, bound to `0.0.0.0` so the phone can reach it. Develop against mock chat.
-Only set `YT_CHANNEL_ID` or `YT_LIVE_ID` when you are specifically testing the adapter, and
-never while she is live.
+Only set `YT_CHANNEL_ID`, `YT_LIVE_ID` or `YT_API_KEY` when you are specifically testing the
+adapter, and never while she is live. All three are seeds, used only while she has saved
+nothing: her channel and her API key are settings on the control page, because she cannot set
+an env var. Once she has saved a channel, hers wins and a leftover env var does nothing.
+
+The key is a YouTube Data API key on the public-data path, and it buys the subscriber and like
+counts only — chat is read over InnerTube and costs no quota. It is stored server-side in her
+state, in plaintext beside the OBS password: what it can do if it leaks is read public data and
+spend a quota that resets daily, and the encryption that would mean anything here needs
+Electron, which this process must never import. What bounds it instead is that it never leaves
+the server — the slice carries `hasKey`, never the key — never reaches a log or an error
+string, and is restricted to the YouTube Data API in the console. Never compile one in: this
+repo is public and so is the installer. The OAuth credential coming for moderation is a
+different question and gets asked again then.
 
 OBS control needs its WebSocket server switched on once, in OBS under Tools → WebSocket Server
 Settings. Nothing else: the server reads the port and the generated password out of OBS's own
@@ -289,6 +301,14 @@ Do not open a browser or use computer use to verify unless I ask for it.
 ## Taste
 
 - Platform weirdness stays in the adapter. The core sees normalized events only.
+- Counts are polled, not pushed, and `ctx.stats` is the only way a module reads one. It sits
+  beside `ctx.obs` and `ctx.gains` because it is the same kind of thing: a core service no
+  module owns. A poll landing is not a platform event, so it never goes on the bus; a module
+  that wants to hear one subscribes with `ctx.stats.onChange`, and the core cancels that when
+  the module stops. Mock chat is a `standIn`, so it drops out of the ranking entirely
+  once a real adapter has answered anything at all -- not field by field, because YouTube
+  before she goes live has a subscriber count and no like count, and falling through on that
+  one field alone would put invented likes on a bar over her camera.
 - The server is authoritative. Clients render and send intents. No client-side game logic.
 - Inferred types over annotations. `any` is the enemy, and `no-explicit-any` is an error, so
   the two places it is tolerated are named in `eslint.config.js` and in the code itself:

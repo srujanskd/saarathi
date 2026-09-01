@@ -162,6 +162,11 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
   };
 }
 
+/** The goals slice, typed, straight out of a snapshot. */
+export function goalsState(kernel: Kernel) {
+  return kernel.snapshot().modules.goals as import("@saarathi/shared").GoalsState;
+}
+
 /** The wheel's slice, typed, straight out of a snapshot. */
 export function wheelState(kernel: Kernel) {
   return kernel.snapshot().modules.wheel as import("@saarathi/shared").WheelState;

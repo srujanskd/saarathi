@@ -1,4 +1,5 @@
 import type { Author, EventOf, EventType, StreamEvent } from "./events.js";
+import type { ChannelStats, StatCounts } from "./protocol.js";
 
 /** How an action was triggered. Every trigger converges on the same action. */
 export type TriggerVia =
@@ -82,6 +83,35 @@ export interface GainsLedger {
   spend(userId: string, amount: number, reason: string): boolean;
 }
 
+/**
+ * The counts, read-only.
+ *
+ * A core service no module owns, on the same footing as `obs` and `gains`: the
+ * poll belongs to the core, every module may read what it found, and none of
+ * them may write it. It is deliberately not on the event bus. That bus carries
+ * the four normalized platform events -- things that *happened* -- and a poll
+ * landing is not one of them; a subscriber count has no moment, only a value
+ * that reads differently next time somebody asks.
+ *
+ * Which adapter answers is the core's business, not the module's. She streams
+ * one platform at a time, and mock chat -- registered beside the real one on
+ * every run -- answers only when nothing real can, so a goal cannot end up
+ * quietly rendering test numbers on her stream.
+ */
+export interface StatsView {
+  /** Every adapter's counts, keyed by adapter name, as the core slice has them. */
+  all(): Record<string, ChannelStats>;
+  /** The count as the best-placed adapter has it, or undefined if none has one. */
+  count(name: keyof StatCounts): number | undefined;
+  /** The stream those counts belong to. See `ChannelStats.stream`. */
+  stream(): string | undefined;
+  /**
+   * A poll landed and something moved. Cancelled for you when the module stops,
+   * exactly as its timers and its event subscriptions are.
+   */
+  onChange(fn: () => void): Cancel;
+}
+
 export interface ObsActions {
   readonly connected: boolean;
   setScene(name: string): Promise<void>;
@@ -119,6 +149,7 @@ export interface ModuleContext<S> {
   refuse(reason: string): never;
   gains: GainsLedger;
   obs: ObsActions;
+  stats: StatsView;
   /** Timers are cancelled for you when the module stops. */
   after(ms: number, fn: () => void): Cancel;
   every(ms: number, fn: () => void): Cancel;
