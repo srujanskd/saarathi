@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { MAX_CHALLENGES, WHEEL_ID, type WheelState } from "@saarathi/shared";
+import { GAINS, MAX_CHALLENGES, SPIN_COST, WHEEL_ID, type WheelState } from "@saarathi/shared";
 import { Notice } from "../../core/Notice.js";
 import { useModuleState } from "../../lib/connection.js";
 import { useInvoke } from "../../lib/invoke.js";
@@ -67,6 +67,14 @@ export function WheelCard({ connection, status }: CardProps) {
           {queued}
         </p>
       ) : null}
+      {/* What chat pays. She is the one who gets asked, and this is the only
+          place the price is written down for her: a refusal quotes it, but
+          replies have no send path yet, so they reach the log and this page and
+          never chat. Her own button below is free -- the price is on the !spin
+          binding, not the action. */}
+      <p className="hint" data-testid="wheel-price">
+        Chat pays {SPIN_COST} {GAINS.plural} for !spin
+      </p>
       {invoke.notice ? (
         <Notice notice={invoke.notice} testId="wheel-notice" onDismiss={invoke.dismiss} />
       ) : null}

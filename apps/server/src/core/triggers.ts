@@ -1,4 +1,11 @@
-import type { Author, CommandSpec, GainsLedger, InvokeResult } from "@saarathi/shared";
+import type {
+  Author,
+  Charge,
+  CommandSpec,
+  GainsLedger,
+  InvokeResult,
+  TriggerVia,
+} from "@saarathi/shared";
 import { GAINS } from "@saarathi/shared";
 
 /**
@@ -17,7 +24,7 @@ export interface ParsedCommand {
   args: string[];
 }
 
-/** "!spin" and "!spend 500 spin". Returns null for ordinary chat. */
+/** "!spin" and "!challenges burpees". Returns null for ordinary chat. */
 export function parseCommand(text: string): ParsedCommand | null {
   const trimmed = text.trim();
   if (!trimmed.startsWith("!") || trimmed.length < 2) return null;
@@ -78,7 +85,35 @@ export function decideCommand(params: {
   return { ok: true };
 }
 
-export type GateResult = { ok: true; release(): void } | Exclude<InvokeResult, { ok: true }>;
+/**
+ * Which trigger a chat command turns into once it has been paid for.
+ *
+ * A priced command is not "chat" downstream. The viewer spent something, and
+ * modules owe a paid trigger more than a free one -- the wheel makes one wait
+ * its turn behind a busy spin rather than turning it away, because gains taken
+ * for a spin that never happened is the one failure here that costs somebody
+ * something real. Provenance is the gate's to report because the gate is what
+ * took the payment.
+ */
+export function triggerVia(spec: CommandSpec): TriggerVia {
+  return spec.cost ? "gains" : "chat";
+}
+
+export type GateResult =
+  | {
+      ok: true;
+      via: TriggerVia;
+      /**
+       * What was actually taken, for a module that accepts the trigger and then
+       * holds it. `release` covers the ordinary case -- the action refuses and
+       * the core undoes the charge itself -- but a module that queues a paid
+       * trigger has said yes, so nothing will be released and the refund
+       * becomes its own. Absent when nothing was charged.
+       */
+      charge?: Charge;
+      release(): void;
+    }
+  | Exclude<InvokeResult, { ok: true }>;
 
 /**
  * The single enforcement point for permission, cooldown and price. Charging
@@ -119,6 +154,8 @@ export class CommandGate {
 
     return {
       ok: true,
+      via: triggerVia(spec),
+      charge: charged && spec.cost ? { userId: author.id, amount: spec.cost } : undefined,
       release: () => {
         if (previous === undefined) this.lastUsed.delete(key);
         else this.lastUsed.set(key, previous);

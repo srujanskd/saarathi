@@ -1,6 +1,12 @@
 import { rmSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
-import { SPIN_DURATION_MS, type ChatLogState, type WheelState } from "@saarathi/shared";
+import {
+  SPIN_COST,
+  SPIN_DURATION_MS,
+  type ChatLogState,
+  type WheelState,
+} from "@saarathi/shared";
+import { affordsSpins } from "../helpers/balances.js";
 import { startServer, type RunningServer } from "./helpers/server.js";
 
 let server: RunningServer | null = null;
@@ -27,9 +33,16 @@ async function restart(first: RunningServer): Promise<string> {
 
 const wheelOf = (state: unknown) => state as WheelState;
 
+/**
+ * !spin costs gains, so a spec that types one has to boot a server whose ledger
+ * says the viewer can afford it. The server owns the ledger and there is no
+ * endpoint that hands gains out, so the seed goes in the state file.
+ */
+const RICH = affordsSpins(4, "Viewer", "First", "Second", "TestViewer");
+
 describe("a spin, end to end", () => {
   it("reaches the overlay when chat types !spin", async () => {
-    server = await startServer();
+    server = await startServer({ balances: RICH });
     const overlay = await server.connect({ surface: "overlay", modules: ["wheel"] });
 
     await server.mockChat({ author: "Viewer", text: "!spin" });
@@ -38,13 +51,14 @@ describe("a spin, end to end", () => {
     const state = wheelOf(overlay.latest("wheel"));
     expect(state.spin).not.toBeNull();
     expect(state.spin!.by).toBe("Viewer");
-    expect(state.spin!.via).toBe("chat");
+    // The gate charged for it, so it arrives as a paid trigger.
+    expect(state.spin!.via).toBe("gains");
     expect(state.spin!.durationMs).toBe(SPIN_DURATION_MS);
     expect(state.challenges).toContain(state.spin!.label);
   });
 
   it("sends the effect the overlay animates on, alongside the state", async () => {
-    server = await startServer();
+    server = await startServer({ balances: RICH });
     const overlay = await server.connect({ surface: "overlay", modules: ["wheel"] });
 
     await server.mockChat({ text: "!spin" });
@@ -61,7 +75,7 @@ describe("a spin, end to end", () => {
   });
 
   it("reaches her control page and the overlay at the same time", async () => {
-    server = await startServer();
+    server = await startServer({ balances: RICH });
     const overlay = await server.connect({ surface: "overlay", modules: ["wheel"] });
     const control = await server.connect({ surface: "control" });
 
@@ -112,20 +126,22 @@ describe("a spin, end to end", () => {
     expect(state.spin).not.toBeNull();
   });
 
-  it("tells chat why, when the cooldown turns a second !spin away", async () => {
-    server = await startServer();
+  it("tells chat why, when a viewer cannot afford the spin", async () => {
+    server = await startServer({ balances: affordsSpins(1, "First") });
     const control = await server.connect({ surface: "control" });
 
     await server.mockChat({ author: "First", text: "!spin" });
     await control.waitFor("first spin", (c) => c.patches.some((p) => p.module === "wheel"));
     control.clear();
 
+    // Second has never earned anything, and the refusal has to reach a client
+    // rather than only the log -- that is the socket-shaped half of this.
     await server.mockChat({ author: "Second", text: "!spin" });
     await control.waitFor("a say", (c) => c.effects.some((e) => e.name === "say"));
 
     const said = control.effects.find((e) => e.name === "say")!.payload as { text: string };
     expect(said.text).toContain("@Second");
-    expect(said.text).toContain("cooling down");
+    expect(said.text).toContain(String(SPIN_COST));
   });
 
   it("queues a superchat spin and shows chat where in line it is", async () => {
@@ -149,7 +165,7 @@ describe("a spin, end to end", () => {
 
 describe("an overlay that reloads mid-stream", () => {
   it("lands mid-spin with everything it needs to render, no replay", async () => {
-    server = await startServer();
+    server = await startServer({ balances: RICH });
     const first = await server.connect({ surface: "overlay", modules: ["wheel"] });
 
     await server.mockChat({ author: "Viewer", text: "!spin" });

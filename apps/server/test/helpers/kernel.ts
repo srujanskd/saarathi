@@ -1,4 +1,5 @@
 import {
+  LEDGER_ID,
   OBS_DEFAULT_HOST,
   OBS_DEFAULT_PORT,
   OBS_ID,
@@ -8,7 +9,7 @@ import {
   type ObsView,
 } from "@saarathi/shared";
 import type { ChatAdapter } from "../../src/chat/adapter.js";
-import { MockChatAdapter } from "../../src/chat/mock.js";
+import { MockChatAdapter, mockAuthorId } from "../../src/chat/mock.js";
 import { createKernel, type Kernel } from "../../src/core/kernel.js";
 import { obsStatus } from "../../src/core/obs-config.js";
 import type { ManualSettings, ObsAdapter, ObsSink } from "../../src/core/obs.js";
@@ -118,6 +119,8 @@ export interface Harness {
   seen: Collected;
   /** Send a line as an ordinary viewer, or as whoever `input.author` names. */
   chat(input: MockChatInput | string): void;
+  /** What a viewer has in the ledger, by the name they chat under. */
+  balance(name: string): number;
   stop(): Promise<void>;
 }
 
@@ -127,6 +130,15 @@ export interface HarnessOptions {
   store?: StateStore;
   chat?: ChatAdapter[];
   obs?: FakeObs;
+  /**
+   * Ledger balances to boot with, keyed by display name rather than author id
+   * -- `mockAuthorId` does that part, so a test says who can afford something in
+   * the same words it chats as. `affordsSpins` builds the usual one.
+   *
+   * A priced command is refused at the gate on an empty ledger, and every
+   * viewer starts empty, so any test driving one through chat has to say this.
+   */
+  balances?: Record<string, number>;
 }
 
 /**
@@ -139,6 +151,16 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
   const obs = options.obs ?? fakeObs();
   const store = options.store ?? new MemoryStore();
   const chat = options.chat ?? [new MockChatAdapter()];
+
+  if (options.balances) {
+    // Merged over whatever the store already holds, so seeding a balance on a
+    // second boot of the same store does not wipe what the first one earned.
+    const saved = (store.read(LEDGER_ID)?.balances ?? {}) as Record<string, number>;
+    const seeded = Object.fromEntries(
+      Object.entries(options.balances).map(([name, amount]) => [mockAuthorId(name), amount]),
+    );
+    store.write(LEDGER_ID, { balances: { ...saved, ...seeded } });
+  }
 
   const kernel = createKernel({
     modules: options.modules ?? [wheel, chatlog],
@@ -158,6 +180,8 @@ export async function harness(options: HarnessOptions = {}): Promise<Harness> {
     obs,
     seen,
     chat: (input) => kernel.sendMockChat(typeof input === "string" ? { text: input } : input),
+    balance: (name) =>
+      ((store.read(LEDGER_ID)?.balances ?? {}) as Record<string, number>)[mockAuthorId(name)] ?? 0,
     stop: () => kernel.stop(),
   };
 }

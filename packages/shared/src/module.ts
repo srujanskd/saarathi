@@ -1,5 +1,5 @@
 import type { Author, EventOf, EventType, StreamEvent } from "./events.js";
-import type { ChannelStats, StatCounts } from "./protocol.js";
+import type { ChannelStats, InvokeResult, StatCounts } from "./protocol.js";
 
 /** How an action was triggered. Every trigger converges on the same action. */
 export type TriggerVia =
@@ -18,6 +18,19 @@ export type TriggerVia =
   | "overlay"
   | "auto";
 
+/**
+ * Gains the core took for a trigger, and who to give them back to.
+ *
+ * Data rather than a callback because a module may accept a paid trigger and
+ * hold it -- the wheel queues one behind a busy spin -- and a queue that
+ * survives a restart cannot store a closure. Whoever holds the charge owes the
+ * refund, so this travels with the thing that was paid for.
+ */
+export interface Charge {
+  userId: string;
+  amount: number;
+}
+
 export interface ActionInput {
   /** Display name of whoever caused this, or "streamer" for her own surfaces. */
   by: string;
@@ -25,6 +38,15 @@ export interface ActionInput {
   args: string[];
   /** Present when a platform event triggered the action. */
   event?: StreamEvent;
+  /**
+   * What the gate charged for this trigger, when it charged anything.
+   *
+   * The core gives it back itself if the action refuses, so a module needs this
+   * only when it *accepts* a paid trigger without running it yet: from that
+   * moment the charge is the module's to return. Absent on every free trigger,
+   * including all of hers.
+   */
+  charge?: Charge;
 }
 
 /**
@@ -139,8 +161,14 @@ export interface ModuleContext<S> {
   setState(patch: Partial<S> | ((state: Readonly<S>) => Partial<S>)): void;
   on<T extends EventType>(type: T, handler: (event: EventOf<T>) => void): Cancel;
   effect(effect: { name: string; payload?: unknown }): void;
-  /** Trigger one of this module's own actions. */
-  invoke(action: string, input?: Partial<ActionInput>): Promise<void>;
+  /**
+   * Trigger one of this module's own actions.
+   *
+   * It answers with the result rather than swallowing it, because a module that
+   * hands a deferred trigger back to itself has to know whether it ran: if it
+   * did not, the module is still holding somebody's `charge`.
+   */
+  invoke(action: string, input?: Partial<ActionInput>): Promise<InvokeResult>;
   /**
    * Refuse the action in progress with a reason chat and the control page can
    * read. The core refunds any gains it debited and clears the cooldown the

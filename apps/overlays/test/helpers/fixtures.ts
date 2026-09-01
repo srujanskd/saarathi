@@ -1,6 +1,16 @@
 import { test as base, type Page } from "@playwright/test";
+import { affordsSpins } from "../../../server/test/helpers/balances.js";
 import { startServer, type RunningServer } from "../../../server/test/e2e/helpers/server.js";
 import { startPages, type PageServer } from "./pages.js";
+
+/**
+ * Viewers these specs chat as, started able to afford a few spins.
+ *
+ * !spin is priced, so a viewer with an empty ledger never reaches the wheel.
+ * None of these specs are about the economy -- they are about what the browser
+ * does with a spin -- so the ledger is set up rather than earned.
+ */
+const CHATTERS = affordsSpins(4, "anita", "Viewer", "TestViewer");
 
 /**
  * A real Saarathi server and a plain file server on two different origins,
@@ -10,7 +20,7 @@ import { startPages, type PageServer } from "./pages.js";
  */
 export const test = base.extend<{ saarathi: RunningServer; pages: PageServer }>({
   saarathi: async ({}, use) => {
-    const server = await startServer();
+    const server = await startServer({ balances: CHATTERS });
     await use(server);
     await server.stop();
   },

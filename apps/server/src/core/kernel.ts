@@ -209,7 +209,14 @@ export class Kernel {
 
     const result = await this.registry.dispatch(`${found.moduleId}.${found.spec.action}`, {
       by: event.author.name,
-      via: "chat",
+      // The gate says which trigger this is, not this line: it is the thing
+      // that charged, so a priced command arrives downstream as "gains" and
+      // there is no second place that decision can drift out of step.
+      via: gate.via,
+      // And what it took, for the same reason: a module that accepts this
+      // trigger without running it now owes the refund, and cannot work out
+      // what to give back on its own.
+      charge: gate.charge,
       args: event.args,
       event,
     });

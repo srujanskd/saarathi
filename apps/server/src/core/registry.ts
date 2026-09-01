@@ -385,14 +385,13 @@ export class Registry {
         this.flushPatches();
         this.deps.onEffect({ module: def.id, ...effect });
       },
-      invoke: async (action, input) => {
-        await this.dispatch(`${def.id}.${action}`, {
+      invoke: (action, input) =>
+        this.dispatch(`${def.id}.${action}`, {
           by: "system",
           via: "auto",
           args: [],
           ...input,
-        });
-      },
+        }),
       refuse: (reason): never => {
         throw new ActionRefused(reason);
       },

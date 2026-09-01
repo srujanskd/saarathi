@@ -1,10 +1,13 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { io, type Socket } from "socket.io-client";
+import { LEDGER_ID } from "@saarathi/shared";
+import { mockAuthorId } from "../../../src/chat/mock.js";
+import { STATE_VERSION } from "../../../src/core/store.js";
 import type {
   ClientToServerEvents,
   Hello,
@@ -79,6 +82,42 @@ export interface StartOptions {
   /** Point a second run at the first one's file to test a restart. */
   stateFile?: string;
   env?: Record<string, string>;
+  /**
+   * Ledger balances to boot with, keyed by the name the viewer chats under.
+   *
+   * A priced command -- !spin is one -- is refused at the gate on an empty
+   * ledger, and every viewer starts empty, so a spec that drives one through
+   * chat says here who can afford it. Written into the state file before the
+   * process starts, which is the only way in: the server owns the ledger and
+   * there is no endpoint that hands out gains.
+   */
+  balances?: Record<string, number>;
+}
+
+interface StateDocument {
+  version?: number;
+  namespaces?: Record<string, Record<string, unknown>>;
+}
+
+/**
+ * Put balances in a state file the server has not opened yet.
+ *
+ * It merges rather than overwrites so a restart spec can seed a run whose file
+ * already holds what the first run persisted.
+ */
+function seedBalances(file: string, balances: Record<string, number>): void {
+  const doc: StateDocument = existsSync(file)
+    ? (JSON.parse(readFileSync(file, "utf-8")) as StateDocument)
+    : {};
+  const namespaces = doc.namespaces ?? {};
+  const saved = (namespaces[LEDGER_ID]?.balances ?? {}) as Record<string, number>;
+  const seeded = Object.fromEntries(
+    Object.entries(balances).map(([name, amount]) => [mockAuthorId(name), amount]),
+  );
+  namespaces[LEDGER_ID] = { balances: { ...saved, ...seeded } };
+  // The store's own version, not a literal: a file stamped with the wrong one
+  // is a migration the server would run, or refuse, for no reason.
+  writeFileSync(file, JSON.stringify({ version: doc.version ?? STATE_VERSION, namespaces }));
 }
 
 /**
@@ -90,6 +129,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   const owned = !options.stateFile;
   const dir = owned ? mkdtempSync(join(tmpdir(), "saarathi-e2e-")) : null;
   const stateFile = options.stateFile ?? join(dir!, "state.json");
+  if (options.balances) seedBalances(stateFile, options.balances);
 
   const child: ChildProcess = spawn(
     process.execPath,

@@ -2,6 +2,18 @@ import type { Author, ChannelStats, MockChatInput, StreamEvent } from "@saarathi
 import type { ChatAdapter, ChatSink } from "./adapter.js";
 
 /**
+ * The author id mock chat gives a viewer.
+ *
+ * Exported because it is the key the ledger holds, so a test that wants a
+ * viewer to be able to afford something has to write balances under it. One
+ * function rather than the prefix spelled out at every seeding site: change the
+ * scheme here and a seeder cannot quietly start funding nobody.
+ */
+export function mockAuthorId(name: string): string {
+  return `mock:${name}`;
+}
+
+/**
  * Mock chat. Always registered, never conditional: every chat-driven feature
  * has to be drivable without a live stream, or nobody can test it. The control
  * page and POST /api/mock-chat both end up here.
@@ -57,7 +69,7 @@ export class MockChatAdapter implements ChatAdapter {
     if (!text) return;
 
     const author: Author = {
-      id: `mock:${input.author || "TestViewer"}`,
+      id: mockAuthorId(input.author || "TestViewer"),
       name: input.author || "TestViewer",
       isMember: input.type === "member",
     };
