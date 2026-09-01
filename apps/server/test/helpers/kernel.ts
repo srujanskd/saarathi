@@ -167,6 +167,15 @@ export function goalsState(kernel: Kernel) {
   return kernel.snapshot().modules.goals as import("@saarathi/shared").GoalsState;
 }
 
+/** The gains slice, typed, straight out of a snapshot. Published only: the
+ * roster is server-only, so a snapshot does not carry it and neither does this. */
+export function gainsState(kernel: Kernel) {
+  return kernel.snapshot().modules.gains as Omit<
+    import("@saarathi/shared").GainsState,
+    "roster" | "streamKey" | "priorStreamKey"
+  >;
+}
+
 /** The wheel's slice, typed, straight out of a snapshot. */
 export function wheelState(kernel: Kernel) {
   return kernel.snapshot().modules.wheel as import("@saarathi/shared").WheelState;

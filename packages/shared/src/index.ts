@@ -6,3 +6,4 @@ export * from "./constants.js";
 export * from "./modules/wheel.js";
 export * from "./modules/chatlog.js";
 export * from "./modules/goals.js";
+export * from "./modules/gains.js";

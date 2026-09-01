@@ -1,0 +1,88 @@
+/*
+ * The same rule as the wheel and the goals bars: OBS composites this over her
+ * camera at 60fps, so nothing here changes a property that repaints. A row
+ * arriving or moving is a transform.
+ */
+
+.board {
+  position: fixed;
+  right: 2.2vw;
+  top: 2.4vh;
+  width: min(24vw, 20rem);
+  pointer-events: none;
+  font: 600 1.6vh/1.3 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #fff;
+  text-shadow: 0 0.2vh 0.6vh rgb(0 0 0 / 0.65);
+}
+
+/* Matches what the overlay actually sets. Nothing is drawn before anyone has
+   earned: a fixed-position container with no rows in it is still a box OBS
+   composites over her camera. */
+.board[data-empty="true"] {
+  display: none;
+}
+
+.board-head {
+  margin: 0 0 0.8vh;
+  padding: 0 1.1vh;
+  font-size: 1.4vh;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.board-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5vh;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.board-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.9ch;
+  padding: 0.8vh 1.1vh;
+  border-radius: 1vh;
+  background: rgb(20 21 26 / 0.62);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  /* Its own layer up front, so the first frame of a row sliding in is not the
+     one that pays for promoting it. */
+  will-change: transform, opacity;
+  animation: board-row-in 320ms ease both;
+}
+
+@keyframes board-row-in {
+  from {
+    opacity: 0;
+    transform: translateX(1.4vh);
+  }
+}
+
+.board-place {
+  flex: none;
+  width: 2.4ch;
+  text-align: center;
+  opacity: 0.85;
+}
+
+.board-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.board-streak {
+  flex: none;
+  font-size: 1.35vh;
+  opacity: 0.9;
+}
+
+.board-balance {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
