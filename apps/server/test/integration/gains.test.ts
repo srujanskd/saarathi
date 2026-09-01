@@ -300,6 +300,32 @@ describe("her hands on it", () => {
     expect(balance("Asha")).toBe(0);
   });
 
+  it("clears balances without taking everyone's streak with them", async () => {
+    vi.useFakeTimers();
+    const store = await withGains("s1");
+    live!.chat({ author: "Asha", text: "hello" });
+
+    await live!.stop();
+    await withGains("s2", store);
+    live!.chat({ author: "Asha", text: "back" });
+    await vi.advanceTimersByTimeAsync(EARN_TICK_MS);
+    expect(board()[0]!.streak).toBe(2);
+
+    await live!.kernel.invoke(`${GAINS_ID}.clear`, { args: [] });
+    expect(balance("Asha")).toBe(0);
+    expect(board()).toEqual([]);
+
+    // The roster is server-only, so the streak is proved the way chat would see
+    // it: the next stream continues the run rather than starting one. She is
+    // resetting an economy that got away from her, not six weeks of turning up
+    // -- and nothing here could hand that back.
+    await live!.stop();
+    await withGains("s3", store);
+    live!.chat({ author: "Asha", text: "three in a row" });
+    await vi.advanceTimersByTimeAsync(EARN_TICK_MS);
+    expect(board()[0]!.streak).toBe(3);
+  });
+
   it("keeps her rate over a restart", async () => {
     vi.useFakeTimers();
     const store = await withGains("s1");

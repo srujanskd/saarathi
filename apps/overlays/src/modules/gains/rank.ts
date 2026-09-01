@@ -36,17 +36,23 @@ export function balanceText(balance: number): string {
 }
 
 /**
- * The streak, or nothing.
+ * When a streak is worth saying out loud.
  *
  * A streak of one is everybody's first stream and says nothing worth a badge;
- * it starts reading as an achievement at two.
+ * it starts reading as an achievement at two. Here rather than at both call
+ * sites, because the overlay badge and the card's line are one decision and a
+ * board that shows a badge beside a line that does not mention it is a bug
+ * nobody would spot until she was live.
  */
+const WORTH_SAYING = 2;
+
+/** The streak, or nothing. */
 export function streakText(streak: number): string | null {
-  return streak >= 2 ? `🔥${streak}` : null;
+  return streak >= WORTH_SAYING ? `🔥${streak}` : null;
 }
 
 /** One line about a row, for the card, where there is room for words. */
 export function rowSummary(row: BoardRow): string {
-  const streak = row.streak >= 2 ? ` · ${row.streak} streams in a row` : "";
+  const streak = row.streak >= WORTH_SAYING ? ` · ${row.streak} streams in a row` : "";
   return `${row.balance.toLocaleString()} ${GAINS.plural}${streak}`;
 }

@@ -175,10 +175,19 @@ describe("the board", () => {
     expect(board[0]).toEqual({ id: "rich", name: "Asha", balance: 900, streak: 4 });
   });
 
-  it("trims a name that would push the row off the overlay", () => {
+  it("trims a name that would push the row off the overlay, and says it did", () => {
     const long = "x".repeat(MAX_BOARD_NAME + 20);
     const board = buildBoard(roster({ rich: { name: long } }), balanceOf, 10);
     expect(board[0]!.name).toHaveLength(MAX_BOARD_NAME);
+    // The ellipsis is the point: without it a cut name reads on the board like
+    // a shorter name somebody chose.
+    expect(board[0]!.name.endsWith("…")).toBe(true);
+  });
+
+  it("leaves a name that already fits exactly alone", () => {
+    const fits = "x".repeat(MAX_BOARD_NAME);
+    const board = buildBoard(roster({ rich: { name: fits } }), balanceOf, 10);
+    expect(board[0]!.name).toBe(fits);
   });
 });
 

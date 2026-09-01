@@ -97,16 +97,22 @@ export const gains: GameModuleDef<GainsState> = {
       label: "Start the board again",
       /**
        * The way out of the whole economy, and the reason earning is not a
-       * one-way door. It zeroes what it can see -- everyone still on the roster
-       * -- and forgets the roster with it. Someone evicted months ago keeps a
-       * balance nothing here can reach, which is the honest trade for a roster
-       * that does not grow forever.
+       * one-way door. It zeroes what it can see -- everyone still on the
+       * roster -- and the board empties with them, because nobody at zero is
+       * listed. Someone evicted months ago keeps a balance nothing here can
+       * reach, which is the honest trade for a roster that does not grow
+       * forever.
+       *
+       * The roster itself stays. A streak is attendance, not a balance: she is
+       * resetting an economy that got away from her, and taking six weeks of
+       * turning up off everyone in chat is not something the button says it
+       * does and not something she could give back.
        */
       run(_input, ctx) {
         for (const id of Object.keys(ctx.state.roster)) {
           ctx.gains.spend(id, ctx.gains.balance(id), "board cleared");
         }
-        ctx.setState({ roster: {}, board: [] });
+        publish(ctx);
       },
     },
   },
@@ -120,14 +126,14 @@ export const gains: GameModuleDef<GainsState> = {
 
     // A stream boundary arrives on a poll, not on the bus -- a count landing is
     // not something that happened. See `StatsView`.
-    ctx.stats.onChange(() => turnOver(ctx));
-    turnOver(ctx);
+    ctx.stats.onChange(() => noteStream(ctx));
+    noteStream(ctx);
 
     // Both, because a command is a message: someone who only ever types !spin
     // is watching, and paying only the people who make small talk is a rule
     // nobody would choose on purpose.
     for (const type of ["chat-message", "chat-command"] as const) {
-      ctx.on(type, (event) => saw(ctx, event.author.id, event.author.name, event.at));
+      ctx.on(type, (event) => noteMessage(ctx, event.author.id, event.author.name, event.at));
     }
 
     ctx.every(EARN_TICK_MS, () => pay(ctx));
@@ -141,7 +147,7 @@ export const gains: GameModuleDef<GainsState> = {
  * the adapter is not on one, or YouTube did not answer this minute, and treating
  * that as a boundary would break every streak in chat on a Wi-Fi hiccup.
  */
-function turnOver(ctx: GainsContext): void {
+function noteStream(ctx: GainsContext): void {
   const stream = ctx.stats.stream();
   if (stream === undefined || stream === ctx.state.streamKey) return;
   ctx.setState({ streamKey: stream, priorStreamKey: ctx.state.streamKey });
@@ -156,7 +162,7 @@ function turnOver(ctx: GainsContext): void {
  * restarts between streams -- and a streak that had to be present for it would
  * be a streak that resets when her PC does.
  */
-function saw(ctx: GainsContext, id: string, name: string, at: number): void {
+function noteMessage(ctx: GainsContext, id: string, name: string, at: number): void {
   const stream = ctx.state.streamKey;
   const existing = ctx.state.roster[id];
   let account = noteSeen(existing, name, at);

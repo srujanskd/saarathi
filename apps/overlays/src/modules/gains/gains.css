@@ -15,7 +15,10 @@
   text-shadow: 0 0.2vh 0.6vh rgb(0 0 0 / 0.65);
 }
 
-.board-empty {
+/* Matches what the overlay actually sets. Nothing is drawn before anyone has
+   earned: a fixed-position container with no rows in it is still a box OBS
+   composites over her camera. */
+.board[data-empty="true"] {
   display: none;
 }
 

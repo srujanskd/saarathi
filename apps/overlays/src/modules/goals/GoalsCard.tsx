@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  CORE_ACTIONS,
   GOALS_ID,
   GOAL_SOURCES,
   isPolled,
@@ -12,7 +11,7 @@ import {
   type GoalsState,
 } from "@saarathi/shared";
 import { Notice } from "../../core/Notice.js";
-import { appendSlot, encodeGrid } from "../../core/deckDraft.js";
+import { addToDeck } from "../../core/addToDeck.js";
 import { useCoreState, useModuleState } from "../../lib/connection.js";
 import { useInvoke } from "../../lib/invoke.js";
 import type { CardProps } from "../types.js";
@@ -66,25 +65,15 @@ export function GoalsCard({ connection, deck }: CardProps) {
     if (await run(`${GOALS_ID}.add`, args)) setDraft(null);
   }
 
-  /**
-   * A "+1" button for a goal she counts herself, onto the grid she is looking
-   * at. Same arrangement as the OBS card's scene button and for the same
-   * reason: this action needs an argument, the argument is a goal she is
-   * already looking at, and the deck's own picker never asks her to type one.
-   */
-  async function addToDeck(goal: Goal): Promise<void> {
-    const next = appendSlot(deck.slots, {
+  /** A "+1" button for a goal she counts herself, onto the grid she is
+   * looking at. See `addToDeck`. */
+  async function addBumpToDeck(goal: Goal): Promise<void> {
+    await addToDeck(deck, invoke, {
       action: `${GOALS_ID}.bump`,
       args: [goal.id],
       label: goal.label,
       icon: "➕",
     });
-    if (deck.editing) {
-      deck.set(next);
-      invoke.say(`${goal.label} added to the deck you are editing — Save deck to keep it`);
-      return;
-    }
-    if (await run(CORE_ACTIONS.deckSet, [encodeGrid(next)])) deck.discard();
   }
 
   return (
@@ -137,7 +126,7 @@ export function GoalsCard({ connection, deck }: CardProps) {
                       type="button"
                       className="tool"
                       disabled={busy}
-                      onClick={() => void addToDeck(goal)}
+                      onClick={() => void addBumpToDeck(goal)}
                     >
                       On the deck
                     </button>

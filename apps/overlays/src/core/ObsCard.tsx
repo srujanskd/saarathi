@@ -3,7 +3,8 @@ import { CORE_ACTIONS, type ConnectionStatus, type ObsView } from "@saarathi/sha
 import type { Connection } from "../lib/connection.js";
 import { useInvoke } from "../lib/invoke.js";
 import { Notice } from "./Notice.js";
-import { appendSlot, encodeGrid, hasScene, sceneSlot } from "./deckDraft.js";
+import { addToDeck } from "./addToDeck.js";
+import { hasScene, sceneSlot } from "./deckDraft.js";
 import type { DeckDraft } from "./useDeckDraft.js";
 
 /**
@@ -58,27 +59,9 @@ export function ObsCard({
     if (await run(CORE_ACTIONS.obsSettings, args)) setDraft(null);
   }
 
-  /**
-   * A scene, onto the grid she is looking at.
-   *
-   * With nothing open in the deck card it appends and saves in one go: the
-   * deck has no half-saved state -- a save replaces the whole grid -- and a
-   * full deck is refused by the server in its own words, which land in the
-   * notice above.
-   *
-   * With an arrangement open there, the button goes into that arrangement and
-   * she saves once, from the card with the Save button on it. Saving over her
-   * draft would commit edits she has not finished; saving under it would put
-   * the scene somewhere she cannot see, and her next Save would delete it.
-   */
+  /** A scene, onto the grid she is looking at. See `addToDeck`. */
   async function addScene(scene: string): Promise<void> {
-    const next = appendSlot(deck.slots, sceneSlot(scene));
-    if (deck.editing) {
-      deck.set(next);
-      invoke.say(`${scene} added to the deck you are editing — Save deck to keep it`);
-      return;
-    }
-    if (await run(CORE_ACTIONS.deckSet, [encodeGrid(next)])) deck.discard();
+    await addToDeck(deck, invoke, sceneSlot(scene));
   }
 
   return (

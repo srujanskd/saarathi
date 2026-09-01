@@ -99,6 +99,18 @@ export function evict(roster: Roster, max: number): Roster {
 }
 
 /**
+ * A name that fits a row.
+ *
+ * Cut with an ellipsis rather than silently, because the overlay's own
+ * `text-overflow` only fires when the row is too narrow -- a name cut here
+ * arrives on her card and on the board looking like a shorter name somebody
+ * actually chose, and she has no way to tell the two apart.
+ */
+function trimName(name: string): string {
+  return name.length <= MAX_BOARD_NAME ? name : `${name.slice(0, MAX_BOARD_NAME - 1)}…`;
+}
+
+/**
  * The board: the richest few, in order.
  *
  * Balances come from the ledger rather than the roster, because the ledger is
@@ -114,7 +126,7 @@ export function buildBoard(
   return Object.entries(roster)
     .map(([id, account]) => ({
       id,
-      name: account.name.slice(0, MAX_BOARD_NAME),
+      name: trimName(account.name),
       balance: balanceOf(id),
       streak: account.streak,
     }))

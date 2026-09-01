@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  CORE_ACTIONS,
   GAINS,
   GAINS_ID,
   MAX_PER_MINUTE,
@@ -8,7 +7,7 @@ import {
   type GainsState,
 } from "@saarathi/shared";
 import { Notice } from "../../core/Notice.js";
-import { appendSlot, encodeGrid } from "../../core/deckDraft.js";
+import { addToDeck } from "../../core/addToDeck.js";
 import { useModuleState } from "../../lib/connection.js";
 import { useInvoke } from "../../lib/invoke.js";
 import type { CardProps } from "../types.js";
@@ -35,25 +34,15 @@ export function GainsCard({ connection, deck, status }: CardProps) {
     if (await run(`${GAINS_ID}.rate`, [rate])) setRate(null);
   }
 
-  /**
-   * A give button for one viewer, onto the grid she is looking at. Same
-   * arrangement as the goals card's "+1" and for the same reason: the action
-   * needs an argument, the argument is somebody she is already looking at, and
-   * the deck's own picker never asks her to type one.
-   */
-  async function addToDeck(row: BoardRow): Promise<void> {
-    const next = appendSlot(deck.slots, {
+  /** A give button for one viewer, onto the grid she is looking at. See
+   * `addToDeck`. */
+  async function addGiveToDeck(row: BoardRow): Promise<void> {
+    await addToDeck(deck, invoke, {
       action: `${GAINS_ID}.give`,
       args: [row.id, String(HANDOUTS[0])],
       label: row.name,
       icon: "💪",
     });
-    if (deck.editing) {
-      deck.set(next);
-      invoke.say(`${row.name} added to the deck you are editing — Save deck to keep it`);
-      return;
-    }
-    if (await run(CORE_ACTIONS.deckSet, [encodeGrid(next)])) deck.discard();
   }
 
   return (
@@ -89,7 +78,7 @@ export function GainsCard({ connection, deck, status }: CardProps) {
               <div className="board-row-card-tools">
                 {HANDOUTS.map((amount) => (
                   <button
-                    key={amount}
+                    key={`give-${amount}`}
                     type="button"
                     className="tool"
                     disabled={busy}
@@ -99,24 +88,27 @@ export function GainsCard({ connection, deck, status }: CardProps) {
                     +{amount}
                   </button>
                 ))}
-                {/* The way back out of a tap that landed twice, which with a
-                    thumb between sets is the normal case and not the odd one. */}
-                <button
-                  type="button"
-                  className="tool"
-                  disabled={busy || row.balance < HANDOUTS[0]}
-                  data-testid="gains-take"
-                  onClick={() =>
-                    void run(`${GAINS_ID}.give`, [row.id, String(-HANDOUTS[0])])
-                  }
-                >
-                  −{HANDOUTS[0]}
-                </button>
+                {/* One hand-back per hand-out, not one for the smaller of
+                    them: a double-tapped +250 that only comes off 50 at a time
+                    is five taps to undo one mistake, and with a thumb between
+                    sets the tap that lands twice is the normal case. */}
+                {HANDOUTS.map((amount) => (
+                  <button
+                    key={`take-${amount}`}
+                    type="button"
+                    className="tool"
+                    disabled={busy || row.balance < amount}
+                    data-testid="gains-take"
+                    onClick={() => void run(`${GAINS_ID}.give`, [row.id, String(-amount)])}
+                  >
+                    −{amount}
+                  </button>
+                ))}
                 <button
                   type="button"
                   className="tool"
                   disabled={busy}
-                  onClick={() => void addToDeck(row)}
+                  onClick={() => void addGiveToDeck(row)}
                 >
                   On the deck
                 </button>
