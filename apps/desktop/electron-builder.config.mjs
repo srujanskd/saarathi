@@ -32,6 +32,14 @@ export default {
   extraMetadata: { version: root.version },
   directories: { output: "release", buildResources: "resources" },
 
+  /**
+   * Chromium ships 55 translations of its own UI strings, which is 46MB of the
+   * unpacked build for strings this app never shows: every word she reads comes
+   * from our pages, and the only Electron chrome here is a tray menu we write
+   * ourselves. English only.
+   */
+  electronLanguages: ["en-US"],
+
   // Everything the app runs is inside these two bundles: there is no
   // node_modules to walk, which is the point. See build.mjs.
   // The preload is inside the asar with main, because Electron is what loads
