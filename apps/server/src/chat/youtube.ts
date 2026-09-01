@@ -221,7 +221,14 @@ export class YouTubeAdapter implements ChatAdapter {
     }
 
     const { LiveChat } = await import("youtube-chat-next");
-    this.chat = new LiveChat(source);
+    // "live" rather than the library's default of "top". Top chat is YouTube's
+    // own algorithmically filtered subset -- the one its UI hides the full feed
+    // behind a toggle -- so the default meant we were reading a version of her
+    // chat with messages missing, chosen by YouTube. Two things break on that
+    // and both are silent: a moderation rule cannot flag a scam it was never
+    // shown, and gains under-pay the viewers whose lines got filtered. The
+    // middle argument is the poll interval, and the library's default is fine.
+    this.chat = new LiveChat(source, undefined, "live");
 
     this.chat.on("start", (liveId: string) => {
       this.videoId = liveId;
