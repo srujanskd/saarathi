@@ -109,8 +109,8 @@ export const wheel: GameModuleDef<WheelState> = {
       name: "spin",
       action: "spin",
       // Priced rather than rate-limited, and the price is doing both jobs. See
-      // SPIN_COST: a balance is per viewer where a cooldown was per binding,
-      // and a paid trigger is one the wheel queues instead of refusing.
+      // SPIN_COST: a paid trigger is one the wheel queues instead of refusing,
+      // which is the part a cooldown could never do.
       cost: SPIN_COST,
       allow: "everyone",
       help: `Spin the wheel for a random challenge — ${SPIN_COST} ${GAINS.plural}`,

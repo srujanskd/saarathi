@@ -115,39 +115,71 @@ export type GateResult =
     }
   | Exclude<InvokeResult, { ok: true }>;
 
+/** One remembered stamp per viewer per binding. */
+interface Stamp {
+  /** When the command ran, which is what the cooldown is measured from. */
+  at: number;
+  /** And when it stops refusing, which is what makes a stamp sweepable. */
+  readyAt: number;
+}
+
+/**
+ * How many stamps may accumulate before expired ones are swept.
+ *
+ * A cooldown is per viewer, so the gate remembers one entry per viewer per
+ * binding and a long stream would otherwise grow it forever. The sweep is
+ * amortized onto the next stamp rather than timed, because a gate that owned a
+ * clock would be a gate that has to be started and stopped.
+ */
+const SWEEP_ABOVE = 500;
+
 /**
  * The single enforcement point for permission, cooldown and price. Charging
  * happens before dispatch rather than after, so two commands in the same tick
  * cannot both pass the check; a refusal downstream calls release() to undo it.
  *
- * A cooldown belongs to the command binding, not the action. That is why a paid
- * event or a deck button invoking the same action is not rate-limited by it --
- * she paid for it, or she pressed it herself.
+ * A cooldown belongs to one viewer on one binding, not to the binding alone: a
+ * balance is per viewer, and so is patience. Keying it per binding meant the
+ * first person to type !gains locked the whole chat out of it, which is the
+ * same insight !spin already acted on when it replaced its cooldown with a
+ * price. A paid event or a deck button invoking the same action is still not
+ * rate-limited at all -- she paid for it, or she pressed it herself.
  */
 export class CommandGate {
-  private readonly lastUsed = new Map<string, number>();
+  private readonly lastUsed = new Map<string, Stamp>();
 
   constructor(private readonly gains: GainsLedger) {}
 
   consume(key: string, spec: CommandSpec, author: Author, now: number): GateResult {
+    // The binding and the viewer both, because one viewer's cooldown is not
+    // anybody else's. A null byte cannot occur in either half.
+    const seat = `${key}\u0000${author.id}`;
+    const previous = this.lastUsed.get(seat);
+
     const decision = decideCommand({
       spec,
       author,
       now,
-      lastUsedAt: this.lastUsed.get(key),
+      lastUsedAt: previous?.at,
       balance: spec.cost ? this.gains.balance(author.id) : 0,
     });
     if (!decision.ok) return decision;
 
-    const previous = this.lastUsed.get(key);
-    if (spec.cooldownMs) this.lastUsed.set(key, now);
+    const restore = () => {
+      if (previous === undefined) this.lastUsed.delete(seat);
+      else this.lastUsed.set(seat, previous);
+    };
+
+    if (spec.cooldownMs) {
+      if (this.lastUsed.size > SWEEP_ABOVE) this.sweep(now);
+      this.lastUsed.set(seat, { at: now, readyAt: now + spec.cooldownMs });
+    }
 
     let charged = false;
     if (spec.cost) {
       charged = this.gains.spend(author.id, spec.cost, `!${spec.name}`);
       if (!charged) {
-        if (previous === undefined) this.lastUsed.delete(key);
-        else this.lastUsed.set(key, previous);
+        restore();
         return { ok: false, reason: `Not enough ${GAINS.plural} for !${spec.name}` };
       }
     }
@@ -157,10 +189,25 @@ export class CommandGate {
       via: triggerVia(spec),
       charge: charged && spec.cost ? { userId: author.id, amount: spec.cost } : undefined,
       release: () => {
-        if (previous === undefined) this.lastUsed.delete(key);
-        else this.lastUsed.set(key, previous);
+        restore();
         if (charged && spec.cost) this.gains.grant(author.id, spec.cost, `refund !${spec.name}`);
       },
     };
+  }
+
+  /**
+   * How many stamps are being held. Here so the sweep is testable: it is
+   * invisible by design otherwise, and a rate limiter that quietly grows for
+   * the length of a stream is exactly the bug nobody notices.
+   */
+  get remembered(): number {
+    return this.lastUsed.size;
+  }
+
+  /** A stamp that has stopped refusing cannot refuse again, so it is dropped. */
+  private sweep(now: number): void {
+    for (const [seat, stamp] of this.lastUsed) {
+      if (stamp.readyAt <= now) this.lastUsed.delete(seat);
+    }
   }
 }

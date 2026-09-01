@@ -70,12 +70,11 @@ export const MAX_HISTORY = 200;
 /**
  * What a spin from chat costs in gains.
  *
- * It stands where a cooldown used to, and it is the better rate limit of the
- * two: a cooldown belongs to the binding, so one viewer's !spin locked the
- * whole chat out for forty-five seconds, while a balance belongs to a viewer
- * and only ever spends their own turn. It is also what makes a chat spin a
- * paid trigger, so one arriving mid-spin waits its turn instead of being
- * turned away -- nobody's gains are taken for nothing.
+ * It stands where a cooldown used to, and it is still the better rate limit of
+ * the two now that cooldowns are per viewer as well: a price is what makes a
+ * chat spin a paid trigger, so one arriving mid-spin waits its turn instead of
+ * being turned away -- nobody's gains are taken for nothing. A cooldown can
+ * only ever say no.
  *
  * At the default earn rate it is about fifty active minutes, so a regular
  * affords roughly one spin a stream -- but only at that rate: `perMinute` is
