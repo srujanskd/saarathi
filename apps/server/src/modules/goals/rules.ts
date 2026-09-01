@@ -1,6 +1,7 @@
 import {
   GOAL_SOURCES,
   MAX_GOAL_LABEL,
+  isPolled,
   type Goal,
   type GoalSource,
 } from "@saarathi/shared";
@@ -27,7 +28,7 @@ export interface Reading {
 /** A goal after a poll: re-armed if the stream turned over, then settled. */
 export function pollGoal(goal: Goal, reading: Reading): Goal {
   const armed = forStream(goal, reading.stream);
-  const polled = GOAL_SOURCES[goal.source].count !== undefined;
+  const polled = isPolled(goal.source);
   // A tallied goal owns its own count and a poll may not touch it. A polled one
   // takes whatever the last poll said, `undefined` included: a count that has
   // gone away is not a count of zero.
@@ -62,7 +63,7 @@ export function resetGoal(goal: Goal, stream: string | undefined): Goal {
  * is its own kind of wrong.
  */
 export function startingCount(goal: Goal): number | null {
-  return GOAL_SOURCES[goal.source].count !== undefined ? null : 0;
+  return isPolled(goal.source) ? null : 0;
 }
 
 /**

@@ -3,12 +3,20 @@ import {
   GOALS_ID,
   GOAL_SOURCES,
   MAX_GOALS,
+  isPolled,
   type GameModuleDef,
   type Goal,
   type GoalsState,
   type ModuleContext,
 } from "@saarathi/shared";
-import { makeGoal, pollGoal, resetGoal, sameGoals, tallyGoal } from "./rules.js";
+import {
+  makeGoal,
+  pollGoal,
+  resetGoal,
+  sameGoals,
+  tallyGoal,
+  type Reading,
+} from "./rules.js";
 
 type GoalsContext = ModuleContext<GoalsState>;
 
@@ -73,7 +81,7 @@ export const goals: GameModuleDef<GoalsState> = {
       run(input, ctx) {
         const goal = find(ctx, input.args[0] ?? "");
         if (!goal) return ctx.refuse("That goal is gone");
-        if (GOAL_SOURCES[goal.source].count !== undefined) {
+        if (isPolled(goal.source)) {
           return ctx.refuse(`${goal.label} counts itself`);
         }
         const amount = Number(input.args[1] ?? "1");
@@ -90,11 +98,25 @@ export const goals: GameModuleDef<GoalsState> = {
       run(input, ctx) {
         const goal = find(ctx, input.args[0] ?? "");
         if (!goal) return ctx.refuse("That goal is gone");
-        // Deliberately not through `commit`: this is the way back out of a
-        // completion, and a reset that re-fired the alert on its way past the
-        // target would be a one-way door with extra steps.
-        ctx.setState({ goals: replace(ctx, resetGoal(goal, ctx.stats.stream())) });
-        refresh(ctx);
+        // Reset and re-read in one step, and deliberately not through
+        // `commit`: this is the way back out of a completion, and a reset that
+        // re-fired the alert on its way past the target would be a one-way
+        // door with extra steps. Doing it in two -- clear the stamp, then let
+        // the next poll land on it -- is exactly how that used to happen: a
+        // subscriber count is still over the target a millisecond after she
+        // taps, so it re-stamped and fired everything on the tap meant to
+        // clear it.
+        const cleared = resetGoal(goal, ctx.stats.stream());
+        const settled = pollGoal(cleared, reading(ctx, cleared, Date.now()));
+
+        // Still over its target on the counts as they stand, so there is no
+        // starting it again and saying so is better than a button that looks
+        // like it worked. A stream goal gets its restart from the next stream,
+        // and a channel goal wants a bigger number.
+        if (settled.completedAt !== null) {
+          return ctx.refuse(`${goal.label} is already past ${goal.target}, so it lands again`);
+        }
+        ctx.setState({ goals: replace(ctx, settled) });
       },
     },
   },
@@ -108,7 +130,7 @@ export const goals: GameModuleDef<GoalsState> = {
     // most restarts is never. A module that patches on the way up hands every
     // client that connected in that first moment a message that says nothing.
     const forgotten = ctx.state.goals.map((goal) =>
-      GOAL_SOURCES[goal.source].count === undefined || goal.current === null
+      !isPolled(goal.source) || goal.current === null
         ? goal
         : { ...goal, current: null },
     );
@@ -136,19 +158,27 @@ export const goals: GameModuleDef<GoalsState> = {
 
 /** Every goal against the counts as they stand right now. */
 function refresh(ctx: GoalsContext): void {
-  const stream = ctx.stats.stream();
   const now = Date.now();
   commit(
     ctx,
-    ctx.state.goals.map((goal) => {
-      const counts = GOAL_SOURCES[goal.source].count;
-      return pollGoal(goal, {
-        count: counts === undefined ? undefined : ctx.stats.count(counts),
-        stream,
-        now,
-      });
-    }),
+    ctx.state.goals.map((goal) => pollGoal(goal, reading(ctx, goal, now))),
   );
+}
+
+/**
+ * What the counts say about one goal at this moment.
+ *
+ * One place, because a reset re-reads the same counts a poll does and the two
+ * disagreeing about which adapter to ask is a goal that reads one number on
+ * the overlay and another on her phone.
+ */
+function reading(ctx: GoalsContext, goal: Goal, now: number): Reading {
+  const counts = GOAL_SOURCES[goal.source].count;
+  return {
+    count: counts === undefined ? undefined : ctx.stats.count(counts),
+    stream: ctx.stats.stream(),
+    now,
+  };
 }
 
 /**
@@ -173,8 +203,10 @@ function commit(ctx: GoalsContext, next: Goal[]): void {
 
 function land(ctx: GoalsContext, goal: Goal): void {
   ctx.log.info(`goals: ${goal.label} landed at ${goal.current}/${goal.target}`);
+  // The overlay draws the celebration and plays the chime off this. Her chat
+  // hears nothing: an alert on her own screen is hers to see, and a bot line
+  // in a live chat is the one consequence here that cannot be taken back.
   ctx.effect({ name: "goal-complete", payload: { id: goal.id, label: goal.label } });
-  ctx.say(`${goal.label} — done. ${goal.target} of them.`);
 
   // Optional, and it stays optional: OBS may be shut, and a goal landing is not
   // a reason to throw in the middle of a chat event.

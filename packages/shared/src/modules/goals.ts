@@ -48,6 +48,18 @@ export const GOAL_SOURCES: Record<GoalSource, GoalSourceInfo> = {
   manual: { label: "Counted by hand", manual: true },
 };
 
+/**
+ * Whether the core polls this goal's number rather than the goal counting it.
+ *
+ * One question asked in six places -- the rule that a poll may not touch a
+ * tallied count, the "+1" buttons that only a tallied goal gets, what an
+ * uncounted goal starts at -- so it is one function off the table above rather
+ * than six copies of the same field test drifting apart.
+ */
+export function isPolled(source: GoalSource): boolean {
+  return GOAL_SOURCES[source].count !== undefined;
+}
+
 export interface Goal {
   /** Stable for the life of the goal, because progress is attached to it. */
   id: string;

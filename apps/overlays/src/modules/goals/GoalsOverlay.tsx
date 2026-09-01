@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { GOALS_ID, GOAL_ALERT_MS, type Goal, type GoalsState } from "@saarathi/shared";
 import { useModuleState, type Connection } from "../../lib/connection.js";
+import { playChime } from "./chime.js";
 import { celebrating, countText, fill, toGo } from "./progress.js";
 import "./goals.css";
 
@@ -32,6 +33,33 @@ export function GoalsOverlay({ connection }: { connection: Connection }) {
     if (ends <= now) return soonest;
     return soonest === null || ends < soonest ? ends : soonest;
   }, null);
+
+  // The chime, off the effect rather than off the stamp in the slice. A
+  // completion that is already in the state is one this page may have just
+  // reconnected to, and a browser source reloading mid celebration must rejoin
+  // it silently -- the sound belongs to the moment, the bar belongs to the
+  // state. Missing one because nothing was connected is the right outcome too:
+  // there was nobody to hear it.
+  useEffect(() => {
+    let audio: AudioContext | null = null;
+
+    const stop = connection.onEffect((effect) => {
+      if (effect.module !== GOALS_ID || effect.name !== "goal-complete") return;
+      // Built on the first goal that lands rather than on mount, so a browser
+      // source that sits at zero goals all stream holds no audio hardware.
+      audio ??= new AudioContext();
+      // OBS starts a browser source with autoplay allowed, so this resolves
+      // there. A plain browser suspends it until somebody clicks, and a
+      // silent chime on a dev machine is not worth a permission prompt.
+      if (audio.state === "suspended") void audio.resume().catch(() => undefined);
+      playChime(audio);
+    });
+
+    return () => {
+      stop();
+      void audio?.close().catch(() => undefined);
+    };
+  }, [connection]);
 
   useEffect(() => {
     if (nextEnd === null) return;

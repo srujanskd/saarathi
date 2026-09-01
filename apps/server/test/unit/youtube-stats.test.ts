@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   collectStats,
   count,
+  httpGet,
   statsUrl,
   type StatFetch,
   type StatResponse,
@@ -210,5 +211,22 @@ describe("collectStats", () => {
     const stats = await collectStats({ apiKey: KEY, channelId: CHANNEL, videoId: VIDEO }, get);
 
     expect(stats.counts).toEqual({});
+  });
+});
+
+describe("httpGet", () => {
+  it("throws nothing that carries her key, because the core logs what it catches", async () => {
+    const url = statsUrl("channels", CHANNEL, KEY);
+    expect(url).toContain(KEY);
+
+    const original = globalThis.fetch;
+    // undici quotes the request in some rejections, and a key in a log file is
+    // a key that has left the server.
+    globalThis.fetch = (() => Promise.reject(new Error(`connect ECONNREFUSED ${url}`))) as typeof fetch;
+    try {
+      await expect(httpGet(url)).rejects.toThrow(/^Could not reach YouTube$/);
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 });

@@ -53,13 +53,42 @@ export class Stats {
    * one per module: it holds nothing per-module, and `onChange` hands back the
    * cancel that the registry drops on teardown.
    */
-  moduleView(): StatsView {
+  forModules(): StatsView {
     return {
-      all: () => this.view(),
+      all: () => this.snapshot(),
       count: (name) => this.count(name),
       stream: () => this.stream(),
       onChange: (fn) => this.onChange(fn),
     };
+  }
+
+  /**
+   * The sources worth reading, best first.
+   *
+   * A stand-in drops out entirely the moment a real adapter has answered
+   * anything at all, rather than field by field. YouTube with a key but no
+   * live video has a subscriber count and no like count, and falling through
+   * on that one missing field would put mock chat's invented likes on a bar
+   * over her camera -- the same failure the ranking exists to stop, wearing a
+   * smaller hat.
+   */
+  private preferred(): StatSource[] {
+    const real = this.sources.some((source) => !source.standIn && this.answered(source.name));
+    return real ? this.sources.filter((source) => !source.standIn) : this.sources;
+  }
+
+  /**
+   * Whether an adapter has told us anything yet.
+   *
+   * A number or a stream token counts. `detail` alone does not: "no live
+   * stream yet" is an adapter saying it has nothing, and an adapter with
+   * nothing must not shut out the stand-in that could still move a bar.
+   */
+  private answered(name: string): boolean {
+    const stats = this.current[name];
+    if (!stats) return false;
+    if (stats.stream !== undefined) return true;
+    return Object.values(stats.counts).some((value) => value !== undefined);
   }
 
   /**
@@ -71,7 +100,7 @@ export class Stats {
    * moving.
    */
   count(name: keyof StatCounts): number | undefined {
-    for (const source of this.sources) {
+    for (const source of this.preferred()) {
       const value = this.current[source.name]?.counts[name];
       if (value !== undefined) return value;
     }
@@ -80,7 +109,7 @@ export class Stats {
 
   /** The stream token of the best-placed adapter on one. */
   stream(): string | undefined {
-    for (const source of this.sources) {
+    for (const source of this.preferred()) {
       const token = this.current[source.name]?.stream;
       if (token !== undefined) return token;
     }
@@ -93,7 +122,9 @@ export class Stats {
     return () => void this.listeners.delete(listener);
   }
 
-  view(): Record<string, ChannelStats> {
+  /** Every adapter's last answer, for the core slice. Not ranked: her status
+   * page is the one place that wants to see who said what. */
+  snapshot(): Record<string, ChannelStats> {
     const copy: Record<string, ChannelStats> = {};
     for (const [name, stats] of Object.entries(this.current)) {
       copy[name] = { counts: { ...stats.counts }, detail: stats.detail, stream: stats.stream };

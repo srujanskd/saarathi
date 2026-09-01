@@ -3,6 +3,7 @@ import {
   CORE_ACTIONS,
   GOALS_ID,
   GOAL_SOURCES,
+  isPolled,
   MAX_GOALS,
   MAX_GOAL_LABEL,
   type Goal,
@@ -109,7 +110,7 @@ export function GoalsCard({ connection, deck }: CardProps) {
               <p className="hint">{whereFrom(goal)}</p>
 
               <div className="goal-row-tools">
-                {GOAL_SOURCES[goal.source].count === undefined ? (
+                {!isPolled(goal.source) ? (
                   <>
                     <button
                       type="button"
@@ -119,6 +120,18 @@ export function GoalsCard({ connection, deck }: CardProps) {
                       onClick={() => void run(`${GOALS_ID}.bump`, [goal.id])}
                     >
                       +1
+                    </button>
+                    {/* The way back out of a miscount. She is counting reps
+                        with her thumb between sets, so the tap that lands
+                        twice is the normal case and not the odd one. */}
+                    <button
+                      type="button"
+                      className="tool"
+                      disabled={busy || !goal.current}
+                      data-testid="goal-unbump"
+                      onClick={() => void run(`${GOALS_ID}.bump`, [goal.id, "-1"])}
+                    >
+                      −1
                     </button>
                     <button
                       type="button"

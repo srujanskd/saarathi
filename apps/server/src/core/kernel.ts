@@ -67,7 +67,7 @@ export class Kernel {
       obs: deps.obs,
       chat: deps.chat,
       deck: this.deck,
-      stats: this.stats.moduleView(),
+      stats: this.stats.forModules(),
       log: deps.log,
       say: (text) => this.say(text),
       onPatch: (module, state) => this.emitPatch(module, state),
@@ -134,7 +134,7 @@ export class Kernel {
       modules: this.registry.statuses(),
       obs: this.obsView,
       deck: this.deck.view(),
-      stats: this.stats.view(),
+      stats: this.stats.snapshot(),
       chat: chatViews(this.deps.chat),
     };
   }

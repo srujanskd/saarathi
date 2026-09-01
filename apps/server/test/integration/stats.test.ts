@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CORE_ID, STATS_POLL_MS, type ChannelStats } from "@saarathi/shared";
+import { CORE_ID, STATS_POLL_MS, type ChannelStats, type Logger } from "@saarathi/shared";
 import type { ChatAdapter, ChatSink } from "../../src/chat/adapter.js";
+import { Stats, type StatSource } from "../../src/core/stats.js";
 import { harness, type Harness } from "../helpers/kernel.js";
 
 let live: Harness | null = null;
@@ -145,5 +146,82 @@ describe("the adapter stats poll", () => {
 
     await vi.advanceTimersByTimeAsync(STATS_POLL_MS * 3);
     expect(youtube.calls()).toBe(settled);
+  });
+});
+
+/** A source that answers with whatever the test set, or throws. */
+function saying(name: string, answer: ChannelStats | Error, standIn = false): StatSource {
+  return {
+    name,
+    standIn,
+    async stats() {
+      if (answer instanceof Error) throw answer;
+      return answer;
+    },
+  };
+}
+
+const quiet: Logger = { info: () => {}, warn: () => {}, error: () => {} };
+
+/** One poll, landed, with the timer stopped again. */
+async function polled(sources: StatSource[]): Promise<Stats> {
+  const stats = new Stats(sources, quiet, () => {});
+  stats.start();
+  await vi.advanceTimersByTimeAsync(0);
+  stats.stop();
+  return stats;
+}
+
+describe("which adapter a count comes from", () => {
+  it("takes the real adapter's answer over the stand-in's", async () => {
+    vi.useFakeTimers();
+    const stats = await polled([
+      // Registered first, exactly as `main.ts` registers mock chat.
+      saying("mock", { counts: { subscribers: 12, likes: 12 }, detail: "Pretend", stream: "m1" }, true),
+      saying("youtube", { counts: { subscribers: 940, likes: 30 }, detail: "Reading", stream: "v1" }),
+    ]);
+
+    expect(stats.count("subscribers")).toBe(940);
+    expect(stats.stream()).toBe("v1");
+  });
+
+  it("falls back to the stand-in while nothing real has answered", async () => {
+    vi.useFakeTimers();
+    const stats = await polled([
+      saying("mock", { counts: { subscribers: 12, likes: 12 }, detail: "Pretend", stream: "m1" }, true),
+      saying("youtube", new Error("no")),
+    ]);
+
+    // The point of registering mock chat on every run: with no key and no live
+    // stream there is still a bar moving on the dev machine.
+    expect(stats.count("likes")).toBe(12);
+    expect(stats.stream()).toBe("m1");
+  });
+
+  it("drops the stand-in the moment a real adapter answers anything", async () => {
+    vi.useFakeTimers();
+    const stats = await polled([
+      saying("mock", { counts: { subscribers: 12, likes: 999 }, detail: "Pretend", stream: "m1" }, true),
+      // Her channel, before she goes live: a subscriber count and no video, so
+      // no like count and no stream token.
+      saying("youtube", { counts: { subscribers: 940 }, detail: "No live stream yet" }),
+    ]);
+
+    expect(stats.count("subscribers")).toBe(940);
+    // Falling through field by field would put 999 invented likes on a bar
+    // over her camera, which is the failure the ranking exists to stop.
+    expect(stats.count("likes")).toBeUndefined();
+    expect(stats.stream()).toBeUndefined();
+  });
+
+  it("does not let a real adapter's excuse shut out the stand-in", async () => {
+    vi.useFakeTimers();
+    const stats = await polled([
+      saying("mock", { counts: { likes: 40 }, detail: "Pretend", stream: "m1" }, true),
+      // Words and no numbers: an adapter with nothing to say has not answered.
+      saying("youtube", { counts: {}, detail: "No API key yet" }),
+    ]);
+
+    expect(stats.count("likes")).toBe(40);
   });
 });

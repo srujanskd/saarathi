@@ -220,26 +220,26 @@ export class Registry {
     name: string,
     input: ActionInput,
   ): Promise<InvokeResult> {
-    // OBS routes itself. What its actions are called and what their arguments
-    // mean is knowledge about OBS, and this file is about modules.
-    const obs = obsCommand(this.deps.obs, actionId, input.args);
-    if (obs) return obs;
-
-    // Same arrangement, same reason: which adapter a name refers to, and what
-    // a channel id looks like, are knowledge about the chat layer.
-    const chat = chatCommand(this.deps.chat, actionId, input.args);
-    if (chat) {
-      const result = await chat;
-      // Explicitly, rather than leaning on the reconnect a save happens to
-      // cause: forgetting a key changes `hasKey` and reconnects nothing.
-      this.deps.onCoreChange();
-      return result;
+    // Each of these routes itself, and each returns null for an action that is
+    // not its own. What an OBS action is called, what a channel id looks like
+    // and what a button is made of are knowledge about OBS, about the chat
+    // layer and about the deck, and this file is about modules. A fourth of
+    // them is an entry in this list.
+    const routers = [
+      () => obsCommand(this.deps.obs, actionId, input.args),
+      () =>
+        chatCommand(this.deps.chat, actionId, input.args)?.then((result) => {
+          // Explicitly, rather than leaning on the reconnect a save happens to
+          // cause: forgetting a key changes `hasKey` and reconnects nothing.
+          this.deps.onCoreChange();
+          return result;
+        }),
+      () => deckCommand(this.deps.deck, actionId, input.args),
+    ];
+    for (const route of routers) {
+      const handled = route();
+      if (handled) return handled;
     }
-
-    // Same arrangement, same reason: what a button is made of is knowledge
-    // about the deck.
-    const deck = deckCommand(this.deps.deck, actionId, input.args);
-    if (deck) return deck;
 
     // Resolving the target module belongs to the cases that have one, which is
     // why these are closures. Doing it eagerly refused every core action that

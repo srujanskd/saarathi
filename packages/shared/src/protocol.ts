@@ -52,14 +52,6 @@ export interface ObsView {
 }
 
 /**
- * One button on her deck.
- *
- * There is no id. The whole grid is replaced on every save, the way her
- * challenge list is, so nothing downstream ever has to tell one button from the
- * same button moved -- and a deck that is a plain list is a deck she can
- * reorder by dragging without the server learning a second verb.
- */
-/**
  * What she may know about one chat adapter's settings.
  *
  * Deliberately not the credential, for the reason `ObsView` is not the OBS
@@ -84,6 +76,14 @@ export interface ChatView {
   hint: string;
 }
 
+/**
+ * One button on her deck.
+ *
+ * There is no id. The whole grid is replaced on every save, the way her
+ * challenge list is, so nothing downstream ever has to tell one button from the
+ * same button moved -- and a deck that is a plain list is a deck she can
+ * reorder by dragging without the server learning a second verb.
+ */
 export interface DeckSlot {
   /** Fully qualified, exactly as `invoke` takes it: "wheel.spin", `CORE_ACTIONS.obsScene`. */
   action: string;

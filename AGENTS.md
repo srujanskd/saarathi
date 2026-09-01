@@ -305,8 +305,10 @@ Do not open a browser or use computer use to verify unless I ask for it.
   beside `ctx.obs` and `ctx.gains` because it is the same kind of thing: a core service no
   module owns. A poll landing is not a platform event, so it never goes on the bus; a module
   that wants to hear one subscribes with `ctx.stats.onChange`, and the core cancels that when
-  the module stops. Mock chat is a `standIn`, so its climbing numbers answer only when nothing
-  real can -- otherwise a goal on her stream renders test data that looks plausible.
+  the module stops. Mock chat is a `standIn`, so it drops out of the ranking entirely
+  once a real adapter has answered anything at all -- not field by field, because YouTube
+  before she goes live has a subscriber count and no like count, and falling through on that
+  one field alone would put invented likes on a bar over her camera.
 - The server is authoritative. Clients render and send intents. No client-side game logic.
 - Inferred types over annotations. `any` is the enemy, and `no-explicit-any` is an error, so
   the two places it is tolerated are named in `eslint.config.js` and in the code itself:

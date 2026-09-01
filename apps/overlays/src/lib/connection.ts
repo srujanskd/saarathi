@@ -4,6 +4,7 @@ import {
   CORE_ID,
   type ClientToServerEvents,
   type CoreState,
+  type Effect,
   type InvokeRequest,
   type InvokeResult,
   type MockChatInput,
@@ -36,6 +37,16 @@ export interface Connection {
    */
   serverNow(): number;
   invoke(request: InvokeRequest): Promise<InvokeResult>;
+  /**
+   * Effects from the modules this client subscribed to, for the few things a
+   * page does rather than draws: the goals overlay plays a chime off one.
+   *
+   * State is still where anything visible comes from. An effect is missed by a
+   * page that was not connected when it fired, which is exactly right for a
+   * sound and exactly wrong for a bar -- a browser source reloading mid
+   * celebration should rejoin the celebration and not hear the chime again.
+   */
+  onEffect(listener: (effect: Effect) => void): () => void;
   mockChat(input: MockChatInput): void;
   close(): void;
 }
@@ -112,14 +123,16 @@ export function connect({ url, surface, modules, botReplies }: ConnectOptions): 
     else set({ modules: { ...state.modules, [patch.module]: patch.state } });
   });
 
-  if (botReplies) {
-    socket.on("effect", (effect) => {
-      if (effect.module !== CORE_ID || effect.name !== "say") return;
-      const text = sayText(effect.payload);
-      if (!text) return;
-      set({ botReplies: [text, ...state.botReplies].slice(0, BOT_REPLY_LIMIT) });
-    });
-  }
+  const effectListeners = new Set<(effect: Effect) => void>();
+
+  socket.on("effect", (effect) => {
+    for (const listener of effectListeners) listener(effect);
+
+    if (!botReplies || effect.module !== CORE_ID || effect.name !== "say") return;
+    const text = sayText(effect.payload);
+    if (!text) return;
+    set({ botReplies: [text, ...state.botReplies].slice(0, BOT_REPLY_LIMIT) });
+  });
 
   return {
     subscribe(listener) {
@@ -128,6 +141,10 @@ export function connect({ url, surface, modules, botReplies }: ConnectOptions): 
     },
     getState: () => state,
     serverNow: () => Date.now() + offsetMs,
+    onEffect(listener) {
+      effectListeners.add(listener);
+      return () => void effectListeners.delete(listener);
+    },
     invoke(request) {
       if (!socket.connected) {
         return Promise.resolve({ ok: false, reason: "Cannot reach Saarathi" });

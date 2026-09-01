@@ -246,6 +246,57 @@ describe("the ways out", () => {
     expect(landings()).toHaveLength(1);
   });
 
+  it("does not fire a polled goal a second time on the tap meant to clear it", async () => {
+    vi.useFakeTimers();
+    const { youtube } = await withGoals();
+    const id = await add(["1,000 subs", "1000", "subscribers", "channel"]);
+    youtube.says({ counts: { subscribers: 1_000, likes: 12 }, detail: "Reading" });
+    await vi.advanceTimersByTimeAsync(STATS_POLL_MS);
+    expect(landings()).toHaveLength(1);
+
+    // A subscriber count is still over the target a millisecond after her
+    // thumb lands, so this is refused rather than cleared and immediately
+    // re-stamped. The re-stamp is what used to put a second alert, and an OBS
+    // scene cut, on her stream.
+    const result = await live!.kernel.invoke(`${GOALS_ID}.reset`, { args: [id] });
+    expect(result.ok).toBe(false);
+    expect(only().completedAt).not.toBeNull();
+    expect(landings()).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(STATS_POLL_MS * 3);
+    expect(landings()).toHaveLength(1);
+  });
+
+  it("starts a polled goal again once the count is back under it", async () => {
+    vi.useFakeTimers();
+    const { youtube } = await withGoals();
+    const id = await add(["1,000 likes", "1000", "likes", "stream"]);
+    youtube.says({ counts: { likes: 1_000 }, detail: "Reading", stream: "vid1" });
+    await vi.advanceTimersByTimeAsync(STATS_POLL_MS);
+    expect(landings()).toHaveLength(1);
+
+    // Likes go down, and the stamp deliberately sticks when they do. This is
+    // the one way back out of that, and it works because the count agrees.
+    youtube.says({ counts: { likes: 900 }, detail: "Reading", stream: "vid1" });
+    await vi.advanceTimersByTimeAsync(STATS_POLL_MS);
+    expect((await live!.kernel.invoke(`${GOALS_ID}.reset`, { args: [id] })).ok).toBe(true);
+    expect(only().completedAt).toBeNull();
+    expect(landings()).toHaveLength(1);
+  });
+
+  it("says nothing in her chat when one lands", async () => {
+    vi.useFakeTimers();
+    await withGoals();
+    await add(["1 tip", "1", "tips", "stream"]);
+    live!.chat({ author: "Ana", text: "go on", type: "superchat", amount: "$5.00" });
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The alert is hers to see. A bot line in a live chat is the one
+    // consequence of a goal landing that cannot be taken back.
+    expect(landings()).toHaveLength(1);
+    expect(live!.seen.effectsNamed("say")).toEqual([]);
+  });
+
   it("removes a goal, and says so when it is already gone", async () => {
     vi.useFakeTimers();
     await withGoals();

@@ -194,7 +194,15 @@ function errorReason(body: unknown): string | null {
 
 /** The one impure function here: a real GET with a clock on it. */
 export async function httpGet(url: string): Promise<StatResponse> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  // The rejection is replaced rather than passed on, because the URL carries
+  // her key and a thrown error is the one string here that travels: the core
+  // logs it verbatim when a poll fails, and a key in a log file is a key that
+  // has left the server. What went wrong is a network either way.
+  const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }).catch(
+    () => {
+      throw new Error("Could not reach YouTube");
+    },
+  );
   // Google sends JSON for its errors too, so this is parsed either way. A body
   // that is not JSON at all is a proxy or a captive portal talking, and null
   // lands in the same "would not answer" branch as an empty one.
