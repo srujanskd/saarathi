@@ -5,7 +5,7 @@ import { testLogger } from "../helpers/logger.js";
 
 function ledger(saved?: Record<string, unknown>) {
   const store = new MemoryStore();
-  if (saved) store.write("gains", saved);
+  if (saved) store.write("ledger", saved);
   const log = testLogger();
   return { gains: new Gains(store, log), store, log };
 }
@@ -59,9 +59,9 @@ describe("Gains", () => {
   it("writes through to the store on every change", () => {
     const { gains, store } = ledger();
     gains.grant("u1", 100, "minute");
-    expect(store.read("gains")).toEqual({ balances: { u1: 100 } });
+    expect(store.read("ledger")).toEqual({ balances: { u1: 100 } });
     gains.spend("u1", 40, "!spin");
-    expect(store.read("gains")).toEqual({ balances: { u1: 60 } });
+    expect(store.read("ledger")).toEqual({ balances: { u1: 60 } });
   });
 
   it("reads balances back after a restart", () => {

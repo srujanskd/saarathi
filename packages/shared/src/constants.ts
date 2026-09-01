@@ -10,6 +10,18 @@ export const GAINS = {
 } as const;
 
 /**
+ * Store namespace the gains ledger persists under, and deliberately not
+ * "gains".
+ *
+ * A module's persisted slice is keyed by its id, and the module that earns and
+ * ranks this currency is called "gains" -- so the ledger sitting under that
+ * name too meant the first `setState` from the module silently overwrote every
+ * balance. Two things owning one key is not a bug you find in a test; it is a
+ * bug you find when her chat's balances are gone.
+ */
+export const LEDGER_ID = "ledger";
+
+/**
  * OBS's WebSocket server. The port and the fact that it wants a password are
  * OBS's defaults, not ours: it ships disabled, on 4455, with auth required and
  * a random password generated on first run. We read that password out of OBS's

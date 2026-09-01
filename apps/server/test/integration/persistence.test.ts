@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { GameModuleDef } from "@saarathi/shared";
+import { LEDGER_ID, type GameModuleDef } from "@saarathi/shared";
 import { MemoryStore } from "../../src/core/store.js";
 import { SETTLE_MS } from "../../src/modules/wheel/rules.js";
 import { harness, wheelState, type Harness } from "../helpers/kernel.js";
@@ -170,7 +170,7 @@ describe("a refused trigger costs the viewer nothing", () => {
   const VIEWER = "mock:TestViewer";
   const withBalance = (amount: number) => {
     const store = new MemoryStore();
-    store.write("gains", { balances: { [VIEWER]: amount } });
+    store.write(LEDGER_ID, { balances: { [VIEWER]: amount } });
     return store;
   };
 
@@ -181,7 +181,7 @@ describe("a refused trigger costs the viewer nothing", () => {
     live.chat("!buy");
     await settled();
 
-    expect(store.read("gains")).toEqual({ balances: { [VIEWER]: 500 } });
+    expect(store.read(LEDGER_ID)).toEqual({ balances: { [VIEWER]: 500 } });
     expect(live.log.text()).toContain("refund !buy");
     expect(live.seen.said()[0]).toContain("Not right now");
   });
@@ -210,7 +210,7 @@ describe("a refused trigger costs the viewer nothing", () => {
     const said = live.seen.said()[0]!;
     expect(said).toContain("500");
     expect(said).toContain("100");
-    expect(store.read("gains")).toEqual({ balances: { [VIEWER]: 100 } });
+    expect(store.read(LEDGER_ID)).toEqual({ balances: { [VIEWER]: 100 } });
   });
 });
 

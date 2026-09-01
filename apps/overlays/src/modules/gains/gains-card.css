@@ -1,0 +1,39 @@
+/* The board on her phone. The overlay's own is in gains.css: this page is a
+   list she taps, not something OBS composites over her camera. */
+
+.board-rows-card {
+  margin: 0 0 0.85rem;
+  padding: 0;
+  list-style: none;
+}
+
+.board-row-card {
+  padding: 0.75rem 0.2rem;
+  border-top: 1px solid var(--line);
+}
+
+.board-row-card:first-child {
+  border-top: none;
+}
+
+.board-row-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 1ch;
+  margin: 0 0 0.2rem;
+  font-weight: 650;
+}
+
+.board-row-card-place {
+  display: inline-block;
+  min-width: 2ch;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.board-row-card-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}

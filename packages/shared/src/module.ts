@@ -178,6 +178,19 @@ export interface GameModuleDef<S = any> {
    * every new field forces the durable-or-not decision at the point it is added.
    */
   persist?: (keyof S)[];
+  /**
+   * Keys the core never sends to a client -- not in a snapshot, not in a patch.
+   *
+   * Module state otherwise rides whole in every snapshot and every patch, which
+   * is right for a wheel and wrong for anything keyed by viewer: a roster is
+   * unbounded, it is her chat's names, and in IRL mode it goes down her phone's
+   * mobile data once a minute for nothing. So a module keeps the working set
+   * server-side and publishes the small derived thing a page actually draws.
+   *
+   * Orthogonal to `persist`. A key can be durable and private, which is the
+   * usual case for anything like this, or either alone.
+   */
+  serverOnly?: (keyof S)[];
   /** Opt in to arm/disarm. Modules without it are always considered armed. */
   arming?: boolean;
   commands?: CommandSpec[];

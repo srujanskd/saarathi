@@ -1,5 +1,8 @@
 import {
   CORE_ID,
+  DECK_ID,
+  LEDGER_ID,
+  OBS_ID,
   type ActionInput,
   type Cancel,
   type Effect,
@@ -46,6 +49,8 @@ type Handler = (event: never) => void;
 interface Runtime {
   def: GameModuleDef;
   state: Record<string, unknown>;
+  /** `def.serverOnly` as a set, because it is read on every patch. */
+  hidden: Set<string>;
   ctx: ModuleContext<Record<string, unknown>>;
   subs: Map<EventType, Set<Handler>>;
   timers: Set<NodeJS.Timeout>;
@@ -75,11 +80,30 @@ export class Registry {
   private readonly dirty = new Set<string>();
   private patchTimer: NodeJS.Timeout | null = null;
 
-  constructor(private readonly deps: RegistryDeps) {}
+  /**
+   * Every namespace the core itself writes to the store. Chat adapters are in
+   * it because they save her settings under their own name, and the set of
+   * adapters is a composition-root decision rather than a constant.
+   */
+  private readonly reserved: Set<string>;
+
+  constructor(private readonly deps: RegistryDeps) {
+    this.reserved = new Set([
+      CORE_ID,
+      LEDGER_ID,
+      DECK_ID,
+      OBS_ID,
+      ...deps.chat.map((adapter) => adapter.name),
+    ]);
+  }
 
   register(def: GameModuleDef): void {
     if (this.modules.has(def.id)) throw new Error(`Duplicate module id "${def.id}"`);
-    if (def.id === CORE_ID) throw new Error(`"${CORE_ID}" is reserved`);
+    // A module's id is also the key its persisted slice lives under, so an id
+    // the core already writes there is not a name clash -- it is one of them
+    // overwriting the other's data, silently, on the first save. The ledger
+    // and the module that ranks it very nearly shipped as the same key.
+    if (this.reserved.has(def.id)) throw new Error(`"${def.id}" is reserved`);
 
     const state = structuredClone(def.initialState) as Record<string, unknown>;
     for (const [key, value] of Object.entries(this.readPersisted(def))) state[key] = value;
@@ -88,6 +112,7 @@ export class Registry {
     const runtime: Runtime = {
       def,
       state,
+      hidden: new Set((def.serverOnly ?? []) as string[]),
       ctx: null as unknown as ModuleContext<Record<string, unknown>>,
       subs: new Map(),
       timers: new Set(),
@@ -142,7 +167,7 @@ export class Registry {
     const wanted = ids ? new Set(ids) : null;
     const out: Record<string, unknown> = {};
     for (const [id, runtime] of this.modules) {
-      if (!wanted || wanted.has(id)) out[id] = runtime.state;
+      if (!wanted || wanted.has(id)) out[id] = published(runtime);
     }
     return out;
   }
@@ -338,7 +363,12 @@ export class Registry {
       setState: (patch) => {
         const next = typeof patch === "function" ? patch(runtime.state) : patch;
         Object.assign(runtime.state, next);
-        this.markDirty(runtime);
+        this.persist(runtime);
+        // A write that only moved server-only keys has nothing for a client to
+        // draw, so it does not become a patch. Every chat message touches the
+        // gains roster; without this she gets a patch a message saying exactly
+        // what the last one said, on mobile data, in IRL mode.
+        if (Object.keys(next).some((key) => !runtime.hidden.has(key))) this.markDirty(runtime);
       },
       on: (type, handler) => {
         let handlers = runtime.subs.get(type);
@@ -391,7 +421,6 @@ export class Registry {
   // --- publish and persist ---------------------------------------------------
 
   private markDirty(runtime: Runtime): void {
-    this.persist(runtime);
     this.dirty.add(runtime.def.id);
     if (this.patchTimer) return;
     this.patchTimer = setTimeout(() => this.flushPatches(), PATCH_COALESCE_MS);
@@ -405,7 +434,7 @@ export class Registry {
     }
     for (const id of this.dirty) {
       const target = this.modules.get(id);
-      if (target) this.deps.onPatch(id, target.state);
+      if (target) this.deps.onPatch(id, published(target));
     }
     this.dirty.clear();
   }
@@ -444,4 +473,19 @@ export class Registry {
     }
     this.deps.store.write(CORE_ID, { [LIFECYCLE_KEY]: lifecycle });
   }
+}
+
+/**
+ * The half of a module's state a client is allowed to see.
+ *
+ * The same object when a module declares nothing private, which is every module
+ * but one, so the common path allocates nothing.
+ */
+function published(runtime: Runtime): unknown {
+  if (runtime.hidden.size === 0) return runtime.state;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(runtime.state)) {
+    if (!runtime.hidden.has(key)) out[key] = value;
+  }
+  return out;
 }

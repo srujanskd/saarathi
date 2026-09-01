@@ -1,15 +1,15 @@
-import type { GainsLedger, Logger } from "@saarathi/shared";
+import { LEDGER_ID, type GainsLedger, type Logger } from "@saarathi/shared";
 import type { StateStore } from "./store.js";
-
-const NAMESPACE = "gains";
 
 /**
  * The channel currency ledger. It is a core service rather than a module
  * because command specs declare a price and the trigger gate has to debit
  * before dispatch -- there is nowhere else that check can live.
  *
- * Deliberately only balances for now. Earning rules (per active minute, streak
- * bonuses) and the leaderboard overlay are Phase 3 and arrive as a module.
+ * Deliberately only balances. Who earned what, when they last spoke and how
+ * many streams in a row they have turned up for belong to the gains module,
+ * which persists them itself -- a core service every module shares does not get
+ * to become one module's database.
  */
 export class Gains implements GainsLedger {
   private readonly balances = new Map<string, number>();
@@ -18,7 +18,7 @@ export class Gains implements GainsLedger {
     private readonly store: StateStore,
     private readonly log: Logger,
   ) {
-    const saved = store.read(NAMESPACE)?.balances;
+    const saved = store.read(LEDGER_ID)?.balances;
     if (saved && typeof saved === "object") {
       for (const [user, amount] of Object.entries(saved as Record<string, unknown>)) {
         if (typeof amount === "number" && Number.isFinite(amount)) this.balances.set(user, amount);
@@ -50,6 +50,6 @@ export class Gains implements GainsLedger {
   }
 
   private persist(): void {
-    this.store.write(NAMESPACE, { balances: Object.fromEntries(this.balances) });
+    this.store.write(LEDGER_ID, { balances: Object.fromEntries(this.balances) });
   }
 }
