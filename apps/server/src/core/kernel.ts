@@ -213,6 +213,10 @@ export class Kernel {
       // that charged, so a priced command arrives downstream as "gains" and
       // there is no second place that decision can drift out of step.
       via: gate.via,
+      // And what it took, for the same reason: a module that accepts this
+      // trigger without running it now owes the refund, and cannot work out
+      // what to give back on its own.
+      charge: gate.charge,
       args: event.args,
       event,
     });

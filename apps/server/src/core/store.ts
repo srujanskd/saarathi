@@ -19,11 +19,16 @@ interface Document {
   namespaces: Record<string, Record<string, unknown>>;
 }
 
-const VERSION = 1;
+/**
+ * Stamped on the document the store writes. Exported so a test that has to
+ * write a state file the server will read afterwards stamps the same number
+ * this does, rather than a literal that stops matching on the first bump.
+ */
+export const STATE_VERSION = 1;
 const SAVE_DEBOUNCE_MS = 500;
 
 export class MemoryStore implements StateStore {
-  private readonly doc: Document = { version: VERSION, namespaces: {} };
+  private readonly doc: Document = { version: STATE_VERSION, namespaces: {} };
 
   read(namespace: string): Record<string, unknown> | undefined {
     return this.doc.namespaces[namespace];
@@ -48,12 +53,12 @@ export class JsonStore implements StateStore {
   }
 
   private load(): Document {
-    if (!existsSync(this.file)) return { version: VERSION, namespaces: {} };
+    if (!existsSync(this.file)) return { version: STATE_VERSION, namespaces: {} };
     try {
       const raw = JSON.parse(readFileSync(this.file, "utf-8")) as Partial<Document> &
         Record<string, unknown>;
       if (raw.namespaces && typeof raw.namespaces === "object") {
-        return { version: VERSION, namespaces: raw.namespaces };
+        return { version: STATE_VERSION, namespaces: raw.namespaces };
       }
       // Pre-module layout: challenges and history sat at the top level. Her real
       // state file is in that shape, so read it rather than starting her over.
@@ -65,10 +70,10 @@ export class JsonStore implements StateStore {
         };
         this.log.info(`store: migrated ${this.file} to the namespaced layout`);
       }
-      return { version: VERSION, namespaces };
+      return { version: STATE_VERSION, namespaces };
     } catch (err) {
       this.log.warn(`store: could not read ${this.file}, starting fresh`, err);
-      return { version: VERSION, namespaces: {} };
+      return { version: STATE_VERSION, namespaces: {} };
     }
   }
 

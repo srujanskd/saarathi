@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { io, type Socket } from "socket.io-client";
 import { LEDGER_ID } from "@saarathi/shared";
+import { mockAuthorId } from "../../../src/chat/mock.js";
+import { STATE_VERSION } from "../../../src/core/store.js";
 import type {
   ClientToServerEvents,
   Hello,
@@ -92,6 +94,11 @@ export interface StartOptions {
   balances?: Record<string, number>;
 }
 
+interface StateDocument {
+  version?: number;
+  namespaces?: Record<string, Record<string, unknown>>;
+}
+
 /**
  * Put balances in a state file the server has not opened yet.
  *
@@ -99,16 +106,18 @@ export interface StartOptions {
  * already holds what the first run persisted.
  */
 function seedBalances(file: string, balances: Record<string, number>): void {
-  const doc = existsSync(file)
-    ? (JSON.parse(readFileSync(file, "utf-8")) as { version?: number; namespaces?: Record<string, Record<string, unknown>> })
+  const doc: StateDocument = existsSync(file)
+    ? (JSON.parse(readFileSync(file, "utf-8")) as StateDocument)
     : {};
   const namespaces = doc.namespaces ?? {};
   const saved = (namespaces[LEDGER_ID]?.balances ?? {}) as Record<string, number>;
   const seeded = Object.fromEntries(
-    Object.entries(balances).map(([name, amount]) => [`mock:${name}`, amount]),
+    Object.entries(balances).map(([name, amount]) => [mockAuthorId(name), amount]),
   );
   namespaces[LEDGER_ID] = { balances: { ...saved, ...seeded } };
-  writeFileSync(file, JSON.stringify({ version: doc.version ?? 1, namespaces }));
+  // The store's own version, not a literal: a file stamped with the wrong one
+  // is a migration the server would run, or refuse, for no reason.
+  writeFileSync(file, JSON.stringify({ version: doc.version ?? STATE_VERSION, namespaces }));
 }
 
 /**

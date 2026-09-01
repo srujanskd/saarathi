@@ -6,6 +6,7 @@ import {
   type ChatLogState,
   type WheelState,
 } from "@saarathi/shared";
+import { affordsSpins } from "../helpers/balances.js";
 import { startServer, type RunningServer } from "./helpers/server.js";
 
 let server: RunningServer | null = null;
@@ -37,8 +38,7 @@ const wheelOf = (state: unknown) => state as WheelState;
  * says the viewer can afford it. The server owns the ledger and there is no
  * endpoint that hands gains out, so the seed goes in the state file.
  */
-const RICH = { Viewer: SPIN_COST * 4, First: SPIN_COST * 4, Second: SPIN_COST * 4,
-  TestViewer: SPIN_COST * 4 };
+const RICH = affordsSpins(4, "Viewer", "First", "Second", "TestViewer");
 
 describe("a spin, end to end", () => {
   it("reaches the overlay when chat types !spin", async () => {
@@ -127,7 +127,7 @@ describe("a spin, end to end", () => {
   });
 
   it("tells chat why, when a viewer cannot afford the spin", async () => {
-    server = await startServer({ balances: { First: SPIN_COST } });
+    server = await startServer({ balances: affordsSpins(1, "First") });
     const control = await server.connect({ surface: "control" });
 
     await server.mockChat({ author: "First", text: "!spin" });

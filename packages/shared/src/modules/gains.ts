@@ -55,7 +55,8 @@ export interface GainsState {
  * How often earnings are paid out.
  *
  * A minute, because the currency is per active minute and paying it in one
- * lump every ten would make `!spend` refuse for nine minutes and then work.
+ * lump every ten would make a priced command refuse for nine minutes and then
+ * work.
  */
 export const EARN_TICK_MS = 60_000;
 

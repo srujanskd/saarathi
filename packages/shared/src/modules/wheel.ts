@@ -1,4 +1,4 @@
-import type { TriggerVia } from "../module.js";
+import type { Charge, TriggerVia } from "../module.js";
 
 export const WHEEL_ID = "wheel";
 
@@ -46,6 +46,15 @@ export interface QueuedSpin {
   by: string;
   via: TriggerVia;
   at: number;
+  /**
+   * The gains this entry is holding, when it was bought with them. The queue is
+   * durable, so this is data and not a callback: whatever drops the entry --
+   * her "drop queued spins" button, or a drain that cannot run it -- gives them
+   * back, on this boot or the next one.
+   *
+   * Absent for a `paid` entry. Real money is not ours to return.
+   */
+  charge?: Charge;
 }
 
 export interface WheelState {
@@ -68,9 +77,11 @@ export const MAX_HISTORY = 200;
  * paid trigger, so one arriving mid-spin waits its turn instead of being
  * turned away -- nobody's gains are taken for nothing.
  *
- * At the default earn rate this is about fifty active minutes, so a regular
- * affords roughly one spin a stream. Not hers to tune yet: a price is static
- * data on the binding, which is what lets the core charge it before dispatch.
+ * At the default earn rate it is about fifty active minutes, so a regular
+ * affords roughly one spin a stream -- but only at that rate: `perMinute` is
+ * hers to raise and this is not, so the two can drift apart until a price is
+ * something she sets too. Static for now because a cost is data on the binding,
+ * which is what lets the core charge it before dispatch rather than after.
  */
 export const SPIN_COST = 500;
 

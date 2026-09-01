@@ -67,9 +67,11 @@ export function WheelCard({ connection, status }: CardProps) {
           {queued}
         </p>
       ) : null}
-      {/* What chat pays. She is the one who gets asked, and the price is
-          otherwise only visible in the refusal a viewer sees. Her own button
-          below is free -- the price is on the !spin binding, not the action. */}
+      {/* What chat pays. She is the one who gets asked, and this is the only
+          place the price is written down for her: a refusal quotes it, but
+          replies have no send path yet, so they reach the log and this page and
+          never chat. Her own button below is free -- the price is on the !spin
+          binding, not the action. */}
       <p className="hint" data-testid="wheel-price">
         Chat pays {SPIN_COST} {GAINS.plural} for !spin
       </p>

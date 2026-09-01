@@ -1,5 +1,5 @@
 import { test as base, type Page } from "@playwright/test";
-import { SPIN_COST } from "@saarathi/shared";
+import { affordsSpins } from "../../../server/test/helpers/balances.js";
 import { startServer, type RunningServer } from "../../../server/test/e2e/helpers/server.js";
 import { startPages, type PageServer } from "./pages.js";
 
@@ -10,7 +10,7 @@ import { startPages, type PageServer } from "./pages.js";
  * None of these specs are about the economy -- they are about what the browser
  * does with a spin -- so the ledger is set up rather than earned.
  */
-const CHATTERS = { anita: SPIN_COST * 4, Viewer: SPIN_COST * 4, TestViewer: SPIN_COST * 4 };
+const CHATTERS = affordsSpins(4, "anita", "Viewer", "TestViewer");
 
 /**
  * A real Saarathi server and a plain file server on two different origins,

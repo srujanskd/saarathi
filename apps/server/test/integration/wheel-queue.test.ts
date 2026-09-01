@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAX_QUEUE, SPIN_COST, SPIN_DURATION_MS } from "@saarathi/shared";
+import { MAX_QUEUE, SPIN_COST, SPIN_DURATION_MS, type QueuedSpin } from "@saarathi/shared";
 import { SETTLE_MS } from "../../src/modules/wheel/rules.js";
+import { mockAuthorId } from "../../src/chat/mock.js";
+import { affordsSpins } from "../helpers/balances.js";
+import { MemoryStore } from "../../src/core/store.js";
 import { harness, wheelState, type Harness } from "../helpers/kernel.js";
 
 /** How long the wheel stays busy after a spin starts. */
@@ -61,7 +64,7 @@ describe("free triggers are refused when the wheel is busy", () => {
 
 describe("gains buy a spin, and a bought spin waits", () => {
   it("spins straight away when the wheel is free, and takes the gains", async () => {
-    const h = await start({ Asha: SPIN_COST });
+    const h = await start(affordsSpins(1, "Asha"));
     h.chat({ author: "Asha", text: "!spin" });
     await settled();
 
@@ -70,7 +73,7 @@ describe("gains buy a spin, and a bought spin waits", () => {
   });
 
   it("queues one that arrives mid-spin rather than taking gains for nothing", async () => {
-    const h = await start({ Asha: SPIN_COST });
+    const h = await start(affordsSpins(1, "Asha"));
     await h.kernel.invoke("wheel.spin");
     h.seen.clear();
 
@@ -78,7 +81,14 @@ describe("gains buy a spin, and a bought spin waits", () => {
     await settled();
 
     expect(wheelState(h.kernel).queue).toEqual([
-      { by: "Asha", via: "gains", at: expect.any(Number) },
+      // The entry carries what it is holding, because whoever drops it owes
+      // that back and the queue outlives the process that charged it.
+      {
+        by: "Asha",
+        via: "gains",
+        at: expect.any(Number),
+        charge: { userId: mockAuthorId("Asha"), amount: SPIN_COST },
+      },
     ]);
     expect(h.seen.effectsNamed("spin-queued")[0]!.payload).toEqual({ by: "Asha", position: 1 });
     expect(h.balance("Asha")).toBe(0);
@@ -90,7 +100,7 @@ describe("gains buy a spin, and a bought spin waits", () => {
   });
 
   it("gives the gains back when the queue is too full to take the spin", async () => {
-    const h = await start({ Asha: SPIN_COST });
+    const h = await start(affordsSpins(1, "Asha"));
     await h.kernel.invoke("wheel.spin");
     for (let i = 0; i < MAX_QUEUE; i++) {
       h.chat({ author: `Tipper${i}`, text: "money", type: "superchat" });
@@ -113,6 +123,50 @@ describe("gains buy a spin, and a bought spin waits", () => {
     expect(wheelState(h.kernel).spin).toBeNull();
     expect(wheelState(h.kernel).queue).toEqual([]);
     expect(h.balance("Asha")).toBe(SPIN_COST - 1);
+  });
+
+  it("gives the gains back to everyone whose spin she drops", async () => {
+    const h = await start(affordsSpins(1, "Asha", "Bo"));
+    await h.kernel.invoke("wheel.spin");
+    h.chat({ author: "Asha", text: "!spin" });
+    h.chat({ author: "Bo", text: "!spin" });
+    h.chat({ author: "Tipper", text: "money", type: "superchat" });
+    await settled();
+
+    expect(wheelState(h.kernel).queue).toHaveLength(3);
+    expect(h.balance("Asha")).toBe(0);
+
+    await h.kernel.invoke("wheel.clearQueue");
+    await settled();
+
+    // She may clear the queue; nobody may be charged for a spin she has just
+    // decided will never run. Real money is a different question -- there is no
+    // path back for the superchat, which is why it carries no charge.
+    expect(h.balance("Asha")).toBe(SPIN_COST);
+    expect(h.balance("Bo")).toBe(SPIN_COST);
+    expect(h.log.text()).toContain("gave Asha back");
+  });
+
+  it("writes the charge to disk with the queue, so a restart still owes it", async () => {
+    const store = new MemoryStore();
+    const first = await harness({ store, balances: affordsSpins(1, "Asha") });
+    await first.kernel.invoke("wheel.spin");
+    first.chat({ author: "Asha", text: "!spin" });
+    await settled();
+    expect(first.balance("Asha")).toBe(0);
+    await first.stop();
+
+    // The charge is data on the entry rather than a closure for exactly this:
+    // the process that took Asha's gains is gone, and whichever one inherits
+    // her spin is the one that owes them back if it never runs it.
+    const saved = store.read("wheel")!.queue as QueuedSpin[];
+    expect(saved[0]!.charge).toEqual({ userId: mockAuthorId("Asha"), amount: SPIN_COST });
+
+    // And the next boot pays out the spin she bought rather than the gains.
+    live = await harness({ store });
+    await settled();
+    expect(wheelState(live.kernel).spin).toMatchObject({ by: "Asha", via: "gains" });
+    expect(live.balance("Asha")).toBe(0);
   });
 });
 
@@ -249,7 +303,7 @@ describe("every trigger lands in the same action", () => {
 
   for (const [name, trigger] of cases) {
     it(`${name} produces a spin, a history entry and one effect`, async () => {
-      const h = await start({ Asha: SPIN_COST });
+      const h = await start(affordsSpins(1, "Asha"));
       await trigger(h);
       await settled();
 

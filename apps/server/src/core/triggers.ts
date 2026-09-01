@@ -1,5 +1,6 @@
 import type {
   Author,
+  Charge,
   CommandSpec,
   GainsLedger,
   InvokeResult,
@@ -23,7 +24,7 @@ export interface ParsedCommand {
   args: string[];
 }
 
-/** "!spin" and "!spend 500 spin". Returns null for ordinary chat. */
+/** "!spin" and "!challenges burpees". Returns null for ordinary chat. */
 export function parseCommand(text: string): ParsedCommand | null {
   const trimmed = text.trim();
   if (!trimmed.startsWith("!") || trimmed.length < 2) return null;
@@ -99,7 +100,19 @@ export function triggerVia(spec: CommandSpec): TriggerVia {
 }
 
 export type GateResult =
-  | { ok: true; via: TriggerVia; release(): void }
+  | {
+      ok: true;
+      via: TriggerVia;
+      /**
+       * What was actually taken, for a module that accepts the trigger and then
+       * holds it. `release` covers the ordinary case -- the action refuses and
+       * the core undoes the charge itself -- but a module that queues a paid
+       * trigger has said yes, so nothing will be released and the refund
+       * becomes its own. Absent when nothing was charged.
+       */
+      charge?: Charge;
+      release(): void;
+    }
   | Exclude<InvokeResult, { ok: true }>;
 
 /**
@@ -142,6 +155,7 @@ export class CommandGate {
     return {
       ok: true,
       via: triggerVia(spec),
+      charge: charged && spec.cost ? { userId: author.id, amount: spec.cost } : undefined,
       release: () => {
         if (previous === undefined) this.lastUsed.delete(key);
         else this.lastUsed.set(key, previous);

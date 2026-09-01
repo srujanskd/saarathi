@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { CORE_ID, GAINS, MAX_CHALLENGES, SPIN_COST, type ChatLogState } from "@saarathi/shared";
+import { affordsSpins } from "../helpers/balances.js";
 import { harness, wheelState, type Harness } from "../helpers/kernel.js";
 
 let live: Harness | null = null;
@@ -12,7 +13,7 @@ afterEach(async () => {
  * !spin is priced, so a viewer with an empty ledger cannot reach the action at
  * all. Every test here that chats one starts them able to afford a few.
  */
-async function start(balances: Record<string, number> = { TestViewer: SPIN_COST * 4 }) {
+async function start(balances: Record<string, number> = affordsSpins(4, "TestViewer")) {
   live = await harness({ balances });
   return live;
 }
@@ -122,7 +123,7 @@ describe("a command is not also a message", () => {
 
 describe("the price belongs to the binding", () => {
   it("takes the gains and spins", async () => {
-    const h = await start({ TestViewer: SPIN_COST });
+    const h = await start(affordsSpins(1, "TestViewer"));
     h.chat("!spin");
     await settled();
 
@@ -147,7 +148,7 @@ describe("the price belongs to the binding", () => {
   });
 
   it("charges the spender and nobody else, unlike the cooldown it replaced", async () => {
-    const h = await start({ First: SPIN_COST, Second: SPIN_COST });
+    const h = await start(affordsSpins(1, "First", "Second"));
     h.chat({ author: "First", text: "!spin" });
     await settled();
 
