@@ -61,19 +61,20 @@ export const SAY_FLOOR: Record<SayTier, number> = {
 /**
  * How long replies about the same command are held before one message goes out.
  *
- * Trailing only: the window closes and one line goes out, rather than the first
- * asker being answered instantly and everyone behind them merged. A leading
- * send would double the writes for the single burst this exists to make cheap,
- * and five seconds of a bot being slow is not a thing chat notices.
+ * Trailing: each new reply on the key restarts the wait, so a burst that is
+ * still arriving is one message, not one message plus a straggler five seconds
+ * later. A leading send would double the writes for the single burst this
+ * exists to make cheap, and five seconds of a bot being slow is not a thing
+ * chat notices.
  */
 export const REPLY_WINDOW_MS = 5_000;
 
 /**
  * How long a message may be.
  *
- * A tunable with a conservative default, not a spec: YouTube documents no cap
- * on a live chat message and the 200 everyone repeats is folklore. Nothing
- * decides anything on this number except where a merged line stops.
+ * A tunable with a conservative default, not a spec: live chat hosts document
+ * no cap, and the 200 everyone repeats is folklore. Nothing decides anything
+ * on this number except where a merged line stops.
  */
 export const MAX_REPLY_CHARS = 200;
 
@@ -102,7 +103,7 @@ const PACIFIC = "America/Los_Angeles";
  * phone's clock, one dimension over. A formatted day rather than arithmetic on
  * an offset, so the two nights a year the offset changes need no code.
  */
-const day = new Intl.DateTimeFormat("en-CA", {
+const quotaDayFormat = new Intl.DateTimeFormat("en-CA", {
   timeZone: PACIFIC,
   year: "numeric",
   month: "2-digit",
@@ -110,7 +111,7 @@ const day = new Intl.DateTimeFormat("en-CA", {
 });
 
 export function quotaDay(at: number): string {
-  return day.format(at);
+  return quotaDayFormat.format(at);
 }
 
 /**
@@ -220,10 +221,10 @@ export interface Reply {
   /**
    * What this reply is about, and the only thing merged replies have in common.
    *
-   * A command binding for a refusal, a module id for `ctx.say`. Per command
-   * rather than globally: "!spin costs 50 gains; you have 10" and a balance
-   * belong in different sentences, and one line carrying both is a line nobody
-   * reads.
+   * A command binding for a refusal, the same binding (or action id) for
+   * `ctx.say`. Per command rather than globally: "!spin costs 50 gains; you
+   * have 10" and a balance belong in different sentences, and one line carrying
+   * both is a line nobody reads.
    */
   key: string;
 }
@@ -231,11 +232,14 @@ export interface Reply {
 /**
  * Everything the bot says or does to chat, and the budget it does it on.
  *
- * The adapter is chosen at the moment of a write and never cached, real ones
- * ahead of stand-ins on the rule `Stats` follows: mock chat is registered on
- * every run, so a cached choice would be the day her real adapter grew a token
- * and nothing noticed. A stand-in writing at all is what makes the whole of
- * this demoable from a keyboard.
+ * The adapter is chosen at the moment of a write and never cached, on the
+ * rule `Stats` follows: a stand-in drops out the moment a real adapter is
+ * connected, even if that adapter cannot write, because mock chat echoing the
+ * bot into her log while a live source is up is test data on her stream. Mock
+ * chat is registered on every run, so a cached choice would be the day her
+ * real adapter grew a token and nothing noticed. A stand-in writing at all,
+ * while nothing real is live, is what makes the whole of this demoable from a
+ * keyboard.
  *
  * Replies only, and that is the shape rather than a stage of it. A moderation
  * write is `ChatWrites.deleteMessage` or `.ban`: it does not queue, does not
@@ -245,12 +249,20 @@ export interface Reply {
  */
 export class ChatWriter {
   private readonly pending = new Map<string, string[]>();
+  private readonly tiers = new Map<string, SayTier>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private readonly adapters: readonly ChatAdapter[],
     private readonly meter: WriteMeter,
     private readonly log: Logger,
+    /**
+     * Whether a real (non-stand-in) adapter is connected right now.
+     *
+     * Same shape as `Stats.preferred`: the stand-in is fine until then, and
+     * gone the moment one is, even if the live adapter has no grant.
+     */
+    private readonly realLive: () => boolean = () => false,
     private readonly windowMs: number = REPLY_WINDOW_MS,
   ) {}
 
@@ -278,10 +290,12 @@ export class ChatWriter {
         return;
       }
       queue.push(reply.text);
+      this.restart(reply.key);
       return;
     }
 
     this.pending.set(reply.key, [reply.text]);
+    this.tiers.set(reply.key, reply.tier);
     this.open(reply.key, reply.tier);
   }
 
@@ -290,6 +304,15 @@ export class ChatWriter {
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
     this.pending.clear();
+    this.tiers.clear();
+  }
+
+  private restart(key: string): void {
+    const tier = this.tiers.get(key);
+    if (tier === undefined) return;
+    const prior = this.timers.get(key);
+    if (prior) clearTimeout(prior);
+    this.open(key, tier);
   }
 
   private open(key: string, tier: SayTier): void {
@@ -306,6 +329,7 @@ export class ChatWriter {
   private async flush(key: string, tier: SayTier): Promise<void> {
     const queue = this.pending.get(key) ?? [];
     this.pending.delete(key);
+    this.tiers.delete(key);
     if (queue.length === 0) return;
 
     const target = this.target();
@@ -323,6 +347,7 @@ export class ChatWriter {
     if (rest.length > 0) {
       // Spilled rather than dropped, and it keeps the tier it arrived with.
       this.pending.set(key, rest);
+      this.tiers.set(key, tier);
       this.open(key, tier);
     }
 
@@ -339,11 +364,15 @@ export class ChatWriter {
    *
    * Real adapters first and stand-ins last, exactly as the counts are ranked,
    * and for the same failure: mock chat echoing the bot into her chat log while
-   * YouTube could have posted it for real is test data on her stream wearing a
-   * smaller hat.
+   * a live source is up is test data on her stream wearing a smaller hat. A
+   * real adapter that is connected but has no grant still shuts the stand-in
+   * out: the hole is silence, not a fake line in her log.
    */
   private target(): { name: string; writes: ChatWrites } | null {
-    const able = this.adapters.filter((adapter) => adapter.writes);
+    const pool = this.realLive()
+      ? this.adapters.filter((adapter) => !adapter.standIn)
+      : this.adapters;
+    const able = pool.filter((adapter) => adapter.writes);
     const best = able.find((adapter) => !adapter.standIn) ?? able[0];
     return best?.writes ? { name: best.name, writes: best.writes } : null;
   }

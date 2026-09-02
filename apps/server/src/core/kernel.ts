@@ -61,7 +61,16 @@ export class Kernel {
       this.emitPatch(CORE_ID, this.coreState()),
     );
     this.gate = new CommandGate(this.gains);
-    this.writer = new ChatWriter(deps.chat, new WriteMeter(deps.store, deps.log), deps.log);
+    this.writer = new ChatWriter(
+      deps.chat,
+      new WriteMeter(deps.store, deps.log),
+      deps.log,
+      () =>
+        deps.chat.some(
+          (adapter) =>
+            !adapter.standIn && this.connections[adapter.name]?.state === "connected",
+        ),
+    );
     this.mock = deps.chat.find((adapter): adapter is MockChatAdapter => adapter instanceof MockChatAdapter);
 
     this.registry = new Registry({

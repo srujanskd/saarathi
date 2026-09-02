@@ -314,10 +314,17 @@ Do not open a browser or use computer use to verify unless I ask for it.
   still emits the effect her control page renders, and sends to chat as well when something can.
   So dev, CI, a VPS with no grant and a revoked grant all behave the way they did before the
   write path existed. A module cannot pick a tier -- `ctx.say` is always the informational one,
-  refusals are cut first, and replies about the same thing merge on a five-second window.
-  Moderation is not a tier: a delete is a different method and spends against a reserve replies
-  may never touch. The meter counts writes and never units, because the Data API reports neither
-  what it charged nor what is left, and it resets on Google's Pacific midnight rather than hers.
+  and it names what the reply is about so two commands do not share a sentence. Refusals are
+  cut first: they stop a band before the reserve, then info stops at the reserve itself.
+  Replies about the same key merge on a five-second trailing window that restarts as more
+  arrive; overflow spills, a line over the cap is truncated, and a raid is capped per key.
+  Stop drops what was waiting rather than saying it after the stream ended. The meter counts
+  write attempts, including ones that threw, because a call that failed past our network may
+  still have been charged. Moderation is not a tier: a delete is a different method and spends
+  against a reserve replies may never touch. The meter counts writes and never units, because
+  the Data API reports neither what it charged nor what is left, and it resets on Google's
+  Pacific midnight rather than hers. Mock chat is a `standIn` here too, so it drops out of
+  the write ranking the moment a real adapter is connected, even if that adapter cannot write.
 - The server is authoritative. Clients render and send intents. No client-side game logic.
 - Mock chat sends as any role — `role: "viewer" | "member" | "mod" | "streamer"` on `MockChatInput`.
   Every rule that reads an author flag has to be drivable from there, or the only way to test

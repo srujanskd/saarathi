@@ -29,7 +29,12 @@ afterEach(async () => {
  * one of these, and the reason every other one can read `wrote` and know that is
  * what chat would have seen.
  */
-function platform(name = "youtube", canWrite = true) {
+function platform(
+  name = "youtube",
+  canWrite = true,
+  /** A live source with no grant still shuts the stand-in out. */
+  connected = true,
+) {
   const wrote: string[] = [];
   let fail = false;
   let sink: ChatSink | null = null;
@@ -54,7 +59,10 @@ function platform(name = "youtube", canWrite = true) {
     ...(canWrite ? { writes } : {}),
     async start(next: ChatSink) {
       sink = next;
-      next.status({ state: "connected", detail: "up" });
+      next.status({
+        state: connected ? "connected" : "disconnected",
+        detail: connected ? "up" : "no live stream yet",
+      });
     },
     async stop() {
       sink = null;
@@ -85,7 +93,14 @@ const chatty: GameModuleDef<Record<string, never>> = {
       label: "Answer",
       needsArgs: true,
       run(input, ctx) {
-        ctx.say(`@${input.args[0]} 12`);
+        ctx.say(`@${input.args[0]} 12`, "chatty.answer");
+      },
+    },
+    greet: {
+      label: "Greet",
+      needsArgs: true,
+      run(input, ctx) {
+        ctx.say(`@${input.args[0]} hi`, "chatty.greet");
       },
     },
   },
@@ -155,6 +170,43 @@ describe("what the bot says reaches chat", () => {
     // A refusal and an answer merged into one line is a line nobody reads.
     expect(youtube.wrote).toHaveLength(2);
     expect(youtube.wrote.some((line) => line === "@Ana 12")).toBe(true);
+  });
+
+  it("merges two module replies about the same command, not the whole module", async () => {
+    vi.useFakeTimers();
+    const { youtube, h } = await withWriter();
+
+    await h.kernel.invoke("chatty.answer", { args: ["Ana"] });
+    await h.kernel.invoke("chatty.answer", { args: ["Bo"] });
+    await h.kernel.invoke("chatty.greet", { args: ["Cy"] });
+    await vi.advanceTimersByTimeAsync(0);
+    await window();
+
+    const answers = youtube.wrote.find((line) => line.includes("@Ana"));
+    expect(answers).toContain("@Bo");
+    expect(answers).not.toContain("@Cy");
+    expect(youtube.wrote.some((line) => line === "@Cy hi")).toBe(true);
+  });
+
+  it("restarts the window when another reply about the same thing arrives", async () => {
+    vi.useFakeTimers();
+    const { youtube, h } = await withWriter();
+
+    h.chat({ author: "Ana", text: "!spin" });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(REPLY_WINDOW_MS - 1_000);
+    expect(youtube.wrote).toEqual([]);
+
+    h.chat({ author: "Bo", text: "!spin" });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(REPLY_WINDOW_MS - 1_000);
+    // A tumbling window would have sent Ana already. Trailing holds both.
+    expect(youtube.wrote).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(youtube.wrote).toHaveLength(1);
+    expect(youtube.wrote[0]).toContain("@Ana");
+    expect(youtube.wrote[0]).toContain("@Bo");
   });
 
   it("spills what did not fit into the next window instead of dropping it", async () => {
@@ -229,6 +281,44 @@ describe("what the bot says reaches chat", () => {
     const bot = log.events.filter((event) => event.author.name === "Saarathi");
     expect(bot).toHaveLength(1);
     expect(bot[0]!.text).toContain("@TestViewer");
+    expect(live.kernel.snapshot().core.writes.adapter).toBe("mock");
+  });
+
+  it("does not let the stand-in write once a real adapter is live, even without a grant", async () => {
+    vi.useFakeTimers();
+    const silent = platform("youtube", false);
+    live = await harness({
+      modules: [wheel, chatlog],
+      chat: [new MockChatAdapter(), silent],
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    live.chat("!spin");
+    await vi.advanceTimersByTimeAsync(0);
+    await window();
+
+    const log = live.kernel.snapshot().modules.chatlog as ChatLogState;
+    expect(log.events.filter((event) => event.author.name === "Saarathi")).toEqual([]);
+    expect(live.kernel.snapshot().core.writes.adapter).toBeNull();
+    expect(live.seen.said()).toHaveLength(1);
+  });
+
+  it("lets the stand-in write while the real adapter has not come up", async () => {
+    vi.useFakeTimers();
+    const idle = platform("youtube", false, false);
+    live = await harness({
+      modules: [wheel, chatlog],
+      chat: [new MockChatAdapter(), idle],
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    live.chat("!spin");
+    await vi.advanceTimersByTimeAsync(0);
+    await window();
+
+    const log = live.kernel.snapshot().modules.chatlog as ChatLogState;
+    const bot = log.events.filter((event) => event.author.name === "Saarathi");
+    expect(bot).toHaveLength(1);
     expect(live.kernel.snapshot().core.writes.adapter).toBe("mock");
   });
 

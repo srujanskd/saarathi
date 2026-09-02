@@ -38,9 +38,8 @@ export interface RegistryDeps {
   stats: StatsView;
   log: Logger;
   /**
-   * A bot reply, with what it is about: replies about the same thing are merged
-   * into one message, so a module's says coalesce with each other and not with
-   * the kernel's refusals. Tier is not the module's to pick -- see `SayTier`.
+   * A bot reply, with what it is about: replies about the same command merge
+   * into one message. The module names the key; tier is not its to pick.
    */
   say(text: string, key: string): void;
   onPatch(module: string, state: unknown): void;
@@ -417,7 +416,7 @@ export class Registry {
       },
       after: (ms, fn) => track(setTimeout(fn, ms), false),
       every: (ms, fn) => track(setInterval(fn, ms), true),
-      say: (text) => this.deps.say(text, runtime.def.id),
+      say: (text, key) => this.deps.say(text, key),
       log: this.deps.log,
     };
   }
