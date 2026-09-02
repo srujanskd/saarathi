@@ -32,19 +32,22 @@ export function lockdownLeft(until: number | null, serverNow: number): string {
  *
  * The rows it removed are gone and the rows it could not look untouched, so
  * without this she cannot tell a sweep that worked from a button that did
- * nothing. `left` gets its own clause rather than being folded into a total,
+ * nothing. The two kinds of leftover get a clause each and are never summed,
  * because "3 had no message to remove" is a fact about her platform and
- * "3 failed" is a fact about this app, and only one of them is true.
+ * "3 were not attempted" is a fact about this app -- and it is the second one
+ * that means press it again in a minute. Folding them into one number is how
+ * a spent quota comes out reading as a limitation of YouTube.
  */
 export function purgeLine(purge: PurgeReport | null): string {
   if (!purge) return "";
 
-  const left =
-    purge.left === 0
+  const clauses = [
+    purge.removed === 0
       ? ""
-      : `${purge.left} left that came with no message to take down`;
-  if (purge.removed === 0) return left || "Nothing to take down";
+      : `Took down ${purge.removed} message${purge.removed === 1 ? "" : "s"}`,
+    purge.noId === 0 ? "" : `${purge.noId} came with no message to take down`,
+    purge.stopped === 0 ? "" : `${purge.stopped} could not be taken down`,
+  ].filter(Boolean);
 
-  const swept = `Took down ${purge.removed} message${purge.removed === 1 ? "" : "s"}`;
-  return left ? `${swept} · ${left}` : swept;
+  return clauses.length === 0 ? "Nothing to take down" : clauses.join(" · ");
 }

@@ -52,27 +52,43 @@ describe("purgeLine", () => {
   });
 
   it("counts what it took down", () => {
-    expect(purgeLine({ at: NOW, removed: 7, left: 0 })).toBe("Took down 7 messages");
-    expect(purgeLine({ at: NOW, removed: 1, left: 0 })).toBe("Took down 1 message");
+    expect(purgeLine({ at: NOW, removed: 7, noId: 0, stopped: 0 })).toBe("Took down 7 messages");
+    expect(purgeLine({ at: NOW, removed: 1, noId: 0, stopped: 0 })).toBe("Took down 1 message");
   });
 
   it("says why the rows still on screen are still on screen", () => {
     // Otherwise a sweep that worked and a button that did nothing look the
     // same: the rows it removed are gone and the rest look untouched.
-    expect(purgeLine({ at: NOW, removed: 7, left: 2 })).toBe(
-      "Took down 7 messages · 2 left that came with no message to take down",
+    expect(purgeLine({ at: NOW, removed: 7, noId: 2, stopped: 0 })).toBe(
+      "Took down 7 messages · 2 came with no message to take down",
+    );
+  });
+
+  it("keeps a spent quota apart from a platform that names nothing", () => {
+    // The whole reason there are two counts. "Could not be taken down" is the
+    // one that means press it again in a minute; "came with no message" means
+    // there is nothing to press again for. A single total renders one as the
+    // other, which is this app blaming YouTube for a write it spent itself.
+    expect(purgeLine({ at: NOW, removed: 2, noId: 0, stopped: 2 })).toBe(
+      "Took down 2 messages · 2 could not be taken down",
+    );
+    expect(purgeLine({ at: NOW, removed: 1, noId: 3, stopped: 2 })).toBe(
+      "Took down 1 message · 3 came with no message to take down · 2 could not be taken down",
     );
   });
 
   it("explains a sweep that could take nothing down", () => {
-    // The demo case, and the one where "0 removed" on its own reads as broken
-    // software rather than as a fact about her platform.
-    expect(purgeLine({ at: NOW, removed: 0, left: 3 })).toBe(
-      "3 left that came with no message to take down",
+    // The case where "0 removed" on its own reads as broken software rather
+    // than as a fact about her platform.
+    expect(purgeLine({ at: NOW, removed: 0, noId: 3, stopped: 0 })).toBe(
+      "3 came with no message to take down",
+    );
+    expect(purgeLine({ at: NOW, removed: 0, noId: 0, stopped: 3 })).toBe(
+      "3 could not be taken down",
     );
   });
 
   it("has something to say even for a sweep with nothing to report", () => {
-    expect(purgeLine({ at: NOW, removed: 0, left: 0 })).toBe("Nothing to take down");
+    expect(purgeLine({ at: NOW, removed: 0, noId: 0, stopped: 0 })).toBe("Nothing to take down");
   });
 });

@@ -34,6 +34,7 @@ export function ModerationCard({ connection, deck, status }: CardProps) {
   const flags = state?.flags ?? [];
   const seen = state?.seen ?? 0;
   const caught = state?.caught ?? 0;
+  const removed = state?.removed ?? 0;
   const busy = invoke.working;
   const { run } = invoke;
 
@@ -116,6 +117,15 @@ export function ModerationCard({ connection, deck, status }: CardProps) {
                 ? `On, ${left}. Anything the rules catch is taken down as it arrives.`
                 : "Takes down anything the rules catch instead of queueing it."}
             </p>
+            {/* The only place a message going away is visible at all: the row
+                is gone and her chat is one line shorter, and she is watching
+                neither mid-workout. Per run, so it reads as "this is working
+                now" rather than as a total from last week. */}
+            {removed === 0 ? null : (
+              <p className="hint" data-testid="moderation-removed">
+                {`${removed} taken down this run`}
+              </p>
+            )}
           </div>
           <button
             type="button"
@@ -195,28 +205,31 @@ export function ModerationCard({ connection, deck, status }: CardProps) {
           each one is something she wants during a wave, when she is not
           reading a screen. Behind a fold because putting a button on the deck
           is a thing she does once, in a quiet moment. */}
-      {canAct ? (
-        <details className="fold">
-          <summary>
-            <span>Panic buttons on the deck</span>
-          </summary>
-          <p className="hint">
-            Lockdown expires on its own after a few minutes. End lockdown is the way
-            out before then.
-          </p>
-          <div className="rule-tools">
-            <DeckButton deck={deck} invoke={invoke} action="lockdown" label="Lockdown" icon="🔒" />
-            <DeckButton
-              deck={deck}
-              invoke={invoke}
-              action="lockdownOff"
-              label="Unlock"
-              icon="🔓"
-            />
-            <DeckButton deck={deck} invoke={invoke} action="purge" label="Sweep" icon="🧹" />
-          </div>
-        </details>
-      ) : null}
+      {/* Not gated on `canAct`, unlike the buttons that would refuse. Arranging
+          her grid is a quiet-moment job, so a fold that is missing until she
+          signs in is a fold she cannot pre-stage -- on a dev machine, or the
+          morning before a stream. Pressing one with no grant refuses with a
+          sentence, which is the legible half of the same fact. */}
+      <details className="fold">
+        <summary>
+          <span>Panic buttons on the deck</span>
+        </summary>
+        <p className="hint">
+          Lockdown expires on its own after a few minutes. End lockdown is the way
+          out before then.
+        </p>
+        <div className="rule-tools">
+          <DeckButton deck={deck} invoke={invoke} action="lockdown" label="Lockdown" icon="🔒" />
+          <DeckButton
+            deck={deck}
+            invoke={invoke}
+            action="lockdownOff"
+            label="Unlock"
+            icon="🔓"
+          />
+          <DeckButton deck={deck} invoke={invoke} action="purge" label="Sweep" icon="🧹" />
+        </div>
+      </details>
 
       <details className="fold">
         <summary>
@@ -368,8 +381,9 @@ function RuleValue({
  * nothing outside this app, and it is the way out of a queue that got long.
  * Ban them needs only an author id, which every adapter gives us. Take it down
  * needs the platform's own id for the message, and that is genuinely absent on
- * some rows -- mock chat hands out none at all -- so the row says so instead of
- * offering a button that can only refuse. That difference has to be rendered:
+ * some rows -- a tip has no message, and YouTube's own library does not always
+ * give us one -- so the row says so instead of offering a button that can only
+ * refuse. That difference has to be rendered:
  * she is holding a phone during a raid, and finding out by pressing is the same
  * cost as not being told.
  */

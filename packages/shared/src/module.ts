@@ -156,6 +156,16 @@ export interface StatsView {
  * happened is the only thing she actually wants to know -- so they answer, in
  * the same shape every other refusal in this app arrives in.
  */
+/**
+ * What she is told when nothing can write yet.
+ *
+ * One sentence and not one per caller: the core refuses with it when a write
+ * is attempted with no adapter behind it, and a module refuses with it when it
+ * checked `available` first. Two wordings for one condition is two sentences
+ * to keep in step, and the one that drifts is the one she reads.
+ */
+export const NO_WRITER = "Nothing is signed in that can do that yet";
+
 export interface ChatWriteActions {
   /**
    * Whether anything can write right now.

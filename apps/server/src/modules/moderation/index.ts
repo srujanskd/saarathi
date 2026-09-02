@@ -5,6 +5,7 @@ import {
   MAX_FLAGS,
   MOD_RULES,
   MODERATION_ID,
+  NO_WRITER,
   type GameModuleDef,
   type ModFlag,
   type ModerationState,
@@ -125,7 +126,7 @@ export const moderation: GameModuleDef<ModerationState> = {
       label: "Take it down",
       needsArgs: true,
       async run(input, ctx) {
-        const flag = find(ctx, input.args[0] ?? "");
+        const flag = flagOrRefuse(ctx, input.args[0] ?? "");
         // Never offered without one -- her card renders a row with no id as a
         // row with no button -- so reaching here means a deck button she made
         // for a specific flag, weeks ago, that is not that flag any more.
@@ -136,7 +137,7 @@ export const moderation: GameModuleDef<ModerationState> = {
         // The row stays put on a refusal, which is the whole reason this
         // answers: she can read why on the card and press it again.
         if (!done.ok) return ctx.refuse(done.reason);
-        drop(ctx, (other) => other.id !== flag.id);
+        keepOnly(ctx, (other) => other.id !== flag.id);
         ctx.setState((state) => ({ removed: state.removed + 1 }));
       },
     },
@@ -145,13 +146,13 @@ export const moderation: GameModuleDef<ModerationState> = {
       label: "Ban them",
       needsArgs: true,
       async run(input, ctx) {
-        const flag = find(ctx, input.args[0] ?? "");
+        const flag = flagOrRefuse(ctx, input.args[0] ?? "");
         const done = await ctx.writes.banAuthor(flag.authorId);
         if (!done.ok) return ctx.refuse(done.reason);
         // Every row of theirs, not the one she happened to press. A banned
         // account's other four messages are not four more decisions, and
         // leaving them there is the queue asking her the same question again.
-        drop(ctx, (other) => other.authorId !== flag.authorId);
+        keepOnly(ctx, (other) => other.authorId !== flag.authorId);
       },
     },
 
@@ -196,7 +197,18 @@ export const moderation: GameModuleDef<ModerationState> = {
         ctx.setState((state) => ({
           flags: state.flags.filter((flag) => !gone.has(flag.id)),
           removed: state.removed + gone.size,
-          purge: { at: Date.now(), removed: gone.size, left: state.flags.length - gone.size },
+          purge: {
+            at: Date.now(),
+            removed: gone.size,
+            // Both counts off `flags` and `actionable` -- the queue as it stood
+            // when she pressed -- rather than off `state.flags` in here, which
+            // is the queue as it stands several awaits later. A message that
+            // arrived mid-sweep is in neither count: it was never this sweep's
+            // to remove, and reading it as one of these would tell her a row
+            // she has not seen yet had no message or could not be removed.
+            noId: flags.length - actionable.length,
+            stopped: actionable.length - gone.size,
+          },
         }));
 
         // Refused after the report is written, so the count she can see and the
@@ -208,9 +220,12 @@ export const moderation: GameModuleDef<ModerationState> = {
     lockdown: {
       label: "Lockdown",
       run(_input, ctx) {
-        if (!ctx.writes.available) {
-          return ctx.refuse("Nothing is signed in that can take messages down yet");
-        }
+        // Checked here as well as rendered on her card, because her card is
+        // not the only way in: a deck button she made while signed in, pressed
+        // after the grant went away, would otherwise flip a switch that
+        // changes nothing at all. The sentence is the core's, so there is one
+        // of it. See `NO_WRITER`.
+        if (!ctx.writes.available) return ctx.refuse(NO_WRITER);
         // Pressed again while it is on, this pushes the end out rather than
         // refusing: a wave that outlasts the window is a second press, which
         // is the one thing she can do one-handed.
@@ -314,10 +329,10 @@ function watch(ctx: ModContext, event: StreamEvent, rules: CompiledRules): void 
     text: trimText(event.text),
     kind: hit.kind,
     reason: hit.reason,
-    // Absent on mock chat and on anything that is not a live chat message, and
-    // that is the honest answer rather than a placeholder: it is the handle a
-    // delete will need, and inventing one would make an un-actionable row look
-    // actionable.
+    // Absent on anything that is not a live chat message -- a tip, a webhook
+    // -- and null is the honest answer rather than a placeholder: it is the
+    // handle a delete needs, and inventing one would make an un-actionable row
+    // look actionable.
     messageId: event.messageId ?? null,
   };
 
@@ -372,8 +387,14 @@ function lockedDown(state: Readonly<ModerationState>, now: number): boolean {
   return state.lockdownUntil !== null && state.lockdownUntil > now;
 }
 
-/** The flag she pressed, or a refusal she can read. */
-function find(ctx: ModContext, id: string): ModFlag {
+/**
+ * The flag she pressed, refusing out of the action if it is not there any more.
+ *
+ * Named for the refusal rather than for the lookup, because that is the half a
+ * caller has to know about: this does not return absence, it ends the action
+ * through `ctx.refuse`, which the core turns into the sentence on her card.
+ */
+function flagOrRefuse(ctx: ModContext, id: string): ModFlag {
   const flag = ctx.state.flags.find((other) => other.id === id);
   // The same words `dismiss` refuses with, and the same cause: her card was
   // rendering a queue that has since moved on, or a deck button outlived the
@@ -382,8 +403,8 @@ function find(ctx: ModContext, id: string): ModFlag {
   return flag;
 }
 
-/** Keep the rows that pass, drop the rest. */
-function drop(ctx: ModContext, keep: (flag: ModFlag) => boolean): void {
+/** Narrow the queue to the rows that pass. Everything else goes. */
+function keepOnly(ctx: ModContext, keep: (flag: ModFlag) => boolean): void {
   ctx.setState((state) => ({ flags: state.flags.filter(keep) }));
 }
 

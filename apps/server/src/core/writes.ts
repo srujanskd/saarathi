@@ -1,4 +1,5 @@
 import {
+  NO_WRITER,
   WRITES_ID,
   type ChatWriteActions,
   type ChatWritesView,
@@ -57,6 +58,15 @@ const REFUSAL_HEADROOM = 50;
  * works and costs no quota, so `ctx.say` is always the lower of the two.
  */
 export type SayTier = "refusal" | "info";
+
+/**
+ * The moderation writes there are, which is a closed set of two.
+ *
+ * A type rather than the free string it reads as at a call site: this value
+ * reaches the meter's log line, so a typo would be a write charged against a
+ * name nobody can grep for on the afternoon she asks where her quota went.
+ */
+export type WriteKind = "remove" | "ban";
 
 /** Writes that have to be left over before a tier may spend one. */
 export const SAY_FLOOR: Record<SayTier, number> = {
@@ -248,7 +258,7 @@ export interface Reply {
  * keyboard.
  *
  * Replies queue and moderation does not, and that is the shape rather than a
- * stage of it. `remove` and `ban` do not merge with anything, are not one of
+ * stage of it. The two `actions` do not merge with anything, are not one of
  * the tiers, and spend straight against the meter -- past the ceiling if they
  * have to, because a ban is worth eating a 403 for and a reply never is. They
  * also answer, where `say` cannot: nothing else on her phone shows her a
@@ -287,8 +297,19 @@ export class ChatWriter {
       get available() {
         return able();
       },
-      removeMessage: (messageId) => this.remove(messageId),
-      banAuthor: (authorId) => this.ban(authorId),
+      /**
+       * Both of these are unbudgeted on purpose: `MODERATION_RESERVE` is held
+       * back from both reply tiers precisely so they have somewhere to spend
+       * from, and once even that is gone they still attempt. A 403 costs her
+       * nothing and refusing locally costs her the one write she needed.
+       *
+       * Straight onto `act` rather than through a method each. A pass-through
+       * whose only caller is this object is a name to keep in step with
+       * nothing, and the pair reads as a pair here.
+       */
+      removeMessage: (messageId) =>
+        this.act("remove", messageId, (writes) => writes.deleteMessage(messageId)),
+      banAuthor: (authorId) => this.act("ban", authorId, (writes) => writes.ban(authorId)),
     };
   }
 
@@ -323,23 +344,6 @@ export class ChatWriter {
     this.pending.set(reply.key, [reply.text]);
     this.tiers.set(reply.key, reply.tier);
     this.open(reply.key, reply.tier);
-  }
-
-  /**
-   * Take one message down.
-   *
-   * Unbudgeted on purpose: `MODERATION_RESERVE` is held back from both reply
-   * tiers precisely so this call has somewhere to spend from, and once even
-   * that is gone it still attempts. A 403 costs her nothing and refusing
-   * locally costs her the one write she actually needed.
-   */
-  remove(messageId: string): Promise<InvokeResult> {
-    return this.act("remove", messageId, (writes) => writes.deleteMessage(messageId));
-  }
-
-  /** Ban an account. Same budget, same reasoning, bigger hammer. */
-  ban(authorId: string): Promise<InvokeResult> {
-    return this.act("ban", authorId, (writes) => writes.ban(authorId));
   }
 
   /** Drops what is waiting rather than flushing it. See `say`. */
@@ -415,13 +419,13 @@ export class ChatWriter {
    * does not know YouTube exists.
    */
   private async act(
-    what: string,
+    what: WriteKind,
     subject: string,
     call: (writes: ChatWrites) => Promise<void>,
   ): Promise<InvokeResult> {
     const target = this.target();
     if (!target) {
-      return { ok: false, reason: "Nothing is signed in that can do that yet" };
+      return { ok: false, reason: NO_WRITER };
     }
 
     this.meter.spend(`${what} ${subject}`);

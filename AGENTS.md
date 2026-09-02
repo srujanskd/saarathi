@@ -333,7 +333,11 @@ Do not open a browser or use computer use to verify unless I ask for it.
 - The server is authoritative. Clients render and send intents. No client-side game logic.
 - Mock chat sends as any role — `role: "viewer" | "member" | "mod" | "streamer"` on `MockChatInput`.
   Every rule that reads an author flag has to be drivable from there, or the only way to test
-  "moderation never flags her mods" is to go live and ask a mod to say something bad.
+  "moderation never flags her mods" is to go live and ask a mod to say something bad. Mock chat
+  hands out `messageId`s too, for the same reason: without them, taking a message down, sweeping
+  her queue and lockdown would all be things only a live stream could exercise. A message with
+  no id is still a real state — a tip has nothing to name — and it stays covered, by a test
+  adapter that hands out none rather than by every mock message.
 - Anything she can type that runs against text her viewers type is a hazard, not a setting. The
   moderation pattern rule is the only one so far: JavaScript cannot time a regex match out, so
   `safePattern` refuses unbounded quantifiers on a group and the text it sees is bounded. A

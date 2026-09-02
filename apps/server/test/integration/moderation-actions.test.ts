@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { LOCKDOWN_MS, MODERATION_ID, WRITES_ID } from "@saarathi/shared";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { LOCKDOWN_MS, MODERATION_ID, NO_WRITER, WRITES_ID } from "@saarathi/shared";
 import type { ChatAdapter, ChatSink, ChatWrites } from "../../src/chat/adapter.js";
 import { MockChatAdapter } from "../../src/chat/mock.js";
 import { MemoryStore } from "../../src/core/store.js";
@@ -127,7 +127,7 @@ describe("sweeping the whole queue", () => {
     expect(done).toEqual({ ok: true });
     expect(mock.deleted).toHaveLength(3);
     expect(flags(h)).toEqual([]);
-    expect(moderationState(h.kernel).purge).toMatchObject({ removed: 3, left: 0 });
+    expect(moderationState(h.kernel).purge).toMatchObject({ removed: 3, noId: 0, stopped: 0 });
   });
 
   it("stops at the first refusal rather than spending the rest finding out", async () => {
@@ -141,9 +141,58 @@ describe("sweeping the whole queue", () => {
     // Two went, the third refused, and nothing after it was attempted.
     expect(platform.deleted).toHaveLength(3);
     // The report is written before it refuses, so the count and the sentence
-    // explaining it reach her card together.
-    expect(moderationState(live.kernel).purge).toMatchObject({ removed: 2, left: 2 });
+    // explaining it reach her card together. The two it gave up on are
+    // `stopped` and not `noId`: every one of these rows had a message to take
+    // down, and telling her they did not would blame her platform for a quota
+    // this app spent.
+    expect(moderationState(live.kernel).purge).toMatchObject({
+      removed: 2,
+      noId: 0,
+      stopped: 2,
+    });
     expect(flags(live)).toHaveLength(2);
+  });
+
+  it("counts the rows it never tried apart from the rows it gave up on", async () => {
+    // The one queue where a report carries both numbers, and the reason they
+    // are two numbers: "no message to take down" is a fact about her platform
+    // and "could not be taken down" is a fact about this app, and a single
+    // total would render one of them as the other on her phone.
+    const platform = patchy();
+    live = await harness({ modules: [moderation], chat: [platform], store: new MemoryStore() });
+    for (const author of ["A", "B", "C", "D"]) platform.viewerSays(SCAM, author);
+
+    const done = await live.kernel.invoke(`${MODERATION_ID}.purge`);
+
+    expect(done).toEqual({ ok: true });
+    // Two of the four came with an id, both went, and the other two were never
+    // attempted -- so nothing was stopped, and the queue keeps exactly the
+    // rows nothing could have been done about.
+    expect(platform.deleted).toHaveLength(2);
+    expect(moderationState(live.kernel).purge).toMatchObject({
+      removed: 2,
+      noId: 2,
+      stopped: 0,
+    });
+    expect(flags(live).every((flag) => flag.messageId === null)).toBe(true);
+  });
+
+  it("counts the queue as it stood when she pressed, not as it stands after", async () => {
+    // A message that arrives mid-sweep is in neither leftover count: it was
+    // never this sweep's to remove, and reading it as one would tell her a row
+    // she has not seen yet had no message or could not be taken down.
+    const platform = patchy();
+    live = await harness({ modules: [moderation], chat: [platform], store: new MemoryStore() });
+    platform.viewerSays(SCAM, "A");
+    const sweeping = live.kernel.invoke(`${MODERATION_ID}.purge`);
+    platform.viewerSays(SCAM, "B");
+
+    expect(await sweeping).toEqual({ ok: true });
+    expect(moderationState(live.kernel).purge).toMatchObject({
+      removed: 1,
+      noId: 0,
+      stopped: 0,
+    });
   });
 
   it("says so rather than sweeping nothing, when no row can be acted on", async () => {
@@ -271,15 +320,26 @@ describe("lockdown", () => {
 
   it("pushes the end out when she presses it again", async () => {
     const { h } = await withQueue();
-    await h.kernel.invoke(`${MODERATION_ID}.lockdown`);
-    const firstEnd = moderationState(h.kernel).lockdownUntil!;
+    // A clock she can be a minute apart on, because the interesting build is
+    // the one that ignores the second press: with both presses in the same
+    // millisecond, "the end did not come back towards her" is true of that
+    // build too, and the test says nothing.
+    vi.useFakeTimers({ now: Date.now() });
+    try {
+      await h.kernel.invoke(`${MODERATION_ID}.lockdown`);
+      const firstEnd = moderationState(h.kernel).lockdownUntil!;
 
-    await h.kernel.invoke(`${MODERATION_ID}.lockdown`);
-    const secondEnd = moderationState(h.kernel).lockdownUntil!;
+      vi.advanceTimersByTime(60_000);
+      await h.kernel.invoke(`${MODERATION_ID}.lockdown`);
+      const secondEnd = moderationState(h.kernel).lockdownUntil!;
 
-    // A wave that outlasts the window is a second press, not a setting.
-    expect(secondEnd).toBeGreaterThanOrEqual(firstEnd);
-    expect(secondEnd - Date.now()).toBeLessThanOrEqual(LOCKDOWN_MS);
+      // A wave that outlasts the window is a second press, not a setting: the
+      // end is a full window from now, not a minute off the old one.
+      expect(secondEnd).toBe(firstEnd + 60_000);
+      expect(secondEnd - Date.now()).toBe(LOCKDOWN_MS);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("refuses to arm when nothing can write, rather than flipping and doing nothing", async () => {
@@ -288,7 +348,7 @@ describe("lockdown", () => {
 
     expect(await live.kernel.invoke(`${MODERATION_ID}.lockdown`)).toEqual({
       ok: false,
-      reason: "Nothing is signed in that can take messages down yet",
+      reason: NO_WRITER,
     });
     expect(moderationState(live.kernel).lockdownUntil).toBeNull();
   });
@@ -347,8 +407,14 @@ interface Fake extends ChatAdapter {
 function fake(options: {
   name: string;
   writes?: ChatWrites;
-  /** Whether events carry the platform's own id for the message. */
-  ids?: boolean;
+  /**
+   * Whether events carry the platform's own id for the message.
+   *
+   * A predicate as well as a switch, because a queue that mixes the two is the
+   * only one whose sweep report carries both `noId` and `stopped`, and those
+   * two being told apart is the whole point of there being two of them.
+   */
+  ids?: boolean | ((n: number) => boolean);
 }): Fake {
   const deleted: string[] = [];
   const banned: string[] = [];
@@ -375,10 +441,15 @@ function fake(options: {
         author: { id: `${options.name}:${author}`, name: author },
         at: Date.now(),
         text,
-        ...(options.ids === false ? {} : { messageId: `${options.name}:msg:${sent}` }),
+        ...(hasId(options.ids, sent) ? { messageId: `${options.name}:msg:${sent}` } : {}),
       });
     },
   } as Fake;
+}
+
+function hasId(ids: boolean | ((n: number) => boolean) | undefined, n: number): boolean {
+  if (ids === undefined) return true;
+  return typeof ids === "function" ? ids(n) : ids;
 }
 
 /** Writes that throw, optionally only from the nth call onwards. */
@@ -405,6 +476,20 @@ function anonymous(): Fake {
   const adapter: Fake = fake({
     name: "ghost",
     ids: false,
+    writes: {
+      say: async () => {},
+      deleteMessage: async (messageId) => void adapter.deleted.push(messageId),
+      ban: async (authorId) => void adapter.banned.push(authorId),
+    },
+  });
+  return adapter;
+}
+
+/** A platform that names some of its messages and not others. */
+function patchy(): Fake {
+  const adapter: Fake = fake({
+    name: "patchy",
+    ids: (n) => n % 2 === 1,
     writes: {
       say: async () => {},
       deleteMessage: async (messageId) => void adapter.deleted.push(messageId),
