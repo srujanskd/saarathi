@@ -321,14 +321,23 @@ Do not open a browser or use computer use to verify unless I ask for it.
   Stop drops what was waiting rather than saying it after the stream ended. The meter counts
   write attempts, including ones that threw, because a call that failed past our network may
   still have been charged. Moderation is not a tier: a delete is a different method and spends
-  against a reserve replies may never touch. The meter counts writes and never units, because
+  against a reserve replies may never touch, it reaches a module as `ctx.writes` rather than
+  through `say`, and it answers -- there is no second surface showing her a message going
+  away, so whether it went is the only thing worth returning. `ctx.writes.available` is read
+  at the moment she presses, never cached and never persisted, which is why a queue on a
+  machine with no grant renders rows and a sentence and the same queue five seconds after she
+  signs in renders buttons. The meter counts writes and never units, because
   the Data API reports neither what it charged nor what is left, and it resets on Google's
   Pacific midnight rather than hers. Mock chat is a `standIn` here too, so it drops out of
   the write ranking the moment a real adapter is connected, even if that adapter cannot write.
 - The server is authoritative. Clients render and send intents. No client-side game logic.
 - Mock chat sends as any role — `role: "viewer" | "member" | "mod" | "streamer"` on `MockChatInput`.
   Every rule that reads an author flag has to be drivable from there, or the only way to test
-  "moderation never flags her mods" is to go live and ask a mod to say something bad.
+  "moderation never flags her mods" is to go live and ask a mod to say something bad. Mock chat
+  hands out `messageId`s too, for the same reason: without them, taking a message down, sweeping
+  her queue and lockdown would all be things only a live stream could exercise. A message with
+  no id is still a real state — a tip has nothing to name — and it stays covered, by a test
+  adapter that hands out none rather than by every mock message.
 - Anything she can type that runs against text her viewers type is a hazard, not a setting. The
   moderation pattern rule is the only one so far: JavaScript cannot time a regex match out, so
   `safePattern` refuses unbounded quantifiers on a group and the text it sees is bounded. A

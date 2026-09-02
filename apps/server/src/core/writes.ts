@@ -1,4 +1,11 @@
-import { WRITES_ID, type ChatWritesView, type Logger } from "@saarathi/shared";
+import {
+  NO_WRITER,
+  WRITES_ID,
+  type ChatWriteActions,
+  type ChatWritesView,
+  type InvokeResult,
+  type Logger,
+} from "@saarathi/shared";
 import type { ChatAdapter, ChatWrites } from "../chat/adapter.js";
 import type { StateStore } from "./store.js";
 
@@ -51,6 +58,15 @@ const REFUSAL_HEADROOM = 50;
  * works and costs no quota, so `ctx.say` is always the lower of the two.
  */
 export type SayTier = "refusal" | "info";
+
+/**
+ * The moderation writes there are, which is a closed set of two.
+ *
+ * A type rather than the free string it reads as at a call site: this value
+ * reaches the meter's log line, so a typo would be a write charged against a
+ * name nobody can grep for on the afternoon she asks where her quota went.
+ */
+export type WriteKind = "remove" | "ban";
 
 /** Writes that have to be left over before a tier may spend one. */
 export const SAY_FLOOR: Record<SayTier, number> = {
@@ -241,16 +257,27 @@ export interface Reply {
  * while nothing real is live, is what makes the whole of this demoable from a
  * keyboard.
  *
- * Replies only, and that is the shape rather than a stage of it. A moderation
- * write is `ChatWrites.deleteMessage` or `.ban`: it does not queue, does not
- * merge with anything, is not one of the tiers, and spends straight against the
- * meter -- past the ceiling if it has to, because a ban is worth eating a 403
- * for. It joins this file when the queue grows the buttons that ask for one.
+ * Replies queue and moderation does not, and that is the shape rather than a
+ * stage of it. The two `actions` do not merge with anything, are not one of
+ * the tiers, and spend straight against the meter -- past the ceiling if they
+ * have to, because a ban is worth eating a 403 for and a reply never is. They
+ * also answer, where `say` cannot: nothing else on her phone shows her a
+ * message going away, so whether it went is the only thing she wants back.
  */
 export class ChatWriter {
   private readonly pending = new Map<string, string[]>();
   private readonly tiers = new Map<string, SayTier>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
+
+  /**
+   * The narrow view a module gets as `ctx.writes`.
+   *
+   * Built here rather than in the registry for the reason `ObsAdapter.actions`
+   * is: `available` has to be read at the moment of a write, and an object the
+   * registry assembled once when the module registered would answer with
+   * whatever was true before she signed in.
+   */
+  readonly actions: ChatWriteActions;
 
   constructor(
     private readonly adapters: readonly ChatAdapter[],
@@ -264,7 +291,27 @@ export class ChatWriter {
      */
     private readonly realLive: () => boolean = () => false,
     private readonly windowMs: number = REPLY_WINDOW_MS,
-  ) {}
+  ) {
+    const able = () => this.target() !== null;
+    this.actions = {
+      get available() {
+        return able();
+      },
+      /**
+       * Both of these are unbudgeted on purpose: `MODERATION_RESERVE` is held
+       * back from both reply tiers precisely so they have somewhere to spend
+       * from, and once even that is gone they still attempt. A 403 costs her
+       * nothing and refusing locally costs her the one write she needed.
+       *
+       * Straight onto `act` rather than through a method each. A pass-through
+       * whose only caller is this object is a name to keep in step with
+       * nothing, and the pair reads as a pair here.
+       */
+      removeMessage: (messageId) =>
+        this.act("remove", messageId, (writes) => writes.deleteMessage(messageId)),
+      banAuthor: (authorId) => this.act("ban", authorId, (writes) => writes.ban(authorId)),
+    };
+  }
 
   /** The meter as her page sees it, including who is doing the writing. */
   view(): ChatWritesView {
@@ -356,6 +403,39 @@ export class ChatWriter {
       await target.writes.say(text);
     } catch (err) {
       this.log.warn(`writes: say failed — ${String(err)}`);
+    }
+  }
+
+  /**
+   * One moderation write, counted before it is attempted and reported after.
+   *
+   * The meter moves first because it counts attempts: a call that failed past
+   * our own network may well have been charged, and a counter that only counts
+   * clean answers undercounts on exactly the afternoon it matters.
+   *
+   * The refusal is the adapter's own sentence. An adapter throws with words
+   * written for her -- that is the same contract `stats` runs on -- so this
+   * passes the message through rather than inventing one, and stays a file that
+   * does not know YouTube exists.
+   */
+  private async act(
+    what: WriteKind,
+    subject: string,
+    call: (writes: ChatWrites) => Promise<void>,
+  ): Promise<InvokeResult> {
+    const target = this.target();
+    if (!target) {
+      return { ok: false, reason: NO_WRITER };
+    }
+
+    this.meter.spend(`${what} ${subject}`);
+    try {
+      await call(target.writes);
+      return { ok: true };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.log.warn(`writes: ${what} failed — ${reason}`);
+      return { ok: false, reason };
     }
   }
 

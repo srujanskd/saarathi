@@ -36,10 +36,12 @@ interface EventBase {
    *
    * The only handle a moderation action has: deleting a message means naming it
    * to the platform, and nothing downstream can reconstruct that from the text.
-   * Optional because it is genuinely absent on most sources -- mock chat has no
-   * ids and neither does a tips webhook -- and a missing id is a row she cannot
-   * act on rather than a bug. Opaque everywhere past the adapter: the shape of
-   * the id is the adapter's, on the rule `ChannelStats.stream` follows.
+   * Optional because it is genuinely absent on some sources -- a tips webhook
+   * has nothing to name, and YouTube's own library does not always give us one
+   * -- and a missing id is a row she cannot act on rather than a bug. Mock
+   * chat does hand them out, so that acting on one is demoable without a
+   * stream. Opaque everywhere past the adapter: the shape of the id is the
+   * adapter's, on the rule `ChannelStats.stream` follows.
    */
   messageId?: string;
 }

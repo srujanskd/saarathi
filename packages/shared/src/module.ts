@@ -136,6 +136,57 @@ export interface StatsView {
   onChange(fn: () => void): Cancel;
 }
 
+/**
+ * Writing back to the platform, past what the bot says.
+ *
+ * A core service no module owns, on the same footing as `obs` and `stats`: the
+ * grant is hers, the budget is one allowance, and the core decides which
+ * adapter a write goes through. Named after what it does rather than after the
+ * one module using it today -- a delete is a platform capability, not a
+ * moderation feature, and a core surface called `moderation` would be the
+ * wheel-shaped hook this contract exists to avoid.
+ *
+ * Deliberately separate from `say`, which is the same three adapter calls'
+ * third sibling, because the two differ in kind rather than in degree. A reply
+ * is advisory: it is tiered, merged on a window, dropped when the budget is
+ * spent, and always additive -- her control page has already rendered it, so
+ * `say` returns nothing and cannot fail in a way anyone needs to hear about.
+ * These two are the opposite. There is no second surface that shows her the
+ * message going away, they are never queued or merged, and whether one
+ * happened is the only thing she actually wants to know -- so they answer, in
+ * the same shape every other refusal in this app arrives in.
+ */
+/**
+ * What she is told when nothing can write yet.
+ *
+ * One sentence and not one per caller: the core refuses with it when a write
+ * is attempted with no adapter behind it, and a module refuses with it when it
+ * checked `available` first. Two wordings for one condition is two sentences
+ * to keep in step, and the one that drifts is the one she reads.
+ */
+export const NO_WRITER = "Nothing is signed in that can do that yet";
+
+export interface ChatWriteActions {
+  /**
+   * Whether anything can write right now.
+   *
+   * Read at the moment of use and never cached, because it changes underneath
+   * a running module: a grant is revoked, a token expires, an adapter connects.
+   * It is what her queue renders the difference on -- a button that cannot work
+   * is not offered, rather than offered and refused when she presses it.
+   */
+  readonly available: boolean;
+  /**
+   * Take one message down, named by the platform's own id for it.
+   *
+   * The caller has to have one. `ModFlag.messageId` is null on every adapter
+   * that does not hand them out, and there is nothing this can do with that.
+   */
+  removeMessage(messageId: string): Promise<InvokeResult>;
+  /** Ban an account from her chat, named by the author id events carry. */
+  banAuthor(authorId: string): Promise<InvokeResult>;
+}
+
 export interface ObsActions {
   readonly connected: boolean;
   setScene(name: string): Promise<void>;
@@ -180,6 +231,11 @@ export interface ModuleContext<S> {
   gains: GainsLedger;
   obs: ObsActions;
   stats: StatsView;
+  /**
+   * Taking a message down, and banning who sent it. See `ChatWriteActions`,
+   * and note that it is not where `say` lives.
+   */
+  writes: ChatWriteActions;
   /** Timers are cancelled for you when the module stops. */
   after(ms: number, fn: () => void): Cancel;
   every(ms: number, fn: () => void): Cancel;

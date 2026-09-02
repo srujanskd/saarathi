@@ -25,6 +25,25 @@ export function mockAuthorId(name: string): string {
 }
 
 /**
+ * The id mock chat gives a message.
+ *
+ * It gives one at all, which is a reversal: this adapter used to hand out none,
+ * on the reasoning that the honest thing for a stand-in to say about a platform
+ * id is that it has not got one. That was right while nothing could act on one
+ * and wrong the moment her queue grew buttons -- with no ids, taking a message
+ * down, sweeping the queue and lockdown were all things only a live stream
+ * could exercise, which is the one outcome this adapter exists to prevent. It
+ * is the same argument that put roles on `MockChatInput`.
+ *
+ * A row with no id is still a real state -- YouTube's own library does not
+ * always give us one -- and it is still rendered as one. It is just not the
+ * state every mock message is in.
+ */
+function mockMessageId(n: number): string {
+  return `mock:msg:${n}`;
+}
+
+/**
  * Mock chat. Always registered, never conditional: every chat-driven feature
  * has to be drivable without a live stream, or nobody can test it. The control
  * page and POST /api/mock-chat both end up here.
@@ -35,6 +54,8 @@ export class MockChatAdapter implements ChatAdapter {
   readonly standIn = true;
   private sink: ChatSink | null = null;
   private polls = 0;
+  /** Numbers the ids come off, so what a demo removes is what it flagged. */
+  private messages = 0;
   /**
    * One run is one stream, which is honest for a stand-in: the counts below
    * start over when the process does, and this is what says so. It is what
@@ -58,9 +79,9 @@ export class MockChatAdapter implements ChatAdapter {
    * `say` echoes into its own event stream, so a reply arrives as a message the
    * way a reply on YouTube does: it lands in her chat log, and the rules that
    * watch chat see it. The two moderation calls only record, because the only
-   * honest thing a stand-in can do with a delete is remember it was asked for.
-   * Mock messages carry no `messageId` -- see `EventBase.messageId` -- so what
-   * arrives here in a demo is whatever her queue's buttons decide to send.
+   * honest thing a stand-in can do with a delete is remember it was asked for
+   * -- and what it records are ids it handed out itself, so a demo of her queue
+   * proves the id made the whole round trip rather than proving a button fired.
    */
   readonly writes: ChatWrites = {
     say: async (text: string) => this.speak(text),
@@ -115,7 +136,14 @@ export class MockChatAdapter implements ChatAdapter {
       // membership starts this second is a member for every rule that asks.
       isMember: role === "member" || input.type === "member",
     };
-    const base = { source: this.name, author, at: Date.now(), text };
+    this.messages += 1;
+    const base = {
+      source: this.name,
+      author,
+      at: Date.now(),
+      text,
+      messageId: mockMessageId(this.messages),
+    };
 
     let event: StreamEvent;
     if (input.type === "superchat") {
@@ -138,12 +166,18 @@ export class MockChatAdapter implements ChatAdapter {
   private speak(text: string): void {
     const line = text.trim();
     if (!this.sink || !line) return;
+    this.messages += 1;
     this.sink.event({
       type: "chat-message",
       source: this.name,
       author: { id: mockAuthorId(MOCK_BOT), name: MOCK_BOT, isStreamer: true },
       at: Date.now(),
       text: line,
+      // The bot's own line is a message on the platform with an id like any
+      // other. It is never flagged -- she is exempt and it speaks as her --
+      // but a stand-in that numbered only half its stream would be lying
+      // about a different thing.
+      messageId: mockMessageId(this.messages),
     });
   }
 }

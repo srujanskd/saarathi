@@ -148,15 +148,76 @@ export interface ModFlag {
    * The handle a delete needs, and the reason it is captured now rather than
    * when the write path exists: a queue of flags with no way to name the
    * message they came from is a queue that has to be rebuilt to be useful.
-   * Null is normal -- mock chat has no ids, and neither will a tips webhook.
+   * Null is normal -- a tips webhook has nothing to name, and YouTube's own
+   * library does not always give us one. Mock chat does hand them out, so a
+   * row she can act on is demoable without a live stream.
    */
   messageId: string | null;
+}
+
+/**
+ * What one sweep of the queue managed, for her card to say so afterwards.
+ *
+ * A sweep is the one action here whose result she cannot read off the screen:
+ * the rows it removed are gone, and the rows it could not are still sitting
+ * there looking exactly as they did before she pressed it. So it reports, and
+ * the report is state rather than an effect -- a phone that was locked when she
+ * pressed the deck button has to be able to see what happened when she picks it
+ * up.
+ */
+export interface PurgeReport {
+  /** Server time it ran. See `Snapshot.serverNow`. */
+  at: number;
+  removed: number;
+  /**
+   * Rows it never tried, because the platform gave us no id for them.
+   *
+   * Not a failure and not zero-worthy: a tips webhook has nothing to name, so
+   * a sweep of a queue full of those leaves everything, and telling her
+   * "0 removed" without saying why would read as broken software.
+   *
+   * Counted separately from `stopped` and never summed with it, because
+   * "3 had no message to remove" is a fact about her platform and "3 were not
+   * attempted" is a fact about this app, and only one of them is ever true of
+   * a given row.
+   */
+  noId: number;
+  /**
+   * Rows it could have taken down and did not, because a write refused.
+   *
+   * The sweep stops at the first refusal rather than spending the rest of the
+   * queue rediscovering it, so this is the refused row plus everything behind
+   * it. Both counts are taken off the queue as it stood when she pressed, so a
+   * message that arrived mid-sweep is in neither: it was never this sweep's to
+   * remove, and counting it would tell her a row she has not seen yet failed.
+   */
+  stopped: number;
 }
 
 export interface ModerationState {
   rules: ModRule[];
   /** Newest first, capped at `MAX_FLAGS`. */
   flags: ModFlag[];
+  /**
+   * When lockdown stops, or null when it is off. Server time.
+   *
+   * Durable, which is the less obvious half of the decision: the moment a
+   * server is most likely to restart is the middle of the wave she turned this
+   * on for, and coming back up with her chat unguarded is the one outcome
+   * nobody would notice until it was over. A timestamp needs no reconciling on
+   * the way up either -- one from last week is simply in the past.
+   */
+  lockdownUntil: number | null;
+  /**
+   * How many messages lockdown has taken down this run.
+   *
+   * Transient and per run, on the same reasoning as `seen`: it is the number
+   * that tells her the thing she panicked and switched on is doing something,
+   * and a total from last week answers a different question.
+   */
+  removed: number;
+  /** What the last sweep did, or null if she has not run one. Transient. */
+  purge: PurgeReport | null;
   /**
    * When each author last spoke, inside the flood window and no longer.
    *
@@ -227,3 +288,17 @@ export const MIN_SHOUT_LENGTH = 12;
  */
 export const MAX_PATTERN = 120;
 export const MAX_PATTERN_INPUT = 300;
+
+/**
+ * How long lockdown stays on for.
+ *
+ * It expires on its own rather than waiting to be switched off, and that is the
+ * whole reason it is safe to put on a deck button. The thing she reaches for it
+ * during is a raid, which is minutes long; the thing that goes wrong if it
+ * outlives one is her own regulars quietly having their messages deleted for
+ * the rest of the stream, with the only evidence being chat going quiet. Five
+ * minutes is long enough to outlast a wave and short enough that forgetting
+ * about it costs almost nothing -- and pressing it again while it is on pushes
+ * the end out, so a longer wave is a second press rather than a setting.
+ */
+export const LOCKDOWN_MS = 5 * 60_000;
