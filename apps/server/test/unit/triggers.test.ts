@@ -204,20 +204,55 @@ describe("CommandGate", () => {
     const gate = new CommandGate(fakeLedger());
     const cooling = spec({ cooldownMs: 1_000 });
 
-    expect(gate.consume("wheel.spin", cooling, viewer, 0).ok).toBe(true);
-    expect(gate.consume("wheel.spin", cooling, viewer, 500).ok).toBe(false);
-    expect(gate.consume("wheel.spin", cooling, viewer, 1_000).ok).toBe(true);
+    expect(gate.consume("patient.wait", cooling, viewer, 0).ok).toBe(true);
+    expect(gate.consume("patient.wait", cooling, viewer, 500).ok).toBe(false);
+    expect(gate.consume("patient.wait", cooling, viewer, 1_000).ok).toBe(true);
   });
 
-  it("holds cooldowns per binding key, not per author", () => {
+  it("holds a cooldown per viewer, so one person cannot lock the rest of chat out", () => {
     const gate = new CommandGate(fakeLedger());
     const cooling = spec({ cooldownMs: 1_000 });
 
-    expect(gate.consume("wheel.spin", cooling, viewer, 0).ok).toBe(true);
-    // Same binding: chat as a whole shares the wheel's cooldown.
-    expect(gate.consume("wheel.spin", cooling, mod, 100).ok).toBe(false);
-    // Different binding: untouched.
+    expect(gate.consume("patient.wait", cooling, viewer, 0).ok).toBe(true);
+    // Same binding, somebody else: their own patience, not this one's.
+    expect(gate.consume("patient.wait", cooling, mod, 100).ok).toBe(true);
+    expect(gate.consume("patient.wait", cooling, member, 100).ok).toBe(true);
+    // The one who used it is still waiting.
+    expect(gate.consume("patient.wait", cooling, viewer, 100).ok).toBe(false);
+    // Different binding, same viewer: untouched.
     expect(gate.consume("other.thing", cooling, viewer, 100).ok).toBe(true);
+  });
+
+  it("keeps one viewer's release from returning anybody else's turn", () => {
+    const gate = new CommandGate(fakeLedger());
+    const cooling = spec({ cooldownMs: 1_000 });
+
+    const mine = gate.consume("patient.wait", cooling, viewer, 0);
+    expect(gate.consume("patient.wait", cooling, mod, 0).ok).toBe(true);
+    expect(mine.ok).toBe(true);
+    if (!mine.ok) return;
+
+    mine.release();
+    // Mine came back. Theirs did not.
+    expect(gate.consume("patient.wait", cooling, viewer, 1).ok).toBe(true);
+    expect(gate.consume("patient.wait", cooling, mod, 1).ok).toBe(false);
+  });
+
+  it("forgets stamps that can no longer refuse anything", () => {
+    const gate = new CommandGate(fakeLedger());
+    const cooling = spec({ cooldownMs: 1_000 });
+
+    // Past the sweep threshold, so the next stamp drops what has expired.
+    for (let i = 0; i < 600; i += 1) {
+      expect(gate.consume("patient.wait", cooling, { id: `u${i}`, name: `V${i}` }, 0).ok).toBe(true);
+    }
+    expect(gate.remembered).toBe(600);
+
+    gate.consume("patient.wait", cooling, { id: "late", name: "Late" }, 1_000);
+    // Everything from the burst is ready again, so nothing is worth keeping.
+    expect(gate.remembered).toBe(1);
+    // And the sweep did not hand anyone a turn they had not earned.
+    expect(gate.consume("patient.wait", cooling, { id: "late", name: "Late" }, 1_500).ok).toBe(false);
   });
 
   it("release refunds the gains and puts the cooldown back to first use", () => {
@@ -239,15 +274,15 @@ describe("CommandGate", () => {
     const gate = new CommandGate(fakeLedger());
     const cooling = spec({ cooldownMs: 1_000 });
 
-    expect(gate.consume("wheel.spin", cooling, viewer, 0).ok).toBe(true);
-    const second = gate.consume("wheel.spin", cooling, viewer, 1_000);
+    expect(gate.consume("patient.wait", cooling, viewer, 0).ok).toBe(true);
+    const second = gate.consume("patient.wait", cooling, viewer, 1_000);
     expect(second.ok).toBe(true);
     if (!second.ok) return;
 
     second.release();
     // Back to the first use's stamp, not to no stamp at all.
-    expect(gate.consume("wheel.spin", cooling, viewer, 1_001).ok).toBe(true);
-    expect(gate.consume("wheel.spin", cooling, viewer, 1_002).ok).toBe(false);
+    expect(gate.consume("patient.wait", cooling, viewer, 1_001).ok).toBe(true);
+    expect(gate.consume("patient.wait", cooling, viewer, 1_002).ok).toBe(false);
   });
 
   it("a failed charge leaves the cooldown exactly as it was", () => {

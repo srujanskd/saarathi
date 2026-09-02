@@ -115,39 +115,73 @@ export type GateResult =
     }
   | Exclude<InvokeResult, { ok: true }>;
 
+/** One remembered stamp per viewer per binding. */
+interface Stamp {
+  /** When the command ran, which is what the cooldown is measured from. */
+  at: number;
+  /** And when it stops refusing, which is what makes a stamp sweepable. */
+  readyAt: number;
+}
+
+/**
+ * How many stamps may accumulate before expired ones are swept.
+ *
+ * A cooldown is per viewer, so the gate remembers one entry per viewer per
+ * binding and a long stream would otherwise grow it forever. The sweep is
+ * amortized onto the next stamp rather than timed, because a gate that owned a
+ * clock would be a gate that has to be started and stopped. The map is not the
+ * store: a restart is a new stream and the stamps are gone.
+ */
+const SWEEP_ABOVE = 500;
+
 /**
  * The single enforcement point for permission, cooldown and price. Charging
  * happens before dispatch rather than after, so two commands in the same tick
  * cannot both pass the check; a refusal downstream calls release() to undo it.
  *
- * A cooldown belongs to the command binding, not the action. That is why a paid
- * event or a deck button invoking the same action is not rate-limited by it --
- * she paid for it, or she pressed it herself.
+ * A cooldown belongs to one viewer on one binding, not to the binding alone: a
+ * balance is per viewer, and so is patience. Keying it per binding meant the
+ * first person to type !gains locked the whole chat out of it, which is the
+ * same insight !spin already acted on when it replaced its cooldown with a
+ * price. A paid event or a deck button invoking the same action is still not
+ * rate-limited at all -- she paid for it, or she pressed it herself.
+ *
+ * Stamps stay in memory for this process. They do not go through the store, so
+ * a restart forgets who is waiting -- a cooldown is for this stream, not the
+ * next one.
  */
 export class CommandGate {
-  private readonly lastUsed = new Map<string, number>();
+  private readonly stamps = new Map<string, Map<string, Stamp>>();
 
   constructor(private readonly gains: GainsLedger) {}
 
   consume(key: string, spec: CommandSpec, author: Author, now: number): GateResult {
+    const previous = this.stamps.get(key)?.get(author.id);
+
     const decision = decideCommand({
       spec,
       author,
       now,
-      lastUsedAt: this.lastUsed.get(key),
+      lastUsedAt: previous?.at,
       balance: spec.cost ? this.gains.balance(author.id) : 0,
     });
     if (!decision.ok) return decision;
 
-    const previous = this.lastUsed.get(key);
-    if (spec.cooldownMs) this.lastUsed.set(key, now);
+    const restore = () => {
+      if (previous === undefined) this.forget(key, author.id);
+      else this.remember(key, author.id, previous);
+    };
+
+    if (spec.cooldownMs) {
+      if (this.remembered > SWEEP_ABOVE) this.sweep(now);
+      this.remember(key, author.id, { at: now, readyAt: now + spec.cooldownMs });
+    }
 
     let charged = false;
     if (spec.cost) {
       charged = this.gains.spend(author.id, spec.cost, `!${spec.name}`);
       if (!charged) {
-        if (previous === undefined) this.lastUsed.delete(key);
-        else this.lastUsed.set(key, previous);
+        restore();
         return { ok: false, reason: `Not enough ${GAINS.plural} for !${spec.name}` };
       }
     }
@@ -157,10 +191,46 @@ export class CommandGate {
       via: triggerVia(spec),
       charge: charged && spec.cost ? { userId: author.id, amount: spec.cost } : undefined,
       release: () => {
-        if (previous === undefined) this.lastUsed.delete(key);
-        else this.lastUsed.set(key, previous);
+        restore();
         if (charged && spec.cost) this.gains.grant(author.id, spec.cost, `refund !${spec.name}`);
       },
     };
+  }
+
+  /**
+   * How many stamps are being held. Here so the sweep is testable: it is
+   * invisible by design otherwise, and a rate limiter that quietly grows for
+   * the length of a stream is exactly the bug nobody notices.
+   */
+  get remembered(): number {
+    let n = 0;
+    for (const viewers of this.stamps.values()) n += viewers.size;
+    return n;
+  }
+
+  private remember(binding: string, viewerId: string, stamp: Stamp): void {
+    let viewers = this.stamps.get(binding);
+    if (!viewers) {
+      viewers = new Map();
+      this.stamps.set(binding, viewers);
+    }
+    viewers.set(viewerId, stamp);
+  }
+
+  private forget(binding: string, viewerId: string): void {
+    const viewers = this.stamps.get(binding);
+    if (!viewers) return;
+    viewers.delete(viewerId);
+    if (viewers.size === 0) this.stamps.delete(binding);
+  }
+
+  /** A stamp that has stopped refusing cannot refuse again, so it is dropped. */
+  private sweep(now: number): void {
+    for (const [binding, viewers] of this.stamps) {
+      for (const [viewerId, stamp] of viewers) {
+        if (stamp.readyAt <= now) viewers.delete(viewerId);
+      }
+      if (viewers.size === 0) this.stamps.delete(binding);
+    }
   }
 }

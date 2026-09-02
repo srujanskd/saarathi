@@ -75,8 +75,10 @@ export interface ActionSpec<S = unknown> {
 /**
  * A chat command bound to an action. Cooldown, price and permission are data:
  * the core enforces them before dispatch, so no module ever writes a cooldown
- * check. A cooldown belongs to the binding, not the action, which is why a paid
- * event that invokes the same action is not rate-limited by it.
+ * check. A cooldown belongs to one viewer on one binding -- patience is per
+ * viewer the same way a balance is -- so it never lets one person lock the rest
+ * of chat out, and a paid event invoking the same action is not rate-limited by
+ * it at all.
  */
 export interface CommandSpec {
   /** Without "!", lowercase. */

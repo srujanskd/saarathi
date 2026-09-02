@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { CORE_ID, GAINS, MAX_CHALLENGES, SPIN_COST, type ChatLogState } from "@saarathi/shared";
 import { affordsSpins } from "../helpers/balances.js";
+import type { GameModuleDef } from "@saarathi/shared";
 import { harness, wheelState, type Harness } from "../helpers/kernel.js";
 
 let live: Harness | null = null;
@@ -187,6 +188,62 @@ describe("the price belongs to the binding", () => {
       .commands.find((c) => c.name === "spin");
     expect(spin).toMatchObject({ action: "wheel.spin", cost: SPIN_COST });
     expect(spin!.cooldownMs).toBeUndefined();
+  });
+});
+
+/**
+ * Nothing she ships declares a cooldown -- !spin carries a price instead -- so
+ * the gate's other rate limit needs a module of its own to be driven through
+ * chat at all. It is here rather than in the unit tests because the thing worth
+ * proving is that two viewers in the same chat get their own turn, and the only
+ * honest way to say "two viewers" is to have two of them type.
+ */
+const patient: GameModuleDef<{ runs: string[] }> = {
+  id: "patient",
+  title: "Patient",
+  initialState: { runs: [] },
+  commands: [{ name: "wait", action: "wait", cooldownMs: 30_000 }],
+  actions: {
+    wait: {
+      label: "Wait",
+      run: (input, ctx) => ctx.setState({ runs: [...ctx.state.runs, input.by ?? "?"] }),
+    },
+  },
+};
+
+const runs = (h: Harness) => (h.kernel.snapshot().modules.patient as { runs: string[] }).runs;
+
+describe("a cooldown is one viewer's, not the whole chat's", () => {
+  async function startPatient() {
+    live = await harness({ modules: [patient] });
+    return live;
+  }
+
+  it("lets everybody else through while the one who used it waits", async () => {
+    const h = await startPatient();
+
+    h.chat({ author: "First", text: "!wait" });
+    await settled();
+    h.chat({ author: "Second", text: "!wait" });
+    await settled();
+    h.chat({ author: "First", text: "!wait" });
+    await settled();
+
+    expect(runs(h)).toEqual(["First", "Second"]);
+    // And the one who was refused is told why, by name.
+    const said = h.seen.said();
+    expect(said).toHaveLength(1);
+    expect(said[0]).toContain("@First");
+    expect(said[0]).toContain("cooling down");
+  });
+
+  it("does not charge her control page a cooldown chat is serving", async () => {
+    const h = await startPatient();
+
+    h.chat({ author: "First", text: "!wait" });
+    await settled();
+    expect(await h.kernel.invoke("patient.wait")).toEqual({ ok: true });
+    expect(runs(h)).toEqual(["First", "streamer"]);
   });
 });
 

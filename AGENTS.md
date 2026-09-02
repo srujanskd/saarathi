@@ -76,7 +76,7 @@ here. If a rule fights the task in front of you, say so out loud and get a decis
   floating always-on-top window.
 - **gains** are the self-hosted channel currency, since YouTube has no channel points. Chat
   earns them per active minute and spends them on spins: `!spin` carries a price rather than a
-  cooldown, because a balance is per viewer where a cooldown was per binding. The name is not
+  cooldown, because a paid trigger queues where a refused one is just gone. The name is not
   final, so keep it in one constant and out of a hundred string literals.
 - **studio mode** is streaming from her PC at home. **IRL mode** is streaming from her phone.
 
