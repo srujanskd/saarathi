@@ -95,17 +95,6 @@ export function ChatSourceCard({
         </p>
       ) : null}
 
-      {/* Absent for a platform that needs no sign-in, rather than present and
-          saying so. Same rule that keeps mock chat off this page entirely. */}
-      {view.signIn ? (
-        <SignIn
-          connection={connection}
-          name={name}
-          signIn={view.signIn}
-          invoke={invoke}
-        />
-      ) : null}
-
       {/* Open until she has set a channel, because until then this is the only
           thing on the page worth doing. It folds itself away once she has. */}
       <details className="fold" open={!view.channelId}>
@@ -178,6 +167,15 @@ export function ChatSourceCard({
           Forget key
         </button>
       </details>
+
+      {/* Under the channel and not above it, because that is the order she does
+          them in: chat works with a channel and no sign-in, and the sign-in is
+          what the bot needs to write back. Absent altogether for a platform
+          that needs none, rather than present and saying so -- the same rule
+          that keeps mock chat off this page. */}
+      {view.signIn ? (
+        <SignIn connection={connection} name={name} signIn={view.signIn} invoke={invoke} />
+      ) : null}
     </section>
   );
 }
@@ -279,15 +277,22 @@ function SignIn({
       >
         {pending ? "Start again with a new code" : signIn.granted ? "Sign in again" : "Sign in"}
       </button>
-      <button
-        type="button"
-        className="btn"
-        disabled={working || (!signIn.granted && !pending)}
-        data-testid="chat-signin-out"
-        onClick={() => void run(CORE_ACTIONS.chatSignOut, [name])}
-      >
-        {pending ? "Cancel" : "Sign out"}
-      </button>
+      {/* The way out exists exactly when there is something to get out of.
+          Elsewhere on this card a button that has nothing to do is disabled
+          rather than absent, which is right for one of them and wrong for a
+          stack: a fresh install had four buttons here that could not be
+          pressed, on the one card it lands on. */}
+      {signIn.granted || pending ? (
+        <button
+          type="button"
+          className="btn"
+          disabled={working}
+          data-testid="chat-signin-out"
+          onClick={() => void run(CORE_ACTIONS.chatSignOut, [name])}
+        >
+          {pending ? "Cancel" : "Sign out"}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -367,18 +372,20 @@ function ClientFields({
       >
         Save
       </button>
-      {/* The way out, and it is only worth offering once there is something to
-          get out of. On a build with a credential of its own it puts that one
-          back; on a build without, it puts her back to no sign-in. */}
-      <button
-        type="button"
-        className="btn"
-        data-testid="chat-client-forget"
-        disabled={working || (signIn.clientId === "" && !signIn.hasClientSecret)}
-        onClick={() => void run(CORE_ACTIONS.chatForgetClient, [name])}
-      >
-        {signIn.builtIn ? "Use the built-in one" : "Forget it"}
-      </button>
+      {/* The way out, offered once there is something to get out of. On a
+          build with a credential of its own it puts that one back; on a build
+          without, it puts her back to no sign-in. */}
+      {signIn.clientId || signIn.hasClientSecret ? (
+        <button
+          type="button"
+          className="btn"
+          data-testid="chat-client-forget"
+          disabled={working}
+          onClick={() => void run(CORE_ACTIONS.chatForgetClient, [name])}
+        >
+          {signIn.builtIn ? "Use the built-in one" : "Forget it"}
+        </button>
+      ) : null}
     </div>
   );
 }
