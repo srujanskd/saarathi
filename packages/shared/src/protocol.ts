@@ -22,6 +22,10 @@ export const CORE_ACTIONS = {
   obsSettings: `${CORE_ID}.obsSettings`,
   chatSettings: `${CORE_ID}.chatSettings`,
   chatForgetKey: `${CORE_ID}.chatForgetKey`,
+  chatSignIn: `${CORE_ID}.chatSignIn`,
+  chatSignOut: `${CORE_ID}.chatSignOut`,
+  chatClient: `${CORE_ID}.chatClient`,
+  chatForgetClient: `${CORE_ID}.chatForgetClient`,
   deckSet: `${CORE_ID}.deckSet`,
 } as const;
 
@@ -74,6 +78,66 @@ export interface ChatView {
   hasKey: boolean;
   /** Where to find the channel id, in her words. */
   hint: string;
+  /**
+   * The sign-in that lets the bot write, for a platform that needs one.
+   *
+   * Absent where nothing does, on the rule that keeps mock chat out of `chat`
+   * and an adapter that cannot count out of `stats`: a platform with no
+   * sign-in has no card section, rather than an empty one saying so.
+   */
+  signIn?: ChatSignInView;
+}
+
+/**
+ * What she may know about the bot's permission to write.
+ *
+ * Deliberately not the token, for the reason `ObsView` is not the OBS password
+ * and `ChatView` is not the API key: this slice reaches every client, and in
+ * IRL mode one of them is her phone over somebody else's network. `granted` is
+ * everything the two buttons need.
+ *
+ * The pending half is the unusual part and it is genuinely state rather than a
+ * result: signing in means reading a code here and typing it somewhere else, so
+ * the code has to survive her switching apps, locking the phone, and opening
+ * the page again on a laptop. It rides in the slice so every surface sees the
+ * same one, and it is not persisted -- a code that outlived the process would
+ * be a code attached to a poll nobody is running.
+ */
+export interface ChatSignInView {
+  /** True when a grant of hers is stored. Never the token. */
+  granted: boolean;
+  /** One line about what the bot can and cannot do, in the adapter's words. */
+  detail: string;
+  /**
+   * Her own OAuth client id, or blank when she is using the build's.
+   *
+   * Sent back to her page, unlike every other credential in this app, and
+   * deliberately: a client id is public -- Google prints it on the consent
+   * screen she is about to see -- and being able to read it back is how she
+   * checks she pasted the right one of the two boxes.
+   */
+  clientId: string;
+  /** True when a secret of hers is stored. Never the secret. */
+  hasClientSecret: boolean;
+  /**
+   * True when this build carries a credential of its own.
+   *
+   * The one thing that decides how loudly her card asks for one: with a
+   * built-in credential hers is an override that belongs behind a fold, and
+   * without one it is the only way in and belongs in front of her.
+   */
+  builtIn: boolean;
+  /** Where she gets a credential of her own, in the adapter's words. */
+  clientHint: string;
+  /** Set only while a sign-in is waiting on her. */
+  pending?: {
+    /** The code she types on the other device. */
+    code: string;
+    /** Where she types it. */
+    url: string;
+    /** Server time it stops working. See `Snapshot.serverNow`. */
+    expiresAt: number;
+  };
 }
 
 /**
@@ -188,6 +252,18 @@ export interface ChatWritesView {
    * spends alone.
    */
   reserve: number;
+  /**
+   * True once the platform itself has said today's allowance is gone.
+   *
+   * Its own field rather than `used` reaching `ceiling`, because the two are
+   * different facts and they disagree in the direction that matters: the daily
+   * quota belongs to the whole Google project, spent by the counts poll and by
+   * every other install sharing a built-in credential, so it runs out at a
+   * `used` this counter still thinks has room in it. When that happens the
+   * honest thing to render is that the bot has gone quiet until the reset, not
+   * a meter with a gap left in it.
+   */
+  outOfQuota: boolean;
 }
 
 export interface CoreState {

@@ -136,6 +136,29 @@ the counts the goal bars fill from: one quota unit a call against 10,000 a day. 
 her state server-side and never sent to a client, which carries `hasKey` and never the key.
 Never compile one in: this repo is public and so is the installer.
 
+*Writing* to chat is the other half, and it needs a Google sign-in. She does it from the chat
+card on her control page: press Sign in, read the code, type it into Google on whatever device
+is nearest. Nothing is typed into a terminal and no redirect has to land anywhere, which is why
+it is the device flow rather than a loopback one — the browser may be her phone while the server
+is a VPS.
+
+Two things about it are worth knowing before the day they surprise someone:
+
+- **The sign-in lasts seven days while the Google project is in Testing.** That is Google's
+  rule, not ours, and it applies to whosever project the credential came from. Until the consent
+  screen is verified she re-signs-in weekly; the card says so, and a sign-in that has expired
+  offers the button again rather than failing quietly.
+- **She can use her own Google project, and should if she has one.** The daily quota belongs to
+  whichever project the credential came from, so a credential shipped in the installer is a pool
+  every install draws on. Hers is 10,000 units nobody else can spend. Client ID and secret go on
+  the same card; the ID is echoed back to her, the secret never is.
+
+A build can carry a credential of its own, substituted at build time from `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET` rather than committed. Blank is a supported build and is what this repo
+ships: with none, the card asks her for one. It is not a secret either way — it ships inside the
+installer — and what it exposes is a shared quota, not her channel. `AGENTS.md` has the full
+argument.
+
 ## Layout
 
 ```

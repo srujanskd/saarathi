@@ -17,6 +17,21 @@ export interface ChatSink {
   event(event: StreamEvent): void;
   /** Written for her: "No live stream found, retrying every 60s". */
   status(status: ConnectionStatus): void;
+  /**
+   * Something in this adapter's `settings` view changed on its own.
+   *
+   * Every other change to that view is the result of an action she invoked, and
+   * the core republishes the slice on the way back out of one. A sign-in is the
+   * exception: she presses a button, the answer comes back at once with a code
+   * on it, and then the *interesting* change -- Google saying yes, the code
+   * running out -- happens minutes later with no action in flight to hang it
+   * on. So the adapter says so, and every page she has open finds out.
+   *
+   * Deliberately not `status`: whether chat is connected and whether the bot
+   * may write are two different facts, and folding one into the other would
+   * put "waiting for a code" where "reading live chat" belongs.
+   */
+  changed(): void;
 }
 
 export interface ChatAdapter {
@@ -92,6 +107,44 @@ export interface ChatWrites {
   ban(authorId: string): Promise<void>;
 }
 
+/**
+ * A write the platform would not do, and the one thing about it the core is
+ * allowed to know.
+ *
+ * Every other distinction between failures stays platform knowledge and travels
+ * only as the sentence on `message`: which HTTP status meant what, and which of
+ * Google's dozen reason strings this was, is exactly what the adapter seam
+ * exists to keep out of the core. `outOfQuota` is the exception because it is
+ * the one failure the core has to *remember* rather than report -- the daily
+ * allowance is gone until it resets, so the meter goes to a state rather than
+ * logging one more line -- and "the platform will not write again today" is a
+ * normalized fact, not a platform one.
+ *
+ * Not a status code and not a reason enum, deliberately: one boolean is all the
+ * core acts on, and a second adapter with its own exhaustion answer sets the
+ * same flag rather than teaching the core a second vocabulary.
+ */
+export class WriteRefused extends Error {
+  constructor(
+    message: string,
+    readonly outOfQuota = false,
+  ) {
+    super(message);
+    this.name = "WriteRefused";
+  }
+}
+
+/**
+ * Whether this is the refusal that means today's allowance is gone.
+ *
+ * A function rather than an `instanceof` at the call site because what arrives
+ * in a `catch` is `unknown`, and because the answer for everything else -- her
+ * Wi-Fi, a 500, a thrown string -- is no.
+ */
+export function outOfQuota(err: unknown): boolean {
+  return err instanceof WriteRefused && err.outOfQuota;
+}
+
 export interface ChatSettingsInput {
   /**
    * Blank clears it, which is her way out: an adapter with no channel goes idle
@@ -117,6 +170,41 @@ export interface ChatSettings {
   view(): ChatView;
   save(input: ChatSettingsInput): Promise<InvokeResult>;
   forgetKey(): Promise<InvokeResult>;
+  /**
+   * Start signing the bot in, for a platform where writing needs one.
+   *
+   * Here rather than on a core surface of its own, and that was the design
+   * question worth getting right: *how* you authorize a write is platform
+   * knowledge. Google wants a device code typed into a browser; Twitch wants
+   * something else; a tips webhook wants nothing at all. A core-level auth
+   * surface would have been in the wrong place the day the second adapter
+   * landed, and it would have had to grow a shape wide enough for both.
+   *
+   * Optional for the same reason `settings` itself is: an adapter that needs no
+   * sign-in omits both these and no card section appears.
+   */
+  signIn?(): Promise<InvokeResult>;
+  /** Forget the grant, and cancel a sign-in she changed her mind about. */
+  signOut?(): Promise<InvokeResult>;
+  /**
+   * Save a credential of her own for the sign-in to use.
+   *
+   * Optional beside `signIn` rather than folded into `save`, because it is the
+   * same shape of thing one level down: `save` is which channel to read, this
+   * is which application is asking Google for permission to write to it. A
+   * platform whose sign-in needs no credential from her -- or none at all --
+   * omits it, and no fields appear.
+   */
+  setClient?(input: ChatClientInput): Promise<InvokeResult>;
+  /** Put it back to whatever the build carries. The way out of the above. */
+  forgetClient?(): Promise<InvokeResult>;
+}
+
+export interface ChatClientInput {
+  /** Public, echoed back to her, and validated before anything is written. */
+  clientId: string;
+  /** Blank leaves the stored one alone, as every other secret here does. */
+  clientSecret: string;
 }
 
 /**
@@ -133,20 +221,66 @@ export function chatCommand(
   actionId: string,
   args: string[],
 ): Promise<InvokeResult> | null {
-  const forget = actionId === CORE_ACTIONS.chatForgetKey;
-  if (!forget && actionId !== CORE_ACTIONS.chatSettings) return null;
+  if (!CHAT_ACTIONS.has(actionId)) return null;
 
   const name = args[0] ?? "";
   const settings = adapters.find((adapter) => adapter.name === name)?.settings;
   if (!settings) {
     return Promise.resolve({ ok: false, reason: `There is nothing to set up for "${name}"` });
   }
-  if (forget) return settings.forgetKey();
-  return settings.save({
-    channelId: (args[1] ?? "").trim(),
-    apiKey: (args[2] ?? "").trim(),
-  });
+
+  // Four of these are optional on `ChatSettings`, and all four refuse the same
+  // way when the adapter has not got them: a deck button she made on a build
+  // that had a sign-in, pressed on one that does not, has to say so rather
+  // than doing nothing. `orRefuse` is that one sentence, in one place.
+  //
+  // Each thunk calls back through `settings.` rather than holding the method it
+  // was handed, so an adapter that writes these as real methods rather than as
+  // closures keeps its receiver.
+  const orRefuse = (
+    method: (() => Promise<InvokeResult>) | undefined,
+  ): Promise<InvokeResult> =>
+    method ? method() : Promise.resolve({ ok: false, reason: `${name} needs no sign-in` });
+
+  switch (actionId) {
+    case CORE_ACTIONS.chatForgetKey:
+      return settings.forgetKey();
+    case CORE_ACTIONS.chatSignIn:
+      return orRefuse(settings.signIn && (() => settings.signIn!()));
+    case CORE_ACTIONS.chatSignOut:
+      return orRefuse(settings.signOut && (() => settings.signOut!()));
+    case CORE_ACTIONS.chatClient:
+      return orRefuse(
+        settings.setClient &&
+          (() =>
+            settings.setClient!({
+              clientId: (args[1] ?? "").trim(),
+              clientSecret: (args[2] ?? "").trim(),
+            })),
+      );
+    case CORE_ACTIONS.chatForgetClient:
+      return orRefuse(settings.forgetClient && (() => settings.forgetClient!()));
+    default:
+      return settings.save({
+        channelId: (args[1] ?? "").trim(),
+        apiKey: (args[2] ?? "").trim(),
+      });
+  }
 }
+
+/**
+ * The core actions this file answers for. A set rather than a chain of
+ * comparisons, because there are four of them now and the router in the
+ * registry asks the question once.
+ */
+const CHAT_ACTIONS: ReadonlySet<string> = new Set([
+  CORE_ACTIONS.chatSettings,
+  CORE_ACTIONS.chatForgetKey,
+  CORE_ACTIONS.chatSignIn,
+  CORE_ACTIONS.chatSignOut,
+  CORE_ACTIONS.chatClient,
+  CORE_ACTIONS.chatForgetClient,
+]);
 
 /** The settings slice of the core state: only the adapters that have any. */
 export function chatViews(adapters: readonly ChatAdapter[]): Record<string, ChatView> {

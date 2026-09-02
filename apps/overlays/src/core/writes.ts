@@ -16,6 +16,13 @@ export function writesLine(writes: ChatWritesView, adapter: string): string {
   if (writes.adapter !== adapter) return "";
 
   const spent = `${writes.used.toLocaleString()} of ${writes.ceiling.toLocaleString()} writes today`;
+  // First, because it outranks the count: the platform has said the day is
+  // over, and a number with room left in it would be the wrong thing to read
+  // while the bot is silent. The quota is the whole Google project's, not this
+  // install's, so it can run out with the counter half full.
+  if (writes.outOfQuota) {
+    return `${spent} · the platform's quota is spent, so the bot is quiet until it resets at midnight Pacific`;
+  }
   // The reserve is what a delete spends and a reply may not, so once that is
   // all that is left the honest thing to tell her is that the bot has gone
   // quiet on purpose -- not to show her a number with room left in it.

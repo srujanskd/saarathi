@@ -8,7 +8,11 @@ import { normalize, parseAmount } from "../../src/chat/youtube.js";
 function testSink() {
   const events: StreamEvent[] = [];
   const statuses: ConnectionStatus[] = [];
-  const sink: ChatSink = { event: (e) => events.push(e), status: (s) => statuses.push(s) };
+  const sink: ChatSink = {
+    event: (e) => events.push(e),
+    status: (s) => statuses.push(s),
+    changed: () => {},
+  };
   return { sink, events, statuses };
 }
 

@@ -146,8 +146,68 @@ describe("WriteMeter", () => {
       used: 1,
       ceiling: WRITE_CEILING,
       reserve: MODERATION_RESERVE,
+      outOfQuota: false,
     });
     expect(m.view(null).adapter).toBeNull();
+  });
+
+  it("stops every reply once the platform says the day is over", () => {
+    // The state no local count can predict: the quota belongs to the whole
+    // Google project, so it runs out while this counter still has room. One
+    // more attempt after that is a write spent finding out what we know.
+    const { meter: m } = meter(() => at("2026-09-01T18:00:00Z"));
+    expect(m.allows("info")).toBe(true);
+
+    m.outOfQuotaNow();
+
+    expect(m.outOfQuota).toBe(true);
+    expect(m.allows("info")).toBe(false);
+    expect(m.allows("refusal")).toBe(false);
+    // And her card says the day is over rather than showing the gap.
+    expect(m.view("youtube")).toMatchObject({ used: 0, outOfQuota: true });
+  });
+
+  it("says it once for a burst that all refuses the same way", () => {
+    const { meter: m, store } = meter(() => at("2026-09-01T18:00:00Z"));
+    m.outOfQuotaNow();
+    m.outOfQuotaNow();
+    m.outOfQuotaNow();
+    expect(store.read(WRITES_ID)).toMatchObject({ spent: true });
+  });
+
+  it("comes back from a restart still knowing the day is over", () => {
+    // A restart at 4pm must not put the bot back to cheerfully trying, which
+    // is the same reason the count itself is persisted.
+    const store = new MemoryStore();
+    const first = meter(() => at("2026-09-01T18:00:00Z"), store).meter;
+    first.spend("say wheel.spin");
+    first.outOfQuotaNow();
+
+    const second = meter(() => at("2026-09-01T20:00:00Z"), store).meter;
+    expect(second.used).toBe(1);
+    expect(second.outOfQuota).toBe(true);
+  });
+
+  it("gets the allowance back at midnight Pacific, with nothing running", () => {
+    const store = new MemoryStore();
+    let clock = at("2026-09-01T18:00:00Z");
+    const m = new WriteMeter(store, testLogger(), () => clock);
+    m.spend("say wheel.spin");
+    m.outOfQuotaNow();
+
+    // Past Google's midnight, not hers.
+    clock = at("2026-09-02T07:00:01Z");
+
+    expect(m.outOfQuota).toBe(false);
+    expect(m.used).toBe(0);
+    expect(m.allows("info")).toBe(true);
+  });
+
+  it("does not believe an exhausted flag from a day that has ended", () => {
+    const store = new MemoryStore();
+    store.write(WRITES_ID, { day: "2026-08-30", used: 199, spent: true });
+    const { meter: m } = meter(() => at("2026-09-01T18:00:00Z"), store);
+    expect(m.outOfQuota).toBe(false);
   });
 });
 

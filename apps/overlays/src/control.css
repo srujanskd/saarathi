@@ -337,3 +337,48 @@
   min-height: 3.15rem;
   margin: 0;
 }
+
+/* Signing the bot in. Its own block rather than a fold, because on a fresh
+   install it is the difference between a bot that can moderate and one that
+   cannot, and that is not something to hide behind a summary. */
+.signin {
+  margin: 0.35rem 0 0.9rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card-2);
+}
+
+.signin[data-granted="yes"] {
+  border-color: var(--accent);
+}
+
+.signin .hint:first-child {
+  margin-top: 0;
+}
+
+/* The one string on this page she has to read off a screen and type into
+   another device, at whatever distance her phone happens to be. */
+.signin-code {
+  margin: 0.5rem 0 0.15rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.9rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  /* One tap selects the whole code rather than one group of it. */
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+
+/* Her own OAuth client. Indented inside the sign-in block so the two boxes
+   read as setup for the button under them rather than as two more settings. */
+.client-fields {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--line);
+}
+
+.client-fields .hint:first-child {
+  margin-top: 0;
+}
