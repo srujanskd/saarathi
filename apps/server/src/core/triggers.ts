@@ -129,7 +129,8 @@ interface Stamp {
  * A cooldown is per viewer, so the gate remembers one entry per viewer per
  * binding and a long stream would otherwise grow it forever. The sweep is
  * amortized onto the next stamp rather than timed, because a gate that owned a
- * clock would be a gate that has to be started and stopped.
+ * clock would be a gate that has to be started and stopped. The map is not the
+ * store: a restart is a new stream and the stamps are gone.
  */
 const SWEEP_ABOVE = 500;
 
@@ -144,17 +145,18 @@ const SWEEP_ABOVE = 500;
  * same insight !spin already acted on when it replaced its cooldown with a
  * price. A paid event or a deck button invoking the same action is still not
  * rate-limited at all -- she paid for it, or she pressed it herself.
+ *
+ * Stamps stay in memory for this process. They do not go through the store, so
+ * a restart forgets who is waiting -- a cooldown is for this stream, not the
+ * next one.
  */
 export class CommandGate {
-  private readonly lastUsed = new Map<string, Stamp>();
+  private readonly stamps = new Map<string, Map<string, Stamp>>();
 
   constructor(private readonly gains: GainsLedger) {}
 
   consume(key: string, spec: CommandSpec, author: Author, now: number): GateResult {
-    // The binding and the viewer both, because one viewer's cooldown is not
-    // anybody else's. A null byte cannot occur in either half.
-    const seat = `${key}\u0000${author.id}`;
-    const previous = this.lastUsed.get(seat);
+    const previous = this.stamps.get(key)?.get(author.id);
 
     const decision = decideCommand({
       spec,
@@ -166,13 +168,13 @@ export class CommandGate {
     if (!decision.ok) return decision;
 
     const restore = () => {
-      if (previous === undefined) this.lastUsed.delete(seat);
-      else this.lastUsed.set(seat, previous);
+      if (previous === undefined) this.forget(key, author.id);
+      else this.remember(key, author.id, previous);
     };
 
     if (spec.cooldownMs) {
-      if (this.lastUsed.size > SWEEP_ABOVE) this.sweep(now);
-      this.lastUsed.set(seat, { at: now, readyAt: now + spec.cooldownMs });
+      if (this.remembered > SWEEP_ABOVE) this.sweep(now);
+      this.remember(key, author.id, { at: now, readyAt: now + spec.cooldownMs });
     }
 
     let charged = false;
@@ -201,13 +203,34 @@ export class CommandGate {
    * the length of a stream is exactly the bug nobody notices.
    */
   get remembered(): number {
-    return this.lastUsed.size;
+    let n = 0;
+    for (const viewers of this.stamps.values()) n += viewers.size;
+    return n;
+  }
+
+  private remember(binding: string, viewerId: string, stamp: Stamp): void {
+    let viewers = this.stamps.get(binding);
+    if (!viewers) {
+      viewers = new Map();
+      this.stamps.set(binding, viewers);
+    }
+    viewers.set(viewerId, stamp);
+  }
+
+  private forget(binding: string, viewerId: string): void {
+    const viewers = this.stamps.get(binding);
+    if (!viewers) return;
+    viewers.delete(viewerId);
+    if (viewers.size === 0) this.stamps.delete(binding);
   }
 
   /** A stamp that has stopped refusing cannot refuse again, so it is dropped. */
   private sweep(now: number): void {
-    for (const [seat, stamp] of this.lastUsed) {
-      if (stamp.readyAt <= now) this.lastUsed.delete(seat);
+    for (const [binding, viewers] of this.stamps) {
+      for (const [viewerId, stamp] of viewers) {
+        if (stamp.readyAt <= now) viewers.delete(viewerId);
+      }
+      if (viewers.size === 0) this.stamps.delete(binding);
     }
   }
 }
