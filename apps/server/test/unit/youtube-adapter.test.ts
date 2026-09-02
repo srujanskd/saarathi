@@ -76,7 +76,7 @@ function fakeGet() {
 }
 
 function testSink(): ChatSink {
-  return { event: () => {}, status: () => {} };
+  return { event: () => {}, status: () => {}, changed: () => {} };
 }
 
 beforeEach(() => {
@@ -168,7 +168,7 @@ describe("her settings", () => {
     // in. An adapter that were simply absent would say nothing at all.
     const adapter = new YouTubeAdapter({ store: new MemoryStore(), log: testLogger() });
     const statuses: ConnectionStatus[] = [];
-    await adapter.start({ event: () => {}, status: (s) => statuses.push(s) });
+    await adapter.start({ event: () => {}, status: (s) => statuses.push(s), changed: () => {} });
 
     expect(chats).toHaveLength(0);
     expect(statuses.at(-1)!.detail).toContain("No YouTube channel set yet");
@@ -211,7 +211,7 @@ describe("her settings", () => {
   it("goes idle when she clears the channel, which is the way out", async () => {
     const adapter = new YouTubeAdapter({ store: new MemoryStore(), log: testLogger() });
     const statuses: ConnectionStatus[] = [];
-    await adapter.start({ event: () => {}, status: (s) => statuses.push(s) });
+    await adapter.start({ event: () => {}, status: (s) => statuses.push(s), changed: () => {} });
     await adapter.settings.save({ channelId: CHANNEL, apiKey: "" });
 
     await adapter.settings.save({ channelId: "", apiKey: "" });

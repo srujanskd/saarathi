@@ -1,15 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CORE_ACTIONS,
   type ChannelStats,
+  type ChatSignInView,
   type ChatView,
   type ChatWritesView,
   type ConnectionStatus,
 } from "@saarathi/shared";
 import type { Connection } from "../lib/connection.js";
-import { useInvoke } from "../lib/invoke.js";
+import { useInvoke, type Invoker } from "../lib/invoke.js";
 import { Notice } from "./Notice.js";
 import { countsLine } from "./counts.js";
+import { codeExpiry } from "./signIn.js";
 import { writesLine } from "./writes.js";
 
 /**
@@ -93,6 +95,17 @@ export function ChatSourceCard({
         </p>
       ) : null}
 
+      {/* Absent for a platform that needs no sign-in, rather than present and
+          saying so. Same rule that keeps mock chat off this page entirely. */}
+      {view.signIn ? (
+        <SignIn
+          connection={connection}
+          name={name}
+          signIn={view.signIn}
+          invoke={invoke}
+        />
+      ) : null}
+
       {/* Open until she has set a channel, because until then this is the only
           thing on the page worth doing. It folds itself away once she has. */}
       <details className="fold" open={!view.channelId}>
@@ -166,5 +179,206 @@ export function ChatSourceCard({
         </button>
       </details>
     </section>
+  );
+}
+
+/**
+ * Signing the bot in, which is a code she reads here and types somewhere else.
+ *
+ * The code is state on the server rather than the result of the button she
+ * pressed, and that is what makes this survivable: she reads it on her phone,
+ * unlocks a laptop, types it into Google, and the page she left open finds out
+ * it worked from the next patch. A tab that reconnects mid-sign-in rejoins the
+ * same one, and a second page she opens shows the same code rather than
+ * starting a rival sign-in.
+ *
+ * Every word about what a sign-in is for comes from the server, on the rule
+ * that keeps this whole file from knowing YouTube exists.
+ */
+function SignIn({
+  connection,
+  name,
+  signIn,
+  invoke,
+}: {
+  connection: Connection;
+  name: string;
+  signIn: ChatSignInView;
+  invoke: Invoker;
+}) {
+  const pending = signIn.pending;
+  const [now, setNow] = useState(() => connection.serverNow());
+  // Either she has pasted a complete credential, or the build carries one.
+  const ready = signIn.builtIn || (signIn.clientId !== "" && signIn.hasClientSecret);
+
+  // A clock only while a code is waiting, and it stops itself when the code
+  // runs out: an interval still ticking is her phone re-rendering forever for
+  // a number nobody is reading.
+  useEffect(() => {
+    if (!pending || connection.serverNow() >= pending.expiresAt) return;
+    const id = setInterval(() => {
+      const at = connection.serverNow();
+      setNow(at);
+      if (at >= pending.expiresAt) clearInterval(id);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [connection, pending]);
+
+  const { run, working } = invoke;
+
+  return (
+    <div className="signin" data-granted={signIn.granted ? "yes" : "no"} data-testid="chat-signin">
+      <p className="hint" data-testid="chat-signin-detail">
+        {signIn.detail}
+      </p>
+
+      {/* Where the credential goes. In front of her on a build that carries
+          none -- there it is the only way in -- and behind a fold on one that
+          does, where it is an override for somebody who would rather not share
+          a quota. One control, two levels of insistence. */}
+      {signIn.builtIn ? (
+        <details className="fold">
+          <summary>
+            <span>
+              {signIn.clientId ? "Using her own Google project" : "Use her own Google project"}
+            </span>
+          </summary>
+          <ClientFields name={name} signIn={signIn} invoke={invoke} />
+        </details>
+      ) : (
+        <ClientFields name={name} signIn={signIn} invoke={invoke} />
+      )}
+
+      {pending ? (
+        <>
+          {/* The one thing on the page she has to copy by hand, so it is the
+              biggest thing on it and it selects in one tap. */}
+          <p className="signin-code" data-testid="chat-signin-code">
+            {pending.code}
+          </p>
+          <p className="hint" data-testid="chat-signin-where">
+            Type that in at {pending.url}
+          </p>
+          <p className="hint" data-testid="chat-signin-expiry">
+            {codeExpiry(pending, now)}
+          </p>
+        </>
+      ) : null}
+
+      {/* Sign in again is offered on top of a grant she already has, because
+          the reason to press it is a grant that has stopped working -- and
+          that is a state the server cannot always tell her about in advance. */}
+      {/* Nothing to sign in with is a button that can only refuse, so it is
+          not offered -- the fields above are the thing to do instead. */}
+      <button
+        type="button"
+        className="btn"
+        disabled={working || !ready}
+        data-testid="chat-signin-start"
+        onClick={() => void run(CORE_ACTIONS.chatSignIn, [name])}
+      >
+        {pending ? "Start again with a new code" : signIn.granted ? "Sign in again" : "Sign in"}
+      </button>
+      <button
+        type="button"
+        className="btn"
+        disabled={working || (!signIn.granted && !pending)}
+        data-testid="chat-signin-out"
+        onClick={() => void run(CORE_ACTIONS.chatSignOut, [name])}
+      >
+        {pending ? "Cancel" : "Sign out"}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Her own OAuth client, for the quota rather than for the secrecy.
+ *
+ * The reason to offer this at all is that Google's daily allowance belongs to
+ * the project the credential came from: a credential the installer ships is a
+ * pool every install draws on, and hers is an allowance nobody else can spend.
+ * It is not a way of keeping anything secret -- whatever ships in the installer
+ * is readable by anyone who has the installer.
+ *
+ * The id is echoed back and the secret is not, on the same split as her channel
+ * and her API key: an id is public, Google prints it on the consent screen, and
+ * reading it back is how she checks which of the two boxes she pasted where.
+ */
+function ClientFields({
+  name,
+  signIn,
+  invoke,
+}: {
+  name: string;
+  signIn: ChatSignInView;
+  invoke: Invoker;
+}) {
+  const [draft, setDraft] = useState<{ clientId: string; clientSecret: string } | null>(null);
+  // Same discipline as every other field on this card: a draft shadows the
+  // server only while it exists, so one keystroke cannot freeze the box
+  // against the next snapshot and a refused save leaves her text to fix.
+  const fields = draft ?? { clientId: signIn.clientId, clientSecret: "" };
+  const dirty = draft !== null;
+  const { run, working } = invoke;
+
+  return (
+    <div className="client-fields" data-testid="chat-client">
+      <p className="hint">{signIn.clientHint}</p>
+
+      <label className="field">
+        <span>Client ID</span>
+        <input
+          className="input"
+          data-testid="chat-client-id"
+          value={fields.clientId}
+          autoComplete="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          placeholder="…apps.googleusercontent.com"
+          onChange={(event) => setDraft({ ...fields, clientId: event.target.value })}
+        />
+      </label>
+      <label className="field">
+        <span>
+          {signIn.hasClientSecret ? "Client secret (saved — leave blank to keep it)" : "Client secret"}
+        </span>
+        <input
+          className="input"
+          type="password"
+          data-testid="chat-client-secret"
+          value={fields.clientSecret}
+          autoComplete="off"
+          onChange={(event) => setDraft({ ...fields, clientSecret: event.target.value })}
+        />
+      </label>
+
+      <button
+        type="button"
+        className="btn"
+        data-testid="chat-client-save"
+        disabled={working || !dirty}
+        onClick={() => {
+          void (async () => {
+            const args = [name, fields.clientId, fields.clientSecret];
+            if (await run(CORE_ACTIONS.chatClient, args)) setDraft(null);
+          })();
+        }}
+      >
+        Save
+      </button>
+      {/* The way out, and it is only worth offering once there is something to
+          get out of. On a build with a credential of its own it puts that one
+          back; on a build without, it puts her back to no sign-in. */}
+      <button
+        type="button"
+        className="btn"
+        data-testid="chat-client-forget"
+        disabled={working || (signIn.clientId === "" && !signIn.hasClientSecret)}
+        onClick={() => void run(CORE_ACTIONS.chatForgetClient, [name])}
+      >
+        {signIn.builtIn ? "Use the built-in one" : "Forget it"}
+      </button>
+    </div>
   );
 }

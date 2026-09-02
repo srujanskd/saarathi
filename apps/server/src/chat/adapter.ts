@@ -17,6 +17,21 @@ export interface ChatSink {
   event(event: StreamEvent): void;
   /** Written for her: "No live stream found, retrying every 60s". */
   status(status: ConnectionStatus): void;
+  /**
+   * Something in this adapter's `settings` view changed on its own.
+   *
+   * Every other change to that view is the result of an action she invoked, and
+   * the core republishes the slice on the way back out of one. A sign-in is the
+   * exception: she presses a button, the answer comes back at once with a code
+   * on it, and then the *interesting* change -- Google saying yes, the code
+   * running out -- happens minutes later with no action in flight to hang it
+   * on. So the adapter says so, and every page she has open finds out.
+   *
+   * Deliberately not `status`: whether chat is connected and whether the bot
+   * may write are two different facts, and folding one into the other would
+   * put "waiting for a code" where "reading live chat" belongs.
+   */
+  changed(): void;
 }
 
 export interface ChatAdapter {
@@ -117,6 +132,41 @@ export interface ChatSettings {
   view(): ChatView;
   save(input: ChatSettingsInput): Promise<InvokeResult>;
   forgetKey(): Promise<InvokeResult>;
+  /**
+   * Start signing the bot in, for a platform where writing needs one.
+   *
+   * Here rather than on a core surface of its own, and that was the design
+   * question worth getting right: *how* you authorize a write is platform
+   * knowledge. Google wants a device code typed into a browser; Twitch wants
+   * something else; a tips webhook wants nothing at all. A core-level auth
+   * surface would have been in the wrong place the day the second adapter
+   * landed, and it would have had to grow a shape wide enough for both.
+   *
+   * Optional for the same reason `settings` itself is: an adapter that needs no
+   * sign-in omits both these and no card section appears.
+   */
+  signIn?(): Promise<InvokeResult>;
+  /** Forget the grant, and cancel a sign-in she changed her mind about. */
+  signOut?(): Promise<InvokeResult>;
+  /**
+   * Save a credential of her own for the sign-in to use.
+   *
+   * Optional beside `signIn` rather than folded into `save`, because it is the
+   * same shape of thing one level down: `save` is which channel to read, this
+   * is which application is asking Google for permission to write to it. A
+   * platform whose sign-in needs no credential from her -- or none at all --
+   * omits it, and no fields appear.
+   */
+  setClient?(input: ChatClientInput): Promise<InvokeResult>;
+  /** Put it back to whatever the build carries. The way out of the above. */
+  forgetClient?(): Promise<InvokeResult>;
+}
+
+export interface ChatClientInput {
+  /** Public, echoed back to her, and validated before anything is written. */
+  clientId: string;
+  /** Blank leaves the stored one alone, as every other secret here does. */
+  clientSecret: string;
 }
 
 /**
@@ -133,20 +183,60 @@ export function chatCommand(
   actionId: string,
   args: string[],
 ): Promise<InvokeResult> | null {
-  const forget = actionId === CORE_ACTIONS.chatForgetKey;
-  if (!forget && actionId !== CORE_ACTIONS.chatSettings) return null;
+  if (!CHAT_ACTIONS.has(actionId)) return null;
 
   const name = args[0] ?? "";
   const settings = adapters.find((adapter) => adapter.name === name)?.settings;
   if (!settings) {
     return Promise.resolve({ ok: false, reason: `There is nothing to set up for "${name}"` });
   }
-  if (forget) return settings.forgetKey();
-  return settings.save({
-    channelId: (args[1] ?? "").trim(),
-    apiKey: (args[2] ?? "").trim(),
-  });
+
+  switch (actionId) {
+    case CORE_ACTIONS.chatForgetKey:
+      return settings.forgetKey();
+    case CORE_ACTIONS.chatSignIn:
+      // Refused in the adapter's absence rather than silently doing nothing:
+      // a deck button she made on a build that had this, pressed on one that
+      // does not, has to say so.
+      return settings.signIn
+        ? settings.signIn()
+        : Promise.resolve({ ok: false, reason: `${name} needs no sign-in` });
+    case CORE_ACTIONS.chatSignOut:
+      return settings.signOut
+        ? settings.signOut()
+        : Promise.resolve({ ok: false, reason: `${name} needs no sign-in` });
+    case CORE_ACTIONS.chatClient:
+      return settings.setClient
+        ? settings.setClient({
+            clientId: (args[1] ?? "").trim(),
+            clientSecret: (args[2] ?? "").trim(),
+          })
+        : Promise.resolve({ ok: false, reason: `${name} needs no sign-in` });
+    case CORE_ACTIONS.chatForgetClient:
+      return settings.forgetClient
+        ? settings.forgetClient()
+        : Promise.resolve({ ok: false, reason: `${name} needs no sign-in` });
+    default:
+      return settings.save({
+        channelId: (args[1] ?? "").trim(),
+        apiKey: (args[2] ?? "").trim(),
+      });
+  }
 }
+
+/**
+ * The core actions this file answers for. A set rather than a chain of
+ * comparisons, because there are four of them now and the router in the
+ * registry asks the question once.
+ */
+const CHAT_ACTIONS: ReadonlySet<string> = new Set([
+  CORE_ACTIONS.chatSettings,
+  CORE_ACTIONS.chatForgetKey,
+  CORE_ACTIONS.chatSignIn,
+  CORE_ACTIONS.chatSignOut,
+  CORE_ACTIONS.chatClient,
+  CORE_ACTIONS.chatForgetClient,
+]);
 
 /** The settings slice of the core state: only the adapters that have any. */
 export function chatViews(adapters: readonly ChatAdapter[]): Record<string, ChatView> {

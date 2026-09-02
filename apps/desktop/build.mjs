@@ -49,10 +49,40 @@ await build({
   external: ["electron"],
 });
 
+/**
+ * The app's own Google credential, substituted into the bundle rather than
+ * committed: the repo is public, and a secret in it is a secret on the
+ * internet. It is not a way of keeping one -- whatever ships in the installer
+ * is readable by anyone holding the installer -- it is a way of keeping it out
+ * of git, where rotation costs a commit and scrapers read for a living.
+ *
+ * Blank is a supported build. She can paste a credential of her own on the
+ * control page, which is the better answer anyway: the daily quota belongs to
+ * the Google project the credential came from, so hers is an allowance nobody
+ * else can spend. So this warns rather than failing -- `release.yml` is where
+ * a tag is held to a higher standard than a local `pnpm dist`.
+ */
+const googleClient = {
+  id: process.env.GOOGLE_CLIENT_ID ?? "",
+  secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+};
+if (!dev && !(googleClient.id && googleClient.secret)) {
+  console.warn(
+    "build: no GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET, so this build ships no sign-in of its own.\n" +
+      "       She can still paste her own on the control page. Set both to compile one in.",
+  );
+}
+
 await build({
   ...common,
   entryPoints: [join(here, "..", "server", "src", "main.ts")],
   outfile: join(here, "dist", "server.mjs"),
+  // Replaced where `youtube-oauth.ts` reads them, which is why that file spells
+  // out `process.env.X` rather than reaching through a parameter.
+  define: {
+    "process.env.GOOGLE_CLIENT_ID": JSON.stringify(googleClient.id),
+    "process.env.GOOGLE_CLIENT_SECRET": JSON.stringify(googleClient.secret),
+  },
   // ESM, not CJS: the server's composition root is top-level await from its
   // first line, and esbuild cannot express that in CJS.
   format: "esm",

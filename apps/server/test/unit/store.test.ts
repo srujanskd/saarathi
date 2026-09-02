@@ -1,6 +1,14 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { JsonStore, MemoryStore, defaultStorePath } from "../../src/core/store.js";
 import { testLogger } from "../helpers/logger.js";
@@ -158,6 +166,42 @@ describe("JsonStore", () => {
       store.flush();
     }).not.toThrow();
     expect(log.text()).toContain("could not write");
+  });
+
+  /**
+   * POSIX permissions only. On Windows -- which is where she actually runs --
+   * ACLs govern, `chmod` is very nearly a no-op, and `mode` comes back 0o666
+   * whatever we asked for. So the guarantee this pair proves is the one that
+   * matters on a VPS, which is the machine with other people on it.
+   */
+  const posix = it.skipIf(process.platform === "win32");
+
+  posix("writes hers to read and nobody else's", () => {
+    // This file holds her OBS password, her YouTube API key and a Google
+    // refresh token that can post as her and ban her viewers. On a VPS that is
+    // the difference between a secret and a public one.
+    const store = new JsonStore(file, testLogger());
+    store.write("youtube", { refreshToken: "rt" });
+    store.flush();
+
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  posix("tightens a temp file a crash left behind, loose", () => {
+    // Write-then-rename means the mode on the temp file is the mode she gets,
+    // and `writeFileSync` applies one only when it *creates* the file. A crash
+    // mid-save leaves a temp file behind; the next save opens that one and
+    // truncates it, keeping whatever permissions it had. Which is why the mode
+    // is forced after the write rather than asked for during it.
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(`${file}.tmp`, "{}", { mode: 0o644 });
+    chmodSync(`${file}.tmp`, 0o644);
+
+    const store = new JsonStore(file, testLogger());
+    store.write("obs", { password: "p" });
+    store.flush();
+
+    expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 });
 

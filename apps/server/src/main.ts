@@ -10,6 +10,7 @@ import {
 } from "@saarathi/shared";
 import type { ChatAdapter } from "./chat/adapter.js";
 import { MockChatAdapter } from "./chat/mock.js";
+import { oauthClient } from "./chat/youtube-oauth.js";
 import { YouTubeAdapter } from "./chat/youtube.js";
 import { createKernel } from "./core/kernel.js";
 import { obsConfigPath } from "./core/obs-config.js";
@@ -55,6 +56,11 @@ chat.push(
       liveId: process.env.YT_LIVE_ID,
       apiKey: process.env.YT_API_KEY,
     },
+    // The app's own OAuth credential, compiled in and overridable from the
+    // environment for a dev run. Read here because this is the only file that
+    // reads the environment, and null in a build with none -- which reports
+    // that it has no sign-in rather than failing a call that could not work.
+    client: oauthClient(),
   }),
 );
 

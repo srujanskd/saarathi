@@ -101,6 +101,9 @@ export class Kernel {
       const sink: ChatSink = {
         event: (event) => this.handleEvent(event),
         status: (status) => this.setConnection(adapter.name, status),
+        // A sign-in landing minutes after the action that started it, with no
+        // action in flight to republish the slice. See `ChatSink.changed`.
+        changed: () => this.emitPatch(CORE_ID, this.coreState()),
       };
       try {
         await adapter.start(sink);

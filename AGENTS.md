@@ -86,9 +86,13 @@ here. If a rule fights the task in front of you, say so out loud and get a decis
    a path or a name. This machine runs other things, and your own process has this repo's path
    in its argv. Kill a PID you captured when you spawned it, nothing else.
 
-2. **Writing to live state.** `data/state.json` holds her real challenge list and spin history.
-   Reading it is fine and it makes good test data. Do not point a dev server at it, do not
-   rewrite it, do not clean it up. Set `STATE_FILE` to somewhere in your scratch space instead.
+2. **Reading or writing live state.** `data/state.json` holds her real challenge list and spin
+   history — and her OBS password, her YouTube API key, and a Google refresh token that can
+   post as her and ban her viewers. It used to be described here as good test data. It is not:
+   do not open it, do not paste it anywhere, do not point a dev server at it, do not rewrite
+   it, do not clean it up. It is written `0600` and it should stay that way. Set `STATE_FILE`
+   to somewhere in your scratch space instead, and if you need realistic data, drive mock chat
+   and let the server write its own.
 
 3. **Baking in an origin.** The moment a `localhost:4400` string lands in an overlay, a control
    page, or a QR code, IRL mode is dead and nobody notices until the day she is outside. Server
@@ -160,8 +164,49 @@ spend a quota that resets daily, and the encryption that would mean anything her
 Electron, which this process must never import. What bounds it instead is that it never leaves
 the server — the slice carries `hasKey`, never the key — never reaches a log or an error
 string, and is restricted to the YouTube Data API in the console. Never compile one in: this
-repo is public and so is the installer. The OAuth credential coming for moderation is a
-different question and gets asked again then.
+repo is public and so is the installer.
+
+The OAuth credential the bot writes with works differently again, and the two rules differ on
+purpose. Her API key is hers: it identifies her project, it is issued to her, and one in the
+installer would be one key spending one quota for every install. The OAuth client identifies the
+*app*, not her — it grants nothing on its own, because every token it can produce needs somebody
+to type a device code into their own Google account first, and RFC 8252 §8.5 says a native app
+cannot hold a secret and treats such a credential as non-confidential.
+
+There are two of them and hers wins. She can paste a client ID and secret on the control page,
+and that is the better path rather than a fallback: the daily quota belongs to whichever Google
+project the credential came from, so a credential the installer ships is a pool every install
+draws on and hers is 10,000 units nobody else can spend. It is the difference between the bot
+going quiet at 4pm because a stranger was busy and going quiet because she was. The client ID is
+echoed back to her page and the secret is not, on the same split as her channel and her API key:
+an ID is public — Google prints it on the consent screen — and reading it back is how she checks
+which of the two boxes she pasted where. A refresh token belongs to the client it was issued to,
+so changing the credential signs her out rather than leaving a card that says she is signed in
+above a bot that refuses every write.
+
+The build's own credential is the fallback, and blank is a supported build rather than a broken
+one — it asks her for one instead. It lives in `COMPILED` in `youtube-oauth.ts`, blank in the
+repo and substituted by esbuild's `define` in `apps/desktop/build.mjs` from
+`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, which `release.yml` takes from repo secrets. That
+keeps it out of git, where rotation would cost a commit and scrapers read for a living. It does
+**not** keep it secret: it ships inside the installer, and `strings` on the bundle finds it in
+seconds. Design as though it is public — the exposure is the shared quota, not her channel. The
+only real fix is a broker service holding the secret server-side, which is not worth running for
+one streamer.
+
+Two more facts about Google, both of which cost an afternoon to rediscover. The scope must be
+`https://www.googleapis.com/auth/youtube`: `youtube.force-ssl` is what nearly every live-chat
+tutorial reaches for and it is **not** on Google's allowed list for the device flow, so asking
+for it fails the first call with a message about scopes that says nothing about device codes.
+And while a consent screen's publishing status is *Testing*, Google expires refresh tokens after
+seven days — so she re-signs-in weekly until the app is verified, whosever project it is. The
+code handles it (`invalid_grant` clears the token and offers the button again), but it is a
+weekly chore, not a bug to go looking for.
+
+Her refresh token is stored in her state file in plaintext, for the reason the API key is and
+with the difference that it can ban people — which is what the `0600` above is for. Nothing
+seeds it from the environment: a refresh token in an env var is a credential in a shell history,
+and signing in is two taps.
 
 OBS control needs its WebSocket server switched on once, in OBS under Tools → WebSocket Server
 Settings. Nothing else: the server reads the port and the generated password out of OBS's own

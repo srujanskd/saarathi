@@ -72,7 +72,16 @@ jobs:
       # first and copied in as extraResources. See electron-builder.config.mjs.
       - run: pnpm --filter @saarathi/overlays build
 
+      # The app's own Google credential, substituted into the server bundle
+      # rather than committed. Both unset is a supported build, not a broken
+      # one: she can paste a credential of her own on the control page, and
+      # hers is the better answer anyway because the daily quota belongs to
+      # whichever Google project the credential came from. So this does not
+      # refuse -- `build.mjs` says which of the two builds it made, in the log.
       - run: pnpm --filter @saarathi/desktop build
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
 
       # --publish always uploads onto the release the job above created, which
       # is why the version in the installer is read from the root package.json

@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import type { Logger } from "@saarathi/shared";
 
@@ -97,7 +104,19 @@ export class JsonStore implements StateStore {
       mkdirSync(dirname(this.file), { recursive: true });
       // Write-then-rename: a crash mid-write leaves her last good file intact.
       const tmp = `${this.file}.tmp`;
-      writeFileSync(tmp, JSON.stringify(this.doc, null, 2));
+      // Hers to read and nobody else's. This file holds her OBS password, her
+      // YouTube API key and -- since the bot learned to write -- a Google
+      // refresh token that can post as her and ban her viewers.
+      //
+      // The mode goes on the temp file rather than on the finished one because
+      // the rename is what publishes it: a file that is briefly
+      // world-readable is readable by whatever was watching, and on a VPS with
+      // other people on it that is the whole point of bothering. And the temp
+      // file is removed first because `writeFileSync` applies `mode` only when
+      // it *creates* the file -- one a crash left behind would otherwise be
+      // opened, truncated, and keep whatever permissions it arrived with.
+      rmSync(tmp, { force: true });
+      writeFileSync(tmp, JSON.stringify(this.doc, null, 2), { mode: 0o600 });
       renameSync(tmp, this.file);
     } catch (err) {
       this.log.error(`store: could not write ${this.file}`, err);
