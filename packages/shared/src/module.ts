@@ -183,8 +183,15 @@ export interface ModuleContext<S> {
   /** Timers are cancelled for you when the module stops. */
   after(ms: number, fn: () => void): Cancel;
   every(ms: number, fn: () => void): Cancel;
-  /** Bot reply. Platform-agnostic; a no-op until the send path exists. */
-  say(text: string): void;
+  /**
+   * A bot reply. The effect her control page renders always fires; chat hears
+   * it too when an adapter can write and the budget allows it.
+   *
+   * `key` is what this reply is about — a command binding, an action id — so
+   * replies about the same thing merge on one window and a balance does not
+   * share a sentence with a refusal. Tier is not this module's to pick.
+   */
+  say(text: string, key: string): void;
   log: Logger;
 }
 

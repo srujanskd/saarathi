@@ -1,5 +1,16 @@
 import type { Author, ChannelStats, MockChatInput, StreamEvent } from "@saarathi/shared";
-import type { ChatAdapter, ChatSink } from "./adapter.js";
+import type { ChatAdapter, ChatSink, ChatWrites } from "./adapter.js";
+
+/**
+ * What the bot is called when mock chat echoes its own writes back.
+ *
+ * It speaks as her, because that is what the real path does: the reply goes out
+ * over her own grant, from her own channel, and every rule that reads an author
+ * has to see the same thing here as it would on YouTube. That includes the ones
+ * with teeth -- moderation exempts her, so the bot cannot end up in her own
+ * queue for quoting a link a viewer just posted.
+ */
+const MOCK_BOT = "Saarathi";
 
 /**
  * The author id mock chat gives a viewer.
@@ -30,6 +41,32 @@ export class MockChatAdapter implements ChatAdapter {
    * lets a stream-scoped goal be watched re-arming without a live stream.
    */
   private readonly streamKey = `mock:${Date.now()}`;
+
+  /** Message ids handed to `writes.deleteMessage`, in order. */
+  readonly deleted: string[] = [];
+  /** Author ids handed to `writes.ban`, in order. */
+  readonly banned: string[] = [];
+
+  /**
+   * Mock chat writes, and this is the reason it is the first producer of them
+   * rather than the last: everything the write path decides -- which tier gets
+   * cut first, what a coalescing window merges, what the counter says at the end
+   * of the day -- is observable from a keyboard here, with no Google account
+   * anywhere near it. A no-op would have made every one of those a thing only a
+   * live stream could show.
+   *
+   * `say` echoes into its own event stream, so a reply arrives as a message the
+   * way a reply on YouTube does: it lands in her chat log, and the rules that
+   * watch chat see it. The two moderation calls only record, because the only
+   * honest thing a stand-in can do with a delete is remember it was asked for.
+   * Mock messages carry no `messageId` -- see `EventBase.messageId` -- so what
+   * arrives here in a demo is whatever her queue's buttons decide to send.
+   */
+  readonly writes: ChatWrites = {
+    say: async (text: string) => this.speak(text),
+    deleteMessage: async (messageId: string) => void this.deleted.push(messageId),
+    ban: async (authorId: string) => void this.banned.push(authorId),
+  };
 
   async start(sink: ChatSink): Promise<void> {
     this.sink = sink;
@@ -95,5 +132,18 @@ export class MockChatAdapter implements ChatAdapter {
     }
 
     this.sink.event(event);
+  }
+
+  /** The bot's own line, back through the sink that carries everything else. */
+  private speak(text: string): void {
+    const line = text.trim();
+    if (!this.sink || !line) return;
+    this.sink.event({
+      type: "chat-message",
+      source: this.name,
+      author: { id: mockAuthorId(MOCK_BOT), name: MOCK_BOT, isStreamer: true },
+      at: Date.now(),
+      text: line,
+    });
   }
 }

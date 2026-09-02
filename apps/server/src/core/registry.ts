@@ -37,7 +37,11 @@ export interface RegistryDeps {
   /** The counts, read-only. A core service every module shares, like OBS. */
   stats: StatsView;
   log: Logger;
-  say(text: string): void;
+  /**
+   * A bot reply, with what it is about: replies about the same command merge
+   * into one message. The module names the key; tier is not its to pick.
+   */
+  say(text: string, key: string): void;
   onPatch(module: string, state: unknown): void;
   onEffect(effect: Effect): void;
   /** Something in the core slice changed, so it needs republishing. */
@@ -412,7 +416,7 @@ export class Registry {
       },
       after: (ms, fn) => track(setTimeout(fn, ms), false),
       every: (ms, fn) => track(setInterval(fn, ms), true),
-      say: (text) => this.deps.say(text),
+      say: (text, key) => this.deps.say(text, key),
       log: this.deps.log,
     };
   }

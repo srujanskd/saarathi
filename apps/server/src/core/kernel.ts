@@ -22,6 +22,7 @@ import { Registry } from "./registry.js";
 import { Stats } from "./stats.js";
 import type { StateStore } from "./store.js";
 import { CommandGate, parseCommand } from "./triggers.js";
+import { ChatWriter, WriteMeter, type SayTier } from "./writes.js";
 
 export interface KernelDeps {
   modules: GameModuleDef[];
@@ -44,6 +45,7 @@ export class Kernel {
   private readonly deck: Deck;
   private readonly stats: Stats;
   private readonly gate: CommandGate;
+  private readonly writer: ChatWriter;
   private readonly mock?: MockChatAdapter;
   private readonly connections: Record<string, ConnectionStatus> = {};
   private obsView: ObsView;
@@ -59,6 +61,16 @@ export class Kernel {
       this.emitPatch(CORE_ID, this.coreState()),
     );
     this.gate = new CommandGate(this.gains);
+    this.writer = new ChatWriter(
+      deps.chat,
+      new WriteMeter(deps.store, deps.log),
+      deps.log,
+      () =>
+        deps.chat.some(
+          (adapter) =>
+            !adapter.standIn && this.connections[adapter.name]?.state === "connected",
+        ),
+    );
     this.mock = deps.chat.find((adapter): adapter is MockChatAdapter => adapter instanceof MockChatAdapter);
 
     this.registry = new Registry({
@@ -69,7 +81,7 @@ export class Kernel {
       deck: this.deck,
       stats: this.stats.forModules(),
       log: deps.log,
-      say: (text) => this.say(text),
+      say: (text, key) => this.say(text, "info", key),
       onPatch: (module, state) => this.emitPatch(module, state),
       onEffect: (effect) => this.emitEffect(effect),
       onCoreChange: () => this.emitPatch(CORE_ID, this.coreState()),
@@ -119,6 +131,7 @@ export class Kernel {
 
   async stop(): Promise<void> {
     this.stats.stop();
+    this.writer.stop();
     for (const adapter of this.deps.chat) await adapter.stop().catch(() => {});
     await this.deps.obs.stop().catch(() => {});
     await this.registry.stop();
@@ -136,6 +149,7 @@ export class Kernel {
       deck: this.deck.view(),
       stats: this.stats.snapshot(),
       chat: chatViews(this.deps.chat),
+      writes: this.writer.view(),
     };
   }
 
@@ -203,7 +217,7 @@ export class Kernel {
     const gate = this.gate.consume(key, found.spec, event.author, event.at);
     if (!gate.ok) {
       this.deps.log.info(`!${event.command} from ${event.author.name} refused: ${gate.reason}`);
-      this.say(`@${event.author.name} ${gate.reason}`);
+      this.say(`@${event.author.name} ${gate.reason}`, "refusal", key);
       return;
     }
 
@@ -225,7 +239,7 @@ export class Kernel {
       // The trigger did not happen, so it costs nothing: the cooldown it
       // stamped and the gains it debited both go back.
       gate.release();
-      this.say(`@${event.author.name} ${result.reason}`);
+      this.say(`@${event.author.name} ${result.reason}`, "refusal", key);
     }
   }
 
@@ -238,13 +252,19 @@ export class Kernel {
   }
 
   /**
-   * Bot replies have no send path yet (that needs the official API and a
-   * one-time sign-in), so they go to the log and to her control page as an
-   * effect. Refusal reasons stay visible either way.
+   * A bot reply, said twice: to the log and her control page as an effect, and
+   * to chat itself when an adapter can write and the budget allows it.
+   *
+   * Additive rather than a mode switch, and that is the load-bearing part. A
+   * dev run with mock chat, CI, a VPS with no grant and a grant that was
+   * revoked ten minutes ago all behave exactly as they did before the write
+   * path existed, because the surface she reads refusals on is the one that
+   * never depended on Google. What chat gets is the extra.
    */
-  private say(text: string): void {
+  private say(text: string, tier: SayTier, key: string): void {
     this.deps.log.info(`say: ${text}`);
     this.emitEffect({ module: CORE_ID, name: "say", payload: { text } });
+    this.writer.say({ text, tier, key });
   }
 
   private emitPatch(module: string, state: unknown): void {
