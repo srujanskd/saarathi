@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { CORE_ACTIONS, type ChatView, type InvokeResult } from "@saarathi/shared";
-import { chatCommand, chatViews, type ChatAdapter } from "../../src/chat/adapter.js";
+import {
+  chatCommand,
+  chatViews,
+  type ChatAdapter,
+  type ChatClientInput,
+} from "../../src/chat/adapter.js";
 import { channelIdFrom } from "../../src/chat/youtube.js";
 import { MockChatAdapter } from "../../src/chat/mock.js";
 
@@ -30,6 +35,40 @@ function settable(name = "youtube") {
     saves,
     forgot: () => forgot,
   };
+  return adapter;
+}
+
+/**
+ * An adapter with the whole of `ChatSettings`, sign-in included.
+ *
+ * Separate from `settable` on purpose: the four sign-in methods are optional,
+ * and what happens on an adapter that has not got them is a behaviour worth a
+ * test of its own -- see the refusals below.
+ */
+function signable(name = "youtube") {
+  const calls: { what: string; input?: ChatClientInput }[] = [];
+  const adapter = {
+    ...settable(name),
+    calls,
+  };
+  Object.assign(adapter.settings!, {
+    signIn: async (): Promise<InvokeResult> => {
+      calls.push({ what: "signIn" });
+      return { ok: true };
+    },
+    signOut: async (): Promise<InvokeResult> => {
+      calls.push({ what: "signOut" });
+      return { ok: true };
+    },
+    setClient: async (input: ChatClientInput): Promise<InvokeResult> => {
+      calls.push({ what: "setClient", input });
+      return { ok: true };
+    },
+    forgetClient: async (): Promise<InvokeResult> => {
+      calls.push({ what: "forgetClient" });
+      return { ok: true };
+    },
+  });
   return adapter;
 }
 
@@ -124,6 +163,92 @@ describe("chatCommand", () => {
   it("refuses a name that is no adapter at all", async () => {
     const result = await chatCommand([settable()], CORE_ACTIONS.chatForgetKey, ["twitch"])!;
     expect(result.ok).toBe(false);
+  });
+
+  /**
+   * The four sign-in actions, which reach an adapter through this same seam.
+   *
+   * Here rather than only through the kernel because this is the wire contract
+   * her control page, the HTTP invoke path and a deck button all encode: which
+   * argument is the client id and which is the secret, and what an adapter with
+   * no sign-in says instead of doing nothing.
+   */
+  describe("the sign-in actions", () => {
+    it("routes each one to the adapter she named", async () => {
+      const youtube = signable();
+      const other = signable("twitch");
+      const both = [other, youtube];
+
+      await chatCommand(both, CORE_ACTIONS.chatSignIn, ["youtube"])!;
+      await chatCommand(both, CORE_ACTIONS.chatSignOut, ["youtube"])!;
+      await chatCommand(both, CORE_ACTIONS.chatForgetClient, ["youtube"])!;
+
+      expect(youtube.calls.map((one) => one.what)).toEqual(["signIn", "signOut", "forgetClient"]);
+      expect(other.calls).toEqual([]);
+    });
+
+    it("puts the client id and the secret in the boxes she pasted them into", async () => {
+      // The argument order is the contract: swapped, she gets Google's
+      // "invalid client", which names neither box.
+      const youtube = signable();
+      const result = await chatCommand(
+        [youtube],
+        CORE_ACTIONS.chatClient,
+        ["youtube", " hers.apps.googleusercontent.com ", " GOCSPX-hers\n"],
+      )!;
+
+      expect(result).toEqual({ ok: true });
+      expect(youtube.calls).toEqual([
+        {
+          what: "setClient",
+          // Trimmed, because a phone's paste brings whitespace with it.
+          input: {
+            clientId: "hers.apps.googleusercontent.com",
+            clientSecret: "GOCSPX-hers",
+          },
+        },
+      ]);
+    });
+
+    it("passes a blank secret through, because blank means unchanged", async () => {
+      const youtube = signable();
+      await chatCommand([youtube], CORE_ACTIONS.chatClient, [
+        "youtube",
+        "hers.apps.googleusercontent.com",
+      ])!;
+      expect(youtube.calls[0]!.input).toEqual({
+        clientId: "hers.apps.googleusercontent.com",
+        clientSecret: "",
+      });
+    });
+
+    it("refuses by name on an adapter that needs no sign-in", async () => {
+      // A deck button she made on a build that had a sign-in, pressed on one
+      // that does not. Silence would leave her pressing it again.
+      const plain = settable();
+      for (const action of [
+        CORE_ACTIONS.chatSignIn,
+        CORE_ACTIONS.chatSignOut,
+        CORE_ACTIONS.chatClient,
+        CORE_ACTIONS.chatForgetClient,
+      ]) {
+        const result = await chatCommand([plain], action, ["youtube"])!;
+        expect(result).toEqual({ ok: false, reason: "youtube needs no sign-in" });
+      }
+    });
+
+    it("answers for each of them rather than leaving one unrouted", () => {
+      // A new action id that never reaches `CHAT_ACTIONS` would fall through
+      // the registry as "no such action", which is a silence on her card.
+      for (const action of [
+        CORE_ACTIONS.chatSignIn,
+        CORE_ACTIONS.chatSignOut,
+        CORE_ACTIONS.chatClient,
+        CORE_ACTIONS.chatForgetClient,
+      ]) {
+        expect(chatCommand([signable()], action, ["youtube"])).not.toBeNull();
+      }
+    });
   });
 });
 

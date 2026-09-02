@@ -74,21 +74,21 @@ const COMPILED: OAuthClient = {
 
 /** What this build carries, or null when it carries nothing. */
 export function oauthClient(env?: NodeJS.ProcessEnv): OAuthClient | null {
-  return credential(
+  return clientFrom(
     env?.GOOGLE_CLIENT_ID ?? COMPILED.id,
     env?.GOOGLE_CLIENT_SECRET ?? COMPILED.secret,
   );
 }
 
 /**
- * A credential out of two stored strings, or null when it is not a pair.
+ * An `OAuthClient` out of two stored strings, or null when it is not a pair.
  *
  * The one place that decides what "complete" means, because three callers ask:
  * the build's own, hers, and the card's `ownClient` flag. Half a credential is
  * treated as none -- it can only fail, and failing on the first request would
  * tell her nothing about which half she is missing.
  */
-export function credential(id: string, secret: string): OAuthClient | null {
+export function clientFrom(id: string, secret: string): OAuthClient | null {
   const trimmedId = id.trim();
   const trimmedSecret = secret.trim();
   return trimmedId && trimmedSecret ? { id: trimmedId, secret: trimmedSecret } : null;
@@ -105,6 +105,22 @@ const CLIENT_ID_SUFFIX = ".apps.googleusercontent.com";
  */
 export const CLIENT_WHERE =
   "In the Google Cloud console: APIs & Services \u2192 Credentials \u2192 Create credentials \u2192 OAuth client ID, and pick \u201cTVs and Limited Input devices\u201d.";
+
+/**
+ * The one thing about a Google project that surprises her a week later.
+ *
+ * While a consent screen's publishing status is Testing -- which is what a
+ * project starts as, and what hers will stay as unless she puts it through
+ * verification -- Google expires the sign-in after seven days. The code copes
+ * with it (`invalid_grant` clears the grant and offers the button again), but
+ * coping is not the same as her knowing why the bot went quiet on day eight, and
+ * a fact she meets once at setup is cheaper than one she debugs.
+ *
+ * Said here rather than on her card for the reason `CLIENT_WHERE` is: it is a
+ * fact about Google, and the card holds none.
+ */
+export const SIGN_IN_LASTS =
+  "While the Google project is still in Testing, Google ends the sign-in after seven days, so this is a weekly tap until the project is verified.";
 
 /**
  * What is wrong with what she pasted into the client id box, or null.

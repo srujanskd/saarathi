@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WRITES_ID, type ChatLogState, type GameModuleDef } from "@saarathi/shared";
-import type { ChatAdapter, ChatSink, ChatWrites } from "../../src/chat/adapter.js";
+import {
+  WriteRefused,
+  type ChatAdapter,
+  type ChatSink,
+  type ChatWrites,
+} from "../../src/chat/adapter.js";
 import { MockChatAdapter } from "../../src/chat/mock.js";
 import { MemoryStore } from "../../src/core/store.js";
 import {
@@ -37,10 +42,14 @@ function platform(
 ) {
   const wrote: string[] = [];
   let fail = false;
+  let exhausted = false;
   let sink: ChatSink | null = null;
 
   const writes: ChatWrites = {
     say: async (text) => {
+      // The one refusal that crosses the seam as more than a sentence: the
+      // day's allowance is gone, which is a state rather than a bad minute.
+      if (exhausted) throw new WriteRefused("quota gone", true);
       if (fail) throw new Error("403");
       wrote.push(text);
     },
@@ -51,6 +60,7 @@ function platform(
   const adapter: ChatAdapter & {
     wrote: string[];
     breaks: () => void;
+    runsOut: () => void;
     viewerSays: (text: string, author?: string) => void;
   } = {
     name,
@@ -70,6 +80,9 @@ function platform(
     wrote,
     breaks: () => {
       fail = true;
+    },
+    runsOut: () => {
+      exhausted = true;
     },
     viewerSays: (text, author = "TestViewer") =>
       sink?.event({
@@ -350,6 +363,53 @@ describe("what the bot says reaches chat", () => {
     // been charged, and the next one has to assume it was.
     expect(h.kernel.snapshot().core.writes.used).toBe(1);
     expect(h.seen.said()).toHaveLength(1);
+  });
+});
+
+describe("a quota the platform says is gone", () => {
+  it("stops trying, and says so on her card, at a count with room left in it", async () => {
+    // The state no local counter can predict: the daily allowance belongs to
+    // the whole Google project -- spent by the counts poll and by every other
+    // install sharing a built-in credential -- so it runs out while this meter
+    // still thinks there is room. One more reply after that is a write spent
+    // learning what we already know.
+    vi.useFakeTimers();
+    const { youtube, h } = await withWriter();
+    youtube.runsOut();
+
+    h.chat("!spin");
+    await vi.advanceTimersByTimeAsync(0);
+    await window();
+
+    expect(h.kernel.snapshot().core.writes).toMatchObject({ used: 1, outOfQuota: true });
+
+    // And the next one does not even try.
+    h.chat("!spin");
+    await vi.advanceTimersByTimeAsync(0);
+    await window();
+
+    expect(h.kernel.snapshot().core.writes.used).toBe(1);
+    expect(youtube.wrote).toEqual([]);
+    // She still sees both refusals on her control page, which is what makes
+    // the bot going quiet legible rather than mysterious.
+    expect(h.seen.said()).toHaveLength(2);
+  });
+
+  it("survives the restart she does when the bot goes quiet", async () => {
+    // Restarting the tray at 4pm must not put it back to cheerfully spending
+    // writes on a quota that is still gone.
+    vi.useFakeTimers();
+    const store = new MemoryStore();
+    const first = await withWriter({ store });
+    first.youtube.runsOut();
+    first.h.chat("!spin");
+    await vi.advanceTimersByTimeAsync(0);
+    await window();
+    expect(first.h.kernel.snapshot().core.writes.outOfQuota).toBe(true);
+    await live?.stop();
+
+    const again = await withWriter({ store });
+    expect(again.h.kernel.snapshot().core.writes.outOfQuota).toBe(true);
   });
 });
 

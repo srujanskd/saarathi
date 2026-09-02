@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LOCKDOWN_MS, MODERATION_ID, NO_WRITER, WRITES_ID } from "@saarathi/shared";
-import type { ChatAdapter, ChatSink, ChatWrites } from "../../src/chat/adapter.js";
+import {
+  WriteRefused,
+  type ChatAdapter,
+  type ChatSink,
+  type ChatWrites,
+} from "../../src/chat/adapter.js";
 import { MockChatAdapter } from "../../src/chat/mock.js";
 import { MemoryStore } from "../../src/core/store.js";
 import { MODERATION_RESERVE, WRITE_CEILING, quotaDay } from "../../src/core/writes.js";
@@ -380,6 +385,30 @@ describe("what moderation is allowed to spend", () => {
     expect(h.kernel.coreState().writes.used).toBe(WRITE_CEILING + 11);
   });
 
+  it("still tries when the platform says the day is over, and remembers that it said so", async () => {
+    // The two halves of this are deliberately different answers to the same
+    // fact. A delete attempts anyway -- the reserve exists so it can, and a
+    // 403 costs her nothing next to the write she needed. But a moderation
+    // refusal is often the first thing to *find out* the quota is gone, and the
+    // replies that would otherwise keep spending writes on the discovery are
+    // the ones that should stop.
+    const platform = exhausted();
+    live = await harness({ modules: [moderation], chat: [platform], store: new MemoryStore() });
+    platform.viewerSays(SCAM, "Spammer");
+
+    const done = await live.kernel.invoke(`${MODERATION_ID}.remove`, { args: [first(live).id] });
+
+    // It tried, it answered with the platform's own sentence, and the row is
+    // still there for her to press again after the reset.
+    expect(platform.deleted).toHaveLength(1);
+    expect(done).toEqual({ ok: false, reason: "YouTube has used up today's quota." });
+    expect(flags(live)).toHaveLength(1);
+
+    // And her card now says the bot is quiet rather than showing a counter
+    // with room left in it.
+    expect(live.kernel.coreState().writes).toMatchObject({ used: 1, outOfQuota: true });
+  });
+
   it("counts a write that threw, because it may still have been charged", async () => {
     const platform = refusing("403");
     live = await harness({ modules: [moderation], chat: [platform], store: new MemoryStore() });
@@ -465,6 +494,34 @@ function refusing(reason: string, from = 1): Fake {
       ban: async (authorId) => {
         adapter.banned.push(authorId);
         throw new Error(reason);
+      },
+    },
+  });
+  return adapter;
+}
+
+/**
+ * A platform that has spent the day's quota.
+ *
+ * Its own helper beside `refusing` because the difference is the whole point:
+ * this one throws the refusal that crosses the adapter seam as more than a
+ * sentence, and an ordinary `Error` -- which is what `refusing` throws -- must
+ * not be mistaken for it.
+ */
+function exhausted(): Fake {
+  const adapter: Fake = fake({
+    name: "spent",
+    writes: {
+      say: async () => {
+        throw new WriteRefused("YouTube has used up today's quota.", true);
+      },
+      deleteMessage: async (messageId) => {
+        adapter.deleted.push(messageId);
+        throw new WriteRefused("YouTube has used up today's quota.", true);
+      },
+      ban: async (authorId) => {
+        adapter.banned.push(authorId);
+        throw new WriteRefused("YouTube has used up today's quota.", true);
       },
     },
   });

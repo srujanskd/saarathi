@@ -190,9 +190,10 @@ describe("JsonStore", () => {
   posix("tightens a temp file a crash left behind, loose", () => {
     // Write-then-rename means the mode on the temp file is the mode she gets,
     // and `writeFileSync` applies one only when it *creates* the file. A crash
-    // mid-save leaves a temp file behind; the next save opens that one and
-    // truncates it, keeping whatever permissions it had. Which is why the mode
-    // is forced after the write rather than asked for during it.
+    // mid-save leaves a temp file behind; the next save would open that one and
+    // truncate it, keeping whatever permissions it arrived with. Which is why
+    // the leftover is removed first, so the write that follows is a create and
+    // the mode it asks for is the mode it gets.
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(`${file}.tmp`, "{}", { mode: 0o644 });
     chmodSync(`${file}.tmp`, 0o644);

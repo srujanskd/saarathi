@@ -557,6 +557,45 @@ describe("the writes themselves", () => {
     });
   });
 
+  it("finds it once for a burst that arrives together, not once each", async () => {
+    // The same failure the shared refresh exists to avoid, one call further
+    // up: sweeping her queue is twenty writes at once, and on a cold cache
+    // every one of them would ask YouTube which chat this is. Nineteen wasted
+    // quota units and a rate limit for pressing one button.
+    const yt = api();
+    const kit = await signedIn({ request: yt.request });
+
+    await Promise.all([
+      kit.adapter.writes!.ban("a"),
+      kit.adapter.writes!.ban("b"),
+      kit.adapter.writes!.ban("c"),
+    ]);
+
+    expect(yt.asked.filter((one) => one.method === "GET")).toHaveLength(1);
+    expect(yt.writes()).toHaveLength(3);
+  });
+
+  it("asks again after a lookup that failed, rather than remembering it", async () => {
+    // The de-duplicator is for callers that arrive together, not a second
+    // cache: a lookup that failed on her Wi-Fi must not be the answer the next
+    // write gets.
+    let attempt = 0;
+    const request: JsonRequest = async (input) => {
+      if (input.method !== "GET") return { status: 200, body: {} };
+      attempt += 1;
+      if (attempt === 1) return { status: 500, body: null };
+      return {
+        status: 200,
+        body: { items: [{ liveStreamingDetails: { activeLiveChatId: CHAT_ID } }] },
+      };
+    };
+    const kit = await signedIn({ request });
+
+    await expect(kit.adapter.writes!.say("first")).rejects.toThrow();
+    await expect(kit.adapter.writes!.say("second")).resolves.toBeUndefined();
+    expect(attempt).toBe(2);
+  });
+
   it("takes a message down without needing the chat at all", async () => {
     const yt = api();
     const kit = await signedIn({ request: yt.request });

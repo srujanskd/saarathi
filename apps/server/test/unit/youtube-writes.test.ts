@@ -4,6 +4,7 @@ import {
   banUser,
   deleteMessage,
   insertMessage,
+  refused,
   refusal,
   type JsonRequest,
   type JsonResponse,
@@ -19,7 +20,7 @@ function youtube(...answers: JsonResponse[]) {
     asked.push(input);
     return answers[Math.min(next++, answers.length - 1)]!;
   };
-  return { request, asked };
+  return { request, asked, api: (token = "token") => ({ token, request }) };
 }
 
 const CHAT_ID = "Cg0KC2FiY2RlZmdoaWpr";
@@ -34,7 +35,7 @@ describe("finding the chat on the video she is live on", () => {
       body: { items: [{ liveStreamingDetails: { activeLiveChatId: CHAT_ID } }] },
     });
 
-    expect(await activeChatId("vid123", "token", yt.request)).toBe(CHAT_ID);
+    expect(await activeChatId("vid123", yt.api())).toBe(CHAT_ID);
     expect(yt.asked[0]!.method).toBe("GET");
     expect(yt.asked[0]!.url).toContain("part=liveStreamingDetails");
     expect(yt.asked[0]!.url).toContain("id=vid123");
@@ -45,7 +46,7 @@ describe("finding the chat on the video she is live on", () => {
     // A broadcast that has ended, or one with chat switched off. Neither is a
     // bug and neither is worth a retry.
     const yt = youtube({ status: 200, body: { items: [{ liveStreamingDetails: {} }] } });
-    await expect(activeChatId("vid", "t", yt.request)).rejects.toThrow(
+    await expect(activeChatId("vid", yt.api("t"))).rejects.toThrow(
       "That stream has no live chat open any more.",
     );
   });
@@ -54,7 +55,7 @@ describe("finding the chat on the video she is live on", () => {
     // An unknown id comes back 200 with an empty list rather than a 404, so
     // this is the only place a stale video id is noticed at all.
     const yt = youtube({ status: 200, body: { items: [] } });
-    await expect(activeChatId("gone", "t", yt.request)).rejects.toThrow("no live chat open");
+    await expect(activeChatId("gone", yt.api("t"))).rejects.toThrow("no live chat open");
   });
 });
 
@@ -62,7 +63,7 @@ describe("posting a line as her channel", () => {
   it("sends the documented shape for a text message", async () => {
     const yt = youtube({ status: 200, body: {} });
 
-    await insertMessage(CHAT_ID, "@viewer 12 gains", "token", yt.request);
+    await insertMessage(CHAT_ID, "@viewer 12 gains", yt.api());
 
     expect(yt.asked[0]).toMatchObject({
       method: "POST",
@@ -79,7 +80,7 @@ describe("posting a line as her channel", () => {
 
   it("throws with words she can read when YouTube refuses", async () => {
     const yt = youtube({ status: 403, body: { error: { errors: [{ reason: "blockedUser" }] } } });
-    await expect(insertMessage(CHAT_ID, "hi", "t", yt.request)).rejects.toThrow(
+    await expect(insertMessage(CHAT_ID, "hi", yt.api("t"))).rejects.toThrow(
       "YouTube blocked that message. It may have looked like spam.",
     );
   });
@@ -91,7 +92,7 @@ describe("taking a message down", () => {
     // broadcast ended can still be acted on.
     const yt = youtube({ status: 204, body: null });
 
-    await deleteMessage("msg-abc", "token", yt.request);
+    await deleteMessage("msg-abc", yt.api());
 
     expect(yt.asked[0]!.method).toBe("DELETE");
     expect(yt.asked[0]!.url).toContain("id=msg-abc");
@@ -100,7 +101,7 @@ describe("taking a message down", () => {
 
   it("treats 204 with no body as success, because that is what a delete answers", async () => {
     const yt = youtube({ status: 204, body: null });
-    await expect(deleteMessage("m", "t", yt.request)).resolves.toBeUndefined();
+    await expect(deleteMessage("m", yt.api("t"))).resolves.toBeUndefined();
   });
 
   it("says a message that is already gone is already gone", async () => {
@@ -108,7 +109,7 @@ describe("taking a message down", () => {
       status: 404,
       body: { error: { errors: [{ reason: "liveChatMessageNotFound" }] } },
     });
-    await expect(deleteMessage("m", "t", yt.request)).rejects.toThrow("already gone");
+    await expect(deleteMessage("m", yt.api("t"))).rejects.toThrow("already gone");
   });
 });
 
@@ -116,7 +117,7 @@ describe("banning an account", () => {
   it("sends a permanent ban against the chat and the channel", async () => {
     const yt = youtube({ status: 200, body: {} });
 
-    await banUser(CHAT_ID, "UCviewer", "token", yt.request);
+    await banUser(CHAT_ID, "UCviewer", yt.api());
 
     expect(yt.asked[0]).toMatchObject({
       method: "POST",
@@ -146,6 +147,23 @@ describe("what she is told about a refusal", () => {
     expect(refusal(because("quotaExceeded"), "post that")).toBe(
       "YouTube has used up today's quota, so it will not post that. It resets at midnight Pacific time.",
     );
+  });
+
+  it("keeps a rate limit apart from a spent quota, because one comes back", () => {
+    // Folded together they cost her the difference: Google asking us to slow
+    // down for a moment is worth pressing again, and a day that is over is not.
+    expect(refusal(because("rateLimitExceeded"), "post that")).toContain("Try again in a moment");
+    expect(refusal(because("rateLimitExceeded"), "post that")).not.toContain("today's quota");
+  });
+
+  it("marks the one refusal the core has to remember, and nothing else", () => {
+    // `outOfQuota` is the only distinction that crosses the adapter seam: the
+    // meter goes to a state on it, where everything else is a sentence.
+    expect(refused(because("quotaExceeded"), "post that").outOfQuota).toBe(true);
+    expect(refused(because("rateLimitExceeded"), "post that").outOfQuota).toBe(false);
+    expect(refused({ status: 503, body: null }, "post that").outOfQuota).toBe(false);
+    // And it still carries the sentence her queue renders.
+    expect(refused(because("quotaExceeded"), "post that").message).toContain("midnight Pacific");
   });
 
   it("tells her which refusals a fresh sign-in might fix", () => {

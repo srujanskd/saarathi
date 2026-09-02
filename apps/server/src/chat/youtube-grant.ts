@@ -236,7 +236,7 @@ export class YouTubeGrant {
     if (!client || !waiting) return;
 
     if (this.now() >= waiting.expiresAt) {
-      this.give("That code ran out. Start the sign-in again.");
+      this.giveUp("That code ran out. Start the sign-in again.");
       return;
     }
 
@@ -262,13 +262,13 @@ export class YouTubeGrant {
         this.schedule(waiting.intervalMs);
         return;
       case "refused":
-        this.give(answer.reason);
+        this.giveUp(answer.reason);
         return;
     }
   }
 
   /** A sign-in that ended without a grant, and the words to leave behind. */
-  private give(reason: string): void {
+  private giveUp(reason: string): void {
     this.clearPending();
     this.failure = reason;
     this.options.log.warn(`youtube: sign-in ended — ${reason}`);

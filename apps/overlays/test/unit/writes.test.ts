@@ -7,6 +7,7 @@ const meter = (over: Partial<ChatWritesView> = {}): ChatWritesView => ({
   used: 12,
   ceiling: 200,
   reserve: 50,
+  outOfQuota: false,
   ...over,
 });
 
@@ -15,6 +16,16 @@ describe("writesLine", () => {
     // Units are the thing nothing can measure. Writes are the thing we count.
     const line = writesLine(meter(), "youtube");
     expect(line).toBe("12 of 200 writes today · 50 kept back for moderation");
+  });
+
+  it("says the day is over when the platform has said so, whatever the count is", () => {
+    // The quota belongs to the whole Google project, so it can run out with
+    // this counter still showing room -- and a number with room in it is the
+    // wrong thing to read while the bot is silent.
+    const line = writesLine(meter({ used: 12, outOfQuota: true }), "youtube");
+    expect(line).toContain("quota is spent");
+    expect(line).toContain("midnight Pacific");
+    expect(line).not.toContain("kept back for moderation");
   });
 
   it("says nothing on the card of an adapter that is not the one writing", () => {

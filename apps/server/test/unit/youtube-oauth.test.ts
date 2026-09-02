@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   YOUTUBE_SCOPE,
+  clientFrom,
   clientIdProblem,
-  credential,
   oauthClient,
   pollForToken,
   refreshAccess,
@@ -49,9 +49,9 @@ describe("the credential this build was compiled with", () => {
 describe("what counts as a complete credential", () => {
   it("needs both halves, and trims what she pasted", () => {
     // A phone's paste brings whitespace with it more often than not.
-    expect(credential("  id  ", "\tsecret\n")).toEqual({ id: "id", secret: "secret" });
-    expect(credential("id", "   ")).toBeNull();
-    expect(credential("", "secret")).toBeNull();
+    expect(clientFrom("  id  ", "\tsecret\n")).toEqual({ id: "id", secret: "secret" });
+    expect(clientFrom("id", "   ")).toBeNull();
+    expect(clientFrom("", "secret")).toBeNull();
   });
 });
 

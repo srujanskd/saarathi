@@ -6,7 +6,7 @@ import {
   type InvokeResult,
   type Logger,
 } from "@saarathi/shared";
-import type { ChatAdapter, ChatWrites } from "../chat/adapter.js";
+import { outOfQuota, type ChatAdapter, type ChatWrites } from "../chat/adapter.js";
 import type { StateStore } from "./store.js";
 
 /**
@@ -171,6 +171,22 @@ export function composeReply(
 export class WriteMeter {
   private today: string;
   private count = 0;
+  /**
+   * Whether the platform has told us today's allowance is gone.
+   *
+   * A state rather than one more failed write in the log, because it is the one
+   * refusal that is still true a minute later: everything else here -- her
+   * Wi-Fi, a 500, Google asking us to slow down -- is worth trying again, and
+   * this is not, until it resets. It is also the one thing no local counter can
+   * predict: the quota belongs to the whole Google project and is spent by the
+   * counts poll and by every other install sharing a built-in credential, so
+   * exhaustion arrives at a `used` this meter thinks has room left in it.
+   *
+   * Persisted with the count and scoped to the same day, so a restart at 4pm
+   * does not put the bot back to cheerfully trying, and midnight clears it
+   * without anything having to be running at midnight.
+   */
+  private spent = false;
 
   constructor(
     private readonly store: StateStore,
@@ -186,6 +202,7 @@ export class WriteMeter {
     // midnight, so nothing has to have been running at midnight.
     if (savedDay === this.today && Number.isFinite(savedCount)) {
       this.count = Math.max(0, Math.floor(savedCount));
+      this.spent = saved?.spent === true;
     }
   }
 
@@ -199,16 +216,46 @@ export class WriteMeter {
     return Math.max(0, WRITE_CEILING - this.used);
   }
 
+  /**
+   * Whether the platform has said today's allowance is gone.
+   *
+   * Read rather than inferred from `used`: the two disagree on purpose, and
+   * that disagreement is the whole reason this exists.
+   */
+  get outOfQuota(): boolean {
+    this.rollover();
+    return this.spent;
+  }
+
   /** Whether a reply of this tier may spend a write right now. */
   allows(tier: SayTier): boolean {
+    // Nothing is worth attempting once the day is over, whatever the count
+    // says. Moderation does not come through here: a delete still tries, and
+    // eating a 403 for a ban is the trade this file already makes.
+    if (this.outOfQuota) return false;
     return this.remaining > SAY_FLOOR[tier];
+  }
+
+  /**
+   * The platform refused a write because the day's allowance is gone.
+   *
+   * Told to the meter rather than worked out by it, because only the adapter
+   * can know -- see `WriteRefused`. Idempotent: a burst of twenty writes all
+   * refusing is one state and one line, not twenty.
+   */
+  outOfQuotaNow(): void {
+    this.rollover();
+    if (this.spent) return;
+    this.spent = true;
+    this.persist();
+    this.log.warn("writes: the platform says today's quota is gone, so the bot has gone quiet");
   }
 
   /** Records one write, whatever it was for and whether or not it landed. */
   spend(what: string): void {
     this.rollover();
     this.count += 1;
-    this.store.write(WRITES_ID, { day: this.today, used: this.count });
+    this.persist();
     this.log.info(`writes: ${this.count} of ${WRITE_CEILING} today (${what})`);
   }
 
@@ -218,6 +265,7 @@ export class WriteMeter {
       used: this.used,
       ceiling: WRITE_CEILING,
       reserve: MODERATION_RESERVE,
+      outOfQuota: this.outOfQuota,
     };
   }
 
@@ -226,7 +274,14 @@ export class WriteMeter {
     if (current === this.today) return;
     this.today = current;
     this.count = 0;
-    this.store.write(WRITES_ID, { day: this.today, used: 0 });
+    // A new day is a new allowance, so the exhausted state goes with the count
+    // it was recorded beside.
+    this.spent = false;
+    this.persist();
+  }
+
+  private persist(): void {
+    this.store.write(WRITES_ID, { day: this.today, used: this.count, spent: this.spent });
   }
 }
 
@@ -402,6 +457,11 @@ export class ChatWriter {
     try {
       await target.writes.say(text);
     } catch (err) {
+      // The one failure worth remembering rather than reporting: the day is
+      // over, so the next reply should not spend a write finding that out
+      // again, and her card should say so instead of showing a count with room
+      // left in it.
+      if (outOfQuota(err)) this.meter.outOfQuotaNow();
       this.log.warn(`writes: say failed — ${String(err)}`);
     }
   }
@@ -417,6 +477,12 @@ export class ChatWriter {
    * written for her -- that is the same contract `stats` runs on -- so this
    * passes the message through rather than inventing one, and stays a file that
    * does not know YouTube exists.
+   *
+   * It still attempts once the day's quota is gone, unlike a reply: the whole
+   * argument for the reserve is that a ban is worth eating a 403 for. But it
+   * records what it learned on the way past, because a delete refused at 4pm is
+   * often the first thing to find out that the day is over -- and the replies
+   * that would otherwise keep trying are the ones that should not.
    */
   private async act(
     what: WriteKind,
@@ -433,6 +499,7 @@ export class ChatWriter {
       await call(target.writes);
       return { ok: true };
     } catch (err) {
+      if (outOfQuota(err)) this.meter.outOfQuotaNow();
       const reason = err instanceof Error ? err.message : String(err);
       this.log.warn(`writes: ${what} failed — ${reason}`);
       return { ok: false, reason };

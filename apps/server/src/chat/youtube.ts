@@ -1,6 +1,7 @@
 import type {
   Author,
   ChannelStats,
+  ChatSignInView,
   ChatView,
   InvokeResult,
   Logger,
@@ -9,12 +10,19 @@ import type {
 } from "@saarathi/shared";
 import type { ChatType } from "youtube-chat-next";
 import type { StateStore } from "../core/store.js";
-import type { ChatAdapter, ChatSettings, ChatSink, ChatWrites } from "./adapter.js";
+import {
+  WriteRefused,
+  type ChatAdapter,
+  type ChatSettings,
+  type ChatSink,
+  type ChatWrites,
+} from "./adapter.js";
 import { YouTubeGrant } from "./youtube-grant.js";
 import {
   CLIENT_WHERE,
+  SIGN_IN_LASTS,
+  clientFrom,
   clientIdProblem,
-  credential,
   httpForm,
   type FormPost,
   type OAuthClient,
@@ -26,6 +34,7 @@ import {
   deleteMessage,
   httpJson,
   insertMessage,
+  type Api,
   type JsonRequest,
 } from "./youtube-writes.js";
 
@@ -199,6 +208,21 @@ export class YouTubeAdapter implements ChatAdapter {
    * night's stream is a write posted into a chat nobody is reading.
    */
   private liveChatId: string | null = null;
+  /**
+   * The lookup in flight, if there is one.
+   *
+   * Shared for the reason `YouTubeGrant.refreshing` is, and it is the same
+   * burst: sweeping her queue is twenty writes at once, and on a cold cache
+   * every one of them would otherwise ask YouTube which chat this is. Twenty
+   * lookups is nineteen wasted quota units and a rate limit for pressing one
+   * button -- the exact failure the shared refresh exists to avoid, one call
+   * further down.
+   *
+   * Cleared when it settles, so a failed lookup is retried rather than
+   * remembered: this is a de-duplicator for callers that arrive together, not
+   * a second cache beside `liveChatId`.
+   */
+  private chatIdLookup: Promise<string> | null = null;
   private saved: Saved;
   private readonly seed: YouTubeSeed;
   private readonly get: StatFetch;
@@ -277,21 +301,31 @@ export class YouTubeAdapter implements ChatAdapter {
    */
   private readonly writeCalls: ChatWrites = {
     say: async (text) => {
-      const token = await this.grant.token();
-      await insertMessage(await this.chatId(token), text, token, this.request);
+      const api = await this.api();
+      await insertMessage(await this.chatId(api), text, api);
     },
     // Addressed to the message, so it needs no chat id and works on one from a
     // broadcast that has already ended -- which is exactly the row still
     // sitting in her queue twenty minutes later.
     deleteMessage: async (messageId) => {
-      const token = await this.grant.token();
-      await deleteMessage(messageId, token, this.request);
+      await deleteMessage(messageId, await this.api());
     },
     ban: async (authorId) => {
-      const token = await this.grant.token();
-      await banUser(await this.chatId(token), authorId, token, this.request);
+      const api = await this.api();
+      await banUser(await this.chatId(api), authorId, api);
     },
   };
+
+  /**
+   * A fresh token and the way to spend it.
+   *
+   * Fetched per write rather than held: `grant.token()` refreshes when it is
+   * close to expiring and shares one refresh between callers, which matters
+   * because the callers arrive in twenties when she sweeps her queue.
+   */
+  private async api(): Promise<Api> {
+    return { token: await this.grant.token(), request: this.request };
+  }
 
   /**
    * The counts, for whoever polls. Two calls, one quota unit each, and neither
@@ -315,17 +349,7 @@ export class YouTubeAdapter implements ChatAdapter {
       // and it is everything a page needs to know about either.
       hasKey: this.saved.apiKey !== "",
       hint: WHERE,
-      // Neither the token nor the client secret travels. This is what the
-      // sign-in section renders on, and it is everything a page needs.
-      signIn: {
-        ...this.grant.view(),
-        clientId: this.saved.clientId,
-        hasClientSecret: this.saved.clientSecret !== "",
-        // Whether hers is an override or the only way in, which is the one
-        // thing that changes how prominently her card asks for it.
-        builtIn: this.builtIn !== null,
-        clientHint: CLIENT_WHERE,
-      },
+      signIn: this.signInView(),
     }),
 
     save: async ({ channelId, apiKey }): Promise<InvokeResult> => {
@@ -401,9 +425,37 @@ export class YouTubeAdapter implements ChatAdapter {
     },
   };
 
+  /**
+   * The whole sign-in view, in one place.
+   *
+   * Half of it is the grant's -- whether there is one, what is pending, the
+   * sentence about it -- and half is the credential's, which the grant
+   * deliberately knows nothing about: it is handed a client and cannot tell
+   * whether it was hers or the build's, and that ignorance is what lets
+   * `GrantOptions.client` change underneath it. So the two halves are joined
+   * here rather than in the middle of `view`, where reaching into the grant
+   * for one and the saved fields for the other made the shape of
+   * `ChatSignInView` a thing you had to read two files to see.
+   *
+   * Neither the refresh token nor the client secret travels, on the same rule
+   * the API key follows: this slice reaches every client, and one of them is
+   * her phone on somebody else's network.
+   */
+  private signInView(): ChatSignInView {
+    return {
+      ...this.grant.view(),
+      clientId: this.saved.clientId,
+      hasClientSecret: this.saved.clientSecret !== "",
+      // Whether hers is an override or the only way in, which is the one thing
+      // that changes how prominently her card asks for it.
+      builtIn: this.builtIn !== null,
+      clientHint: `${CLIENT_WHERE} ${SIGN_IN_LASTS}`,
+    };
+  }
+
   /** Her own credential, if she has saved a complete one. */
   private ownClient(): OAuthClient | null {
-    return credential(this.saved.clientId, this.saved.clientSecret);
+    return clientFrom(this.saved.clientId, this.saved.clientSecret);
   }
 
   /**
@@ -414,12 +466,35 @@ export class YouTubeAdapter implements ChatAdapter {
    * InnerTube, so this adapter knows she is not live long before the API would
    * tell us.
    */
-  private async chatId(token: string): Promise<string> {
+  private async chatId(api: Api): Promise<string> {
     if (this.liveChatId) return this.liveChatId;
     const videoId = this.videoId;
-    if (!videoId) throw new Error("She is not live right now, so there is no chat to write to.");
-    this.liveChatId = await activeChatId(videoId, token, this.request);
-    return this.liveChatId;
+    if (!videoId) throw new WriteRefused("She is not live right now, so there is no chat to write to.");
+
+    this.chatIdLookup ??= activeChatId(videoId, api)
+      .then((id) => {
+        // Only if this is still the broadcast we asked about. A stream that
+        // ended mid-lookup cleared the field, and writing the answer back would
+        // put the bot's next line in last night's chat.
+        if (this.videoId === videoId) this.liveChatId = id;
+        return id;
+      })
+      .finally(() => {
+        this.chatIdLookup = null;
+      });
+    return this.chatIdLookup;
+  }
+
+  /**
+   * Drop everything about the chat on the broadcast that just ended.
+   *
+   * One method rather than two assignments at four call sites, because
+   * forgetting the id and leaving a lookup in flight would let an answer about
+   * last night's stream land as this one's.
+   */
+  private forgetChat(): void {
+    this.liveChatId = null;
+    this.chatIdLookup = null;
   }
 
   // --- connecting -----------------------------------------------------------
@@ -451,7 +526,7 @@ export class YouTubeAdapter implements ChatAdapter {
       this.videoId = liveId;
       // A new broadcast is a new chat. Keeping the old id here would post the
       // bot's next line into last night's stream.
-      this.liveChatId = null;
+      this.forgetChat();
       sink.status({ state: "connected", detail: `Reading live chat (video ${liveId})` });
     });
 
@@ -460,7 +535,7 @@ export class YouTubeAdapter implements ChatAdapter {
       // starts its own count, so holding on to this id would render one stream's
       // likes on the next one's goal.
       this.videoId = this.seed.liveId ?? null;
-      this.liveChatId = null;
+      this.forgetChat();
       sink.status({
         state: "disconnected",
         detail: "Live chat ended. Watching for her next stream.",
@@ -489,7 +564,7 @@ export class YouTubeAdapter implements ChatAdapter {
     this.chat?.stop?.();
     this.chat = null;
     this.videoId = this.seed.liveId ?? null;
-    this.liveChatId = null;
+    this.forgetChat();
   }
 
   private async reopen(): Promise<void> {

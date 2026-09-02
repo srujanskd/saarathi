@@ -142,6 +142,12 @@ a menu instead of taking the tray down, and it hands the child four env vars —
 the server; `spawnPlan` is where they live and `test/unit/server-process.test.ts` is what breaks
 when one is renamed. Nothing about a game module belongs in `apps/desktop`.
 
+Those four are the *runtime* contract, and `build.mjs` reads two more —
+`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` — which are a different thing and stay a different
+thing. They are substituted into the bundle at build time and are never handed to the child, so
+the shell still tells the running server nothing about YouTube. If you find yourself wanting a
+platform-specific value in `spawnPlan`, that is the line being crossed.
+
 For the same reason it does not import the server, it does not import the kernel either: a
 global hotkey reaches an action by opening a socket to `127.0.0.1` and calling `invoke`, exactly
 as her deck page does over the LAN. There is one code path into an action and there is not going

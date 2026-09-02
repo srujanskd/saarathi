@@ -252,6 +252,18 @@ export interface ChatWritesView {
    * spends alone.
    */
   reserve: number;
+  /**
+   * True once the platform itself has said today's allowance is gone.
+   *
+   * Its own field rather than `used` reaching `ceiling`, because the two are
+   * different facts and they disagree in the direction that matters: the daily
+   * quota belongs to the whole Google project, spent by the counts poll and by
+   * every other install sharing a built-in credential, so it runs out at a
+   * `used` this counter still thinks has room in it. When that happens the
+   * honest thing to render is that the bot has gone quiet until the reset, not
+   * a meter with a gap left in it.
+   */
+  outOfQuota: boolean;
 }
 
 export interface CoreState {

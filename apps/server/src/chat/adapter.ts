@@ -107,6 +107,44 @@ export interface ChatWrites {
   ban(authorId: string): Promise<void>;
 }
 
+/**
+ * A write the platform would not do, and the one thing about it the core is
+ * allowed to know.
+ *
+ * Every other distinction between failures stays platform knowledge and travels
+ * only as the sentence on `message`: which HTTP status meant what, and which of
+ * Google's dozen reason strings this was, is exactly what the adapter seam
+ * exists to keep out of the core. `outOfQuota` is the exception because it is
+ * the one failure the core has to *remember* rather than report -- the daily
+ * allowance is gone until it resets, so the meter goes to a state rather than
+ * logging one more line -- and "the platform will not write again today" is a
+ * normalized fact, not a platform one.
+ *
+ * Not a status code and not a reason enum, deliberately: one boolean is all the
+ * core acts on, and a second adapter with its own exhaustion answer sets the
+ * same flag rather than teaching the core a second vocabulary.
+ */
+export class WriteRefused extends Error {
+  constructor(
+    message: string,
+    readonly outOfQuota = false,
+  ) {
+    super(message);
+    this.name = "WriteRefused";
+  }
+}
+
+/**
+ * Whether this is the refusal that means today's allowance is gone.
+ *
+ * A function rather than an `instanceof` at the call site because what arrives
+ * in a `catch` is `unknown`, and because the answer for everything else -- her
+ * Wi-Fi, a 500, a thrown string -- is no.
+ */
+export function outOfQuota(err: unknown): boolean {
+  return err instanceof WriteRefused && err.outOfQuota;
+}
+
 export interface ChatSettingsInput {
   /**
    * Blank clears it, which is her way out: an adapter with no channel goes idle
@@ -191,31 +229,37 @@ export function chatCommand(
     return Promise.resolve({ ok: false, reason: `There is nothing to set up for "${name}"` });
   }
 
+  // Four of these are optional on `ChatSettings`, and all four refuse the same
+  // way when the adapter has not got them: a deck button she made on a build
+  // that had a sign-in, pressed on one that does not, has to say so rather
+  // than doing nothing. `orRefuse` is that one sentence, in one place.
+  //
+  // Each thunk calls back through `settings.` rather than holding the method it
+  // was handed, so an adapter that writes these as real methods rather than as
+  // closures keeps its receiver.
+  const orRefuse = (
+    method: (() => Promise<InvokeResult>) | undefined,
+  ): Promise<InvokeResult> =>
+    method ? method() : Promise.resolve({ ok: false, reason: `${name} needs no sign-in` });
+
   switch (actionId) {
     case CORE_ACTIONS.chatForgetKey:
       return settings.forgetKey();
     case CORE_ACTIONS.chatSignIn:
-      // Refused in the adapter's absence rather than silently doing nothing:
-      // a deck button she made on a build that had this, pressed on one that
-      // does not, has to say so.
-      return settings.signIn
-        ? settings.signIn()
-        : Promise.resolve({ ok: false, reason: `${name} needs no sign-in` });
+      return orRefuse(settings.signIn && (() => settings.signIn!()));
     case CORE_ACTIONS.chatSignOut:
-      return settings.signOut
-        ? settings.signOut()
-        : Promise.resolve({ ok: false, reason: `${name} needs no sign-in` });
+      return orRefuse(settings.signOut && (() => settings.signOut!()));
     case CORE_ACTIONS.chatClient:
-      return settings.setClient
-        ? settings.setClient({
-            clientId: (args[1] ?? "").trim(),
-            clientSecret: (args[2] ?? "").trim(),
-          })
-        : Promise.resolve({ ok: false, reason: `${name} needs no sign-in` });
+      return orRefuse(
+        settings.setClient &&
+          (() =>
+            settings.setClient!({
+              clientId: (args[1] ?? "").trim(),
+              clientSecret: (args[2] ?? "").trim(),
+            })),
+      );
     case CORE_ACTIONS.chatForgetClient:
-      return settings.forgetClient
-        ? settings.forgetClient()
-        : Promise.resolve({ ok: false, reason: `${name} needs no sign-in` });
+      return orRefuse(settings.forgetClient && (() => settings.forgetClient!()));
     default:
       return settings.save({
         channelId: (args[1] ?? "").trim(),
