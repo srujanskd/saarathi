@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   FLOOD_WINDOW_MS,
+  LOCKDOWN_MS,
   MAX_FLAGS,
   MOD_RULES,
   MODERATION_ID,
@@ -28,20 +29,25 @@ type ModContext = ModuleContext<ModerationState>;
 /**
  * The moderation layer: what her chat sent that she ought to look at.
  *
- * It watches and it queues, and in this form it writes nothing back to the
- * platform -- deleting a message and banning an account need a Google sign-in
- * that does not exist yet, and the detection half is the half she can have
- * without one. That split is deliberate rather than partial work: a queue she
- * can see from her phone is useful on its own with the live dashboard open in
- * the next tab, and it means every rule in here was proven against mock chat
- * before anything acquired the power to delete.
+ * It watches, it queues, and now it acts: a row in the queue can be taken down
+ * or its author banned, a wave can be swept in one press, and lockdown removes
+ * what the rules catch as it arrives instead of asking her to tap forty times.
+ * Every one of those is `ctx.writes`, which is a core service and an adapter
+ * capability -- so this module gained the power to delete without the kernel
+ * learning that moderation exists, and the detection half still works exactly
+ * as it did on a build with nothing signed in.
+ *
+ * That is the shape the whole feature is built on rather than a nicety. What
+ * she can do here is whatever the adapter can do right now, read at the moment
+ * she presses: a queue on a machine with no grant renders the rows and tells
+ * her to use the live dashboard, and the same queue five seconds after she
+ * signs in renders buttons. Nothing has to be restarted and nothing is stored
+ * about which of those two worlds we are in.
  *
  * A module and not a core service, and that was the design question worth
  * getting right. Nothing here needs a hook in the pipeline: `chat-message` is
  * already a normalized event carrying `isMod` and `isStreamer`, so this
- * subscribes like any game and the core learns nothing about moderation. When
- * the write path lands it arrives as an adapter capability, not as a branch in
- * the kernel.
+ * subscribes like any game and the core learns nothing about moderation.
  */
 export const moderation: GameModuleDef<ModerationState> = {
   id: MODERATION_ID,
@@ -53,6 +59,9 @@ export const moderation: GameModuleDef<ModerationState> = {
     seen: 0,
     caught: 0,
     floods: {},
+    lockdownUntil: null,
+    removed: 0,
+    purge: null,
   },
 
   // Her rules are hers. The queue is durable too, which is the less obvious
@@ -60,7 +69,7 @@ export const moderation: GameModuleDef<ModerationState> = {
   // restarts mid-stream -- which is the moment a crash is most likely and least
   // convenient -- may not be the thing that decides she does not need to see a
   // scam link any more.
-  persist: ["rules", "flags"],
+  persist: ["rules", "flags", "lockdownUntil"],
 
   // The flood history is her chat's names, keyed by viewer and growing with the
   // channel, and no page draws it: pages draw the queue. Same call as the gains
@@ -109,6 +118,118 @@ export const moderation: GameModuleDef<ModerationState> = {
       run(_input, ctx) {
         if (ctx.state.flags.length === 0) return ctx.refuse("Nothing in the queue");
         ctx.setState({ flags: [] });
+      },
+    },
+
+    remove: {
+      label: "Take it down",
+      needsArgs: true,
+      async run(input, ctx) {
+        const flag = find(ctx, input.args[0] ?? "");
+        // Never offered without one -- her card renders a row with no id as a
+        // row with no button -- so reaching here means a deck button she made
+        // for a specific flag, weeks ago, that is not that flag any more.
+        if (flag.messageId === null) {
+          return ctx.refuse("This one came from somewhere with no message to take down");
+        }
+        const done = await ctx.writes.removeMessage(flag.messageId);
+        // The row stays put on a refusal, which is the whole reason this
+        // answers: she can read why on the card and press it again.
+        if (!done.ok) return ctx.refuse(done.reason);
+        drop(ctx, (other) => other.id !== flag.id);
+        ctx.setState((state) => ({ removed: state.removed + 1 }));
+      },
+    },
+
+    ban: {
+      label: "Ban them",
+      needsArgs: true,
+      async run(input, ctx) {
+        const flag = find(ctx, input.args[0] ?? "");
+        const done = await ctx.writes.banAuthor(flag.authorId);
+        if (!done.ok) return ctx.refuse(done.reason);
+        // Every row of theirs, not the one she happened to press. A banned
+        // account's other four messages are not four more decisions, and
+        // leaving them there is the queue asking her the same question again.
+        drop(ctx, (other) => other.authorId !== flag.authorId);
+      },
+    },
+
+    purge: {
+      label: "Sweep the queue",
+      /**
+       * The panic button, and the reason it takes no arguments: the moment she
+       * wants it is a wave arriving faster than she can read it, and that is
+       * not a moment for choosing rows. It is on the deck for the same reason.
+       *
+       * Awaited rather than started and reported on later, one message at a
+       * time. She is watching a card with everything disabled while it runs,
+       * which is honest about what is happening and cannot leave her a
+       * half-swept queue to reason about; the queue is capped, so the worst
+       * case is bounded, and a real wave is a dozen rows rather than fifty.
+       */
+      async run(_input, ctx) {
+        const flags = ctx.state.flags;
+        if (flags.length === 0) return ctx.refuse("Nothing in the queue");
+
+        const actionable = flags.filter((flag) => flag.messageId !== null);
+        if (actionable.length === 0) {
+          return ctx.refuse("None of these came with a message to take down");
+        }
+
+        const gone = new Set<string>();
+        let refusal = "";
+        for (const flag of actionable) {
+          const done = await ctx.writes.removeMessage(flag.messageId!);
+          if (done.ok) {
+            gone.add(flag.id);
+            continue;
+          }
+          // Stops on the first refusal rather than working through forty of
+          // them: whatever it is -- a revoked grant, a spent quota -- is going
+          // to be just as true for the next thirty-nine, and spending them
+          // finding that out is the one thing the reserve exists to prevent.
+          refusal = done.reason;
+          break;
+        }
+
+        ctx.setState((state) => ({
+          flags: state.flags.filter((flag) => !gone.has(flag.id)),
+          removed: state.removed + gone.size,
+          purge: { at: Date.now(), removed: gone.size, left: state.flags.length - gone.size },
+        }));
+
+        // Refused after the report is written, so the count she can see and the
+        // sentence explaining it arrive together.
+        if (refusal) return ctx.refuse(refusal);
+      },
+    },
+
+    lockdown: {
+      label: "Lockdown",
+      run(_input, ctx) {
+        if (!ctx.writes.available) {
+          return ctx.refuse("Nothing is signed in that can take messages down yet");
+        }
+        // Pressed again while it is on, this pushes the end out rather than
+        // refusing: a wave that outlasts the window is a second press, which
+        // is the one thing she can do one-handed.
+        ctx.setState({ lockdownUntil: Date.now() + LOCKDOWN_MS });
+      },
+    },
+
+    lockdownOff: {
+      label: "End lockdown",
+      /**
+       * The way out, and its own action rather than a toggle on the one above.
+       * A deck button says what it does on its face and nothing else -- a
+       * button that means "on" half the time is a button she presses to stop a
+       * raid and starts one with. Her card renders the pair as one switch,
+       * because a card can show which way it is currently set and a key cannot.
+       */
+      run(_input, ctx) {
+        if (!lockedDown(ctx.state, Date.now())) return ctx.refuse("Lockdown is not on");
+        ctx.setState({ lockdownUntil: null });
       },
     },
   },
@@ -200,15 +321,70 @@ function watch(ctx: ModContext, event: StreamEvent, rules: CompiledRules): void 
     messageId: event.messageId ?? null,
   };
 
+  ctx.log.info(
+    `moderation: ${MOD_RULES[hit.kind].label} — ${event.author.name}: ${hit.reason}`,
+  );
+
+  // Lockdown is the queue's fast path, not a second rule engine: the same
+  // rules caught the same message, and the only difference is that it goes
+  // rather than waits. Both of the other conditions are the honest fallback
+  // -- a message with no id and a machine with nothing signed in cannot be
+  // acted on, and a wave of rows she can still see beats a wave that
+  // silently did nothing.
+  if (lockedDown(ctx.state, event.at) && flag.messageId !== null && ctx.writes.available) {
+    // Counted as caught now and counted as removed only if it goes. The
+    // decision to queue or not has to be made here, synchronously, so the
+    // write is fired and the result puts the row back if it failed.
+    ctx.setState({ ...patch, caught: ctx.state.caught + 1 });
+    const messageId = flag.messageId;
+    void ctx.writes.removeMessage(messageId).then((done) => {
+      if (done.ok) {
+        ctx.setState((state) => ({ removed: state.removed + 1 }));
+        return;
+      }
+      // Nothing is lost to a failed write: it lands in the queue it would
+      // have gone to anyway, and she deals with it by hand.
+      ctx.setState((state) => ({ flags: [flag, ...state.flags].slice(0, MAX_FLAGS) }));
+      ctx.log.warn(`moderation: lockdown could not remove ${flag.authorName}'s message`);
+    });
+    return;
+  }
+
   ctx.setState({
     ...patch,
     caught: ctx.state.caught + 1,
     flags: [flag, ...ctx.state.flags].slice(0, MAX_FLAGS),
   });
+}
 
-  ctx.log.info(
-    `moderation: ${MOD_RULES[hit.kind].label} — ${event.author.name}: ${hit.reason}`,
-  );
+/**
+ * Whether lockdown is on, which is a question about the clock rather than a
+ * flag.
+ *
+ * There is no timer that switches it off. A timestamp already says when it
+ * ends, so a server that was restarted mid-lockdown comes back up still locked
+ * down with no re-arming to do, and one restarted an hour later comes back up
+ * with a value that is simply in the past. The alternative -- a boolean and a
+ * timer to clear it -- is a second source of truth that has to survive a
+ * restart, for a state that expires on its own.
+ */
+function lockedDown(state: Readonly<ModerationState>, now: number): boolean {
+  return state.lockdownUntil !== null && state.lockdownUntil > now;
+}
+
+/** The flag she pressed, or a refusal she can read. */
+function find(ctx: ModContext, id: string): ModFlag {
+  const flag = ctx.state.flags.find((other) => other.id === id);
+  // The same words `dismiss` refuses with, and the same cause: her card was
+  // rendering a queue that has since moved on, or a deck button outlived the
+  // flag it was made for.
+  if (!flag) return ctx.refuse("That one is gone");
+  return flag;
+}
+
+/** Keep the rows that pass, drop the rest. */
+function drop(ctx: ModContext, keep: (flag: ModFlag) => boolean): void {
+  ctx.setState((state) => ({ flags: state.flags.filter(keep) }));
 }
 
 function sameRules(a: ModerationState["rules"], b: ModerationState["rules"]): boolean {

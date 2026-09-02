@@ -27,9 +27,9 @@ describe("watching her chat", () => {
       authorName: "Spammer",
       kind: "scams",
       reason: "Asks people to message an account off-platform",
-      // Mock chat has no platform ids, and the row says so rather than
-      // pretending it has a handle a delete could use.
-      messageId: null,
+      // The handle a delete needs, carried through from the adapter. Mock chat
+      // hands these out precisely so that acting on one is demoable.
+      messageId: "mock:msg:1",
     });
     expect(state.caught).toBe(1);
     expect(state.seen).toBe(1);

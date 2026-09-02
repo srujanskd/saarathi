@@ -153,10 +153,54 @@ export interface ModFlag {
   messageId: string | null;
 }
 
+/**
+ * What one sweep of the queue managed, for her card to say so afterwards.
+ *
+ * A sweep is the one action here whose result she cannot read off the screen:
+ * the rows it removed are gone, and the rows it could not are still sitting
+ * there looking exactly as they did before she pressed it. So it reports, and
+ * the report is state rather than an effect -- a phone that was locked when she
+ * pressed the deck button has to be able to see what happened when she picks it
+ * up.
+ */
+export interface PurgeReport {
+  /** Server time it ran. See `Snapshot.serverNow`. */
+  at: number;
+  removed: number;
+  /**
+   * Rows it left behind, because the platform never gave us an id for them.
+   *
+   * Not a failure and not zero-worthy: mock chat hands out no ids at all, so a
+   * demo sweep leaves everything, and telling her "0 removed" without saying
+   * why would read as broken software.
+   */
+  left: number;
+}
+
 export interface ModerationState {
   rules: ModRule[];
   /** Newest first, capped at `MAX_FLAGS`. */
   flags: ModFlag[];
+  /**
+   * When lockdown stops, or null when it is off. Server time.
+   *
+   * Durable, which is the less obvious half of the decision: the moment a
+   * server is most likely to restart is the middle of the wave she turned this
+   * on for, and coming back up with her chat unguarded is the one outcome
+   * nobody would notice until it was over. A timestamp needs no reconciling on
+   * the way up either -- one from last week is simply in the past.
+   */
+  lockdownUntil: number | null;
+  /**
+   * How many messages lockdown has taken down this run.
+   *
+   * Transient and per run, on the same reasoning as `seen`: it is the number
+   * that tells her the thing she panicked and switched on is doing something,
+   * and a total from last week answers a different question.
+   */
+  removed: number;
+  /** What the last sweep did, or null if she has not run one. Transient. */
+  purge: PurgeReport | null;
   /**
    * When each author last spoke, inside the flood window and no longer.
    *
@@ -227,3 +271,17 @@ export const MIN_SHOUT_LENGTH = 12;
  */
 export const MAX_PATTERN = 120;
 export const MAX_PATTERN_INPUT = 300;
+
+/**
+ * How long lockdown stays on for.
+ *
+ * It expires on its own rather than waiting to be switched off, and that is the
+ * whole reason it is safe to put on a deck button. The thing she reaches for it
+ * during is a raid, which is minutes long; the thing that goes wrong if it
+ * outlives one is her own regulars quietly having their messages deleted for
+ * the rest of the stream, with the only evidence being chat going quiet. Five
+ * minutes is long enough to outlast a wave and short enough that forgetting
+ * about it costs almost nothing -- and pressing it again while it is on pushes
+ * the end out, so a longer wave is a second press rather than a setting.
+ */
+export const LOCKDOWN_MS = 5 * 60_000;

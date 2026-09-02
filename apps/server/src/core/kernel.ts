@@ -80,6 +80,7 @@ export class Kernel {
       chat: deps.chat,
       deck: this.deck,
       stats: this.stats.forModules(),
+      writes: this.writer.actions,
       log: deps.log,
       say: (text, key) => this.say(text, "info", key),
       onPatch: (module, state) => this.emitPatch(module, state),

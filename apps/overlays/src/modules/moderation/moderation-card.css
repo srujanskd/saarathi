@@ -88,3 +88,74 @@
   min-height: 3.4rem;
   resize: vertical;
 }
+
+/* The row's own buttons. `.tool` is a thumb-sized square everywhere else on
+   this page, which is right for an icon and wrong for two words, so here it
+   grows to what it says and keeps the height that makes it a target. */
+.flag-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.flag-tools .tool {
+  width: auto;
+  min-width: 2.9rem;
+  padding: 0 0.85rem;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+/* Banning somebody is the one thing on this card she cannot undo from this
+   card, so it does not look like the two beside it. */
+.flag-tools .tool-danger {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+/* Between the counts and the queue, because it is the thing she is reaching
+   for when the queue is the reason she picked the phone up. */
+.panic {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1ch;
+  margin: 0 0 0.85rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card-2);
+}
+
+/* On has to be readable across the room, because the failure mode of this
+   whole control is her not noticing it is still on an hour later. */
+.panic[data-on="yes"] {
+  border-color: var(--warn);
+}
+
+.panic-words {
+  min-width: 0;
+}
+
+.panic-label {
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.panic[data-on="yes"] .panic-label {
+  color: var(--warn);
+}
+
+.panic .hint {
+  margin: 0.15rem 0 0;
+}
+
+.panic .tool {
+  flex: none;
+}
+
+.panic .tool[data-on="yes"] {
+  border-color: var(--warn);
+  color: var(--warn);
+}

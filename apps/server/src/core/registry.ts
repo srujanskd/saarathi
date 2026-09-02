@@ -5,6 +5,7 @@ import {
   OBS_ID,
   type ActionInput,
   type Cancel,
+  type ChatWriteActions,
   type Effect,
   type EventType,
   type GainsLedger,
@@ -36,6 +37,12 @@ export interface RegistryDeps {
   deck: DeckCommands;
   /** The counts, read-only. A core service every module shares, like OBS. */
   stats: StatsView;
+  /**
+   * Taking a message down and banning who sent it. Passed through untouched,
+   * the way `gains` is: `available` has to answer as of now, so the object the
+   * write path built is the object a module holds.
+   */
+  writes: ChatWriteActions;
   log: Logger;
   /**
    * A bot reply, with what it is about: replies about the same command merge
@@ -414,6 +421,7 @@ export class Registry {
           };
         },
       },
+      writes: this.deps.writes,
       after: (ms, fn) => track(setTimeout(fn, ms), false),
       every: (ms, fn) => track(setInterval(fn, ms), true),
       say: (text, key) => this.deps.say(text, key),
