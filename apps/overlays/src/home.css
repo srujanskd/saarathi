@@ -1,0 +1,131 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #14151a;
+  color: #f2f3f7;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 80% 0%, rgb(95 71 255 / 0.14), transparent 34rem),
+    #14151a;
+}
+
+.home {
+  width: min(780px, 100%);
+  margin: 0 auto;
+  padding: clamp(32px, 7vw, 72px) 20px 64px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: #9c92ff;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2.5rem, 8vw, 4.5rem);
+  line-height: 1;
+  letter-spacing: -0.055em;
+}
+
+.intro,
+.section-note {
+  color: #a8acb8;
+}
+
+.intro {
+  max-width: 34rem;
+  margin: 18px 0 0;
+  font-size: 1.05rem;
+}
+
+.primary-links,
+.overlay-links {
+  display: grid;
+  gap: 12px;
+}
+
+.primary-links {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 36px 0 48px;
+}
+
+.home-link,
+.overlay-link {
+  display: flex;
+  flex-direction: column;
+  min-height: 104px;
+  padding: 20px;
+  border: 1px solid #30323c;
+  border-radius: 14px;
+  background: rgb(34 35 43 / 0.82);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 140ms ease, transform 140ms ease, background 140ms ease;
+}
+
+.home-link:hover,
+.overlay-link:hover,
+.home-link:focus-visible,
+.overlay-link:focus-visible {
+  border-color: #7568ff;
+  background: #292a35;
+  outline: none;
+  transform: translateY(-2px);
+}
+
+.home-link strong,
+.overlay-link strong {
+  font-size: 1.05rem;
+}
+
+.home-link span,
+.overlay-link span {
+  margin-top: 6px;
+  color: #a8acb8;
+  font-size: 0.88rem;
+}
+
+h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.section-note {
+  margin: 8px 0 18px;
+}
+
+.overlay-links {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.overlay-link {
+  min-height: 88px;
+}
+
+@media (max-width: 560px) {
+  .primary-links,
+  .overlay-links {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-link,
+  .overlay-link {
+    transition: none;
+  }
+}

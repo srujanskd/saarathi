@@ -1,4 +1,4 @@
-import { useConnected, type Connection } from "../lib/connection.js";
+import { useAccess, useConnected, type Connection } from "../lib/connection.js";
 import { useUnreachable } from "../lib/unreachable.js";
 
 /**
@@ -11,9 +11,12 @@ import { useUnreachable } from "../lib/unreachable.js";
  */
 export function Status({ url, connection }: { url: string; connection: Connection }) {
   const connected = useConnected(connection);
+  const access = useAccess(connection);
   const complain = useUnreachable(connection);
 
-  const text = connected
+  const text = access.phase === "unpaired"
+    ? access.reason ?? "Pair this device from the Saarathi tray"
+    : connected
     ? "Connected"
     : complain
       ? `Cannot reach Saarathi at ${url}. Retrying`

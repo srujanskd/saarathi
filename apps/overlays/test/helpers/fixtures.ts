@@ -36,18 +36,18 @@ export const expect = base.expect;
 /** The overlay URL as OBS would be given it: pages from one host, server from
  * another, joined only by the parameter. */
 export function overlayUrl(pages: PageServer, saarathi: RunningServer, module: string): string {
-  return `${pages.origin}/overlay.html?module=${module}&server=${encodeURIComponent(saarathi.origin)}`;
+  return `${pages.origin}/overlay.html?module=${module}&server=${encodeURIComponent(saarathi.origin)}&access=${encodeURIComponent(saarathi.overlayToken)}`;
 }
 
 /** Same split as the overlay: pages from one host, server from another. */
 export function controlUrl(pages: PageServer, saarathi: RunningServer): string {
-  return `${pages.origin}/control.html?server=${encodeURIComponent(saarathi.origin)}`;
+  return `${pages.origin}/control.html?server=${encodeURIComponent(saarathi.origin)}&pair=${saarathi.pairingCode}`;
 }
 
 /** And again for the deck, which is the surface most likely to be the one on
  * the far side of the LAN from the server. */
 export function deckUrl(pages: PageServer, saarathi: RunningServer): string {
-  return `${pages.origin}/deck.html?server=${encodeURIComponent(saarathi.origin)}`;
+  return `${pages.origin}/deck.html?server=${encodeURIComponent(saarathi.origin)}&pair=${saarathi.pairingCode}`;
 }
 
 /** Animations the browser is actually running, and which properties each one

@@ -3,30 +3,35 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#14151a" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
     <title>Saarathi</title>
-    <style>
-      body {
-        margin: 0;
-        padding: 2rem;
-        font: 16px/1.5 system-ui, sans-serif;
-        background: #14151a;
-        color: #e8e8ea;
-      }
-      a { color: #8ab4ff; }
-      code { background: #24262e; padding: 0.1em 0.4em; border-radius: 4px; }
-    </style>
   </head>
   <body>
-    <h1>Saarathi</h1>
-    <p>Add this as a browser source in OBS:</p>
-    <p><a href="./overlay.html?module=wheel">overlay.html?module=wheel</a></p>
-    <p>Her phone, the page she drives the stream from:</p>
-    <p><a href="./control.html">control.html</a></p>
-    <p>Her buttons, full screen, for whatever she props next to her:</p>
-    <p><a href="./deck.html">deck.html</a></p>
-    <p>
-      Loading a page from somewhere other than the server? Add
-      <code>&amp;server=http://&lt;server address&gt;:4400</code>.
-    </p>
+    <main class="home">
+      <header>
+        <p class="eyebrow">Stream tools</p>
+        <h1>Saarathi</h1>
+        <p class="intro">Open a control page, the deck, or any OBS overlay from one place.</p>
+      </header>
+
+      <nav class="primary-links" aria-label="Controls">
+        <a id="home-control" class="home-link" data-testid="home-control" href="./control.html">
+          <strong>Control page</strong>
+          <span>Set up Saarathi and run the stream</span>
+        </a>
+        <a id="home-deck" class="home-link" data-testid="home-deck" href="./deck.html">
+          <strong>Stream deck</strong>
+          <span>Open the large touch buttons</span>
+        </a>
+      </nav>
+
+      <section aria-labelledby="overlay-heading">
+        <h2 id="overlay-heading">OBS overlays</h2>
+        <p id="overlay-note" class="section-note">Open one to preview it. Use the Saarathi tray to copy its paired OBS URL.</p>
+        <nav id="overlay-links" class="overlay-links" aria-label="OBS overlays"></nav>
+      </section>
+    </main>
+    <script type="module" src="/src/home.ts"></script>
   </body>
 </html>

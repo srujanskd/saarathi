@@ -1,4 +1,5 @@
 import {
+  ACCESS_ID,
   CORE_ID,
   DECK_ID,
   LEDGER_ID,
@@ -100,6 +101,7 @@ export class Registry {
 
   constructor(private readonly deps: RegistryDeps) {
     this.reserved = new Set([
+      ACCESS_ID,
       CORE_ID,
       LEDGER_ID,
       DECK_ID,
@@ -154,10 +156,18 @@ export class Registry {
     return [...this.modules.keys()];
   }
 
+  /** Slices an OBS read capability may subscribe to. */
+  overlayIds(): string[] {
+    return [...this.modules.values()]
+      .filter((runtime) => runtime.def.overlay)
+      .map((runtime) => runtime.def.id);
+  }
+
   statuses(): ModuleStatus[] {
     return [...this.modules.values()].map((runtime) => ({
       id: runtime.def.id,
       title: runtime.def.title,
+      overlay: Boolean(runtime.def.overlay),
       enabled: runtime.enabled,
       armed: runtime.def.arming ? runtime.armed : true,
       arming: Boolean(runtime.def.arming),

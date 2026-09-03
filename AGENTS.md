@@ -403,6 +403,16 @@ Do not open a browser or use computer use to verify unless I ask for it.
 - Overlays run inside OBS at 60fps while she is streaming. Animate `transform` and `opacity`
   and nothing else. No continuously repainting animation, ever.
 - Socket payloads are small. She may be on phone data in IRL mode.
+- Every socket and every non-health API route is capability-gated. A control
+  capability may invoke; the capability copied into an OBS URL is read-only
+  and may subscribe only to modules whose server definition declares
+  `overlay: true`. The loopback bootstrap checks both the peer address and a
+  literal local Host header. Never put a control capability in a URL or add a
+  route that reads state without going through this split.
+- Media files live in a `media/` directory beside `state.json`. Their URLs
+  carry a random key for that one file, never either account capability. Media
+  triggers call the named `media.play` and `media.stop` actions; heart-rate or
+  future recipes do not grow a second playback path.
 - Every timestamp in the state is server time. A client corrects for its own clock using
   `Snapshot.serverNow` and never subtracts `Date.now()` from a server timestamp directly: the
   server may be a VPS while the page is on her phone, and a phone's clock is routinely tens of

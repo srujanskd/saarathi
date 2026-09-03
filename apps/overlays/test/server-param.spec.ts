@@ -32,10 +32,23 @@ test("renders a spin when the server address arrives as a URL parameter", async 
   });
 });
 
+test("a local pnpm dev overlay bootstraps without a copied access token", async ({
+  page,
+  pages,
+  saarathi,
+}) => {
+  const url = `${pages.origin}/overlay.html?module=${WHEEL_ID}&server=${encodeURIComponent(saarathi.origin)}`;
+  await page.goto(url);
+
+  await expect(page.getByTestId("status")).toHaveAttribute("data-visible", "false");
+  expect(await saarathi.invoke({ action: "wheel.spin" })).toEqual({ ok: true });
+  await expect(page.getByTestId("wheel")).toBeVisible();
+});
+
 test("says so, visibly, when the address in the URL goes nowhere", async ({ page, pages }) => {
   // Port 1 is not something she will ever be running. A stack trace in a
   // console she never opens is not a failure message; this is.
-  await page.goto(`${pages.origin}/overlay.html?module=${WHEEL_ID}&server=http://127.0.0.1:1`);
+  await page.goto(`${pages.origin}/overlay.html?module=${WHEEL_ID}&server=http://127.0.0.1:1&access=unreachable`);
 
   await expect(page.getByTestId("status")).toHaveAttribute("data-visible", "true", {
     timeout: 15_000,

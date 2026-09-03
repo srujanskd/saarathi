@@ -265,6 +265,13 @@ export interface GameModuleDef<S = any> {
   id: string;
   /** Heading on her control page. */
   title: string;
+  /**
+   * This slice may be read by an OBS browser source holding the read-only
+   * capability. Omitted means control clients only. The server owns this
+   * decision because trusting a client-supplied module id would let an overlay
+   * URL read the moderation queue by changing one query parameter.
+   */
+  overlay?: boolean;
   initialState: S;
   /**
    * Keys that survive a restart. Everything else is transient by default, so
@@ -296,6 +303,8 @@ export interface GameModuleDef<S = any> {
 export interface ModuleStatus {
   id: string;
   title: string;
+  /** Whether OBS may subscribe to this module's state and render its overlay. */
+  overlay: boolean;
   enabled: boolean;
   /** Always true for modules that did not opt into arming. */
   armed: boolean;

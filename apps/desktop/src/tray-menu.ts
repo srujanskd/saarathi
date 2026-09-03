@@ -16,7 +16,7 @@ export type MenuAction =
   | "deck-window"
   | "hotkeys"
   | "connect-phone"
-  | "copy-overlay"
+  | `copy-overlay:${string}`
   | "restart-server"
   | "open-logs"
   | "launch-at-login"
@@ -54,6 +54,8 @@ export interface MenuView {
   /** Already in her words -- `hotkeyNote` decides what it says, because what
    * counts as a working hotkey is that file's business, not this one's. */
   readonly hotkeys: string;
+  /** The server's declarations, not a second list of games in the shell. */
+  readonly overlays: readonly { id: string; title: string }[];
 }
 
 /**
@@ -122,7 +124,11 @@ export function trayMenu(view: MenuView): MenuItemSpec[] {
     // most likely to be trying to confirm.
     { id: "hotkeys", label: view.hotkeys, enabled: false },
     { id: "connect-phone", label: "Connect your phone…", enabled: reachable },
-    { id: "copy-overlay", label: "Copy overlay URL for OBS", enabled: live },
+    ...view.overlays.map((overlay) => ({
+      id: `copy-overlay:${overlay.id}` as const,
+      label: `Copy ${overlay.title} overlay URL for OBS`,
+      enabled: live,
+    })),
     { id: "separator", type: "separator" },
     {
       id: "restart-server",

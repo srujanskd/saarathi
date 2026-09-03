@@ -15,7 +15,7 @@ import {
 import { autoUpdater } from "electron-updater";
 import QRCode from "qrcode";
 import { SERVER_PORT } from "@saarathi/shared";
-import { ServerClient } from "./client.js";
+import { localAccess, ServerClient } from "./client.js";
 import { connectPageHtml, connectTargets, type ConnectEntry } from "./connect-page.js";
 import {
   boundsToSave,
@@ -30,7 +30,14 @@ import {
   HOTKEY_RETRY_MS,
   type HotkeyBinding,
 } from "./hotkeys.js";
-import { lanAddress, links as makeLinks, type Links } from "./net.js";
+import {
+  lanAddress,
+  links as makeLinks,
+  overlayLink,
+  overlayUrl,
+  pairingLink,
+  type Links,
+} from "./net.js";
 import { ServerLog } from "./logs.js";
 import { resolvePaths } from "./paths.js";
 import { prefsPath, readPrefs, shouldEnableLaunchAtLogin, writePrefs } from "./prefs.js";
@@ -83,6 +90,7 @@ async function main(): Promise<void> {
   let update: UpdateState = { phase: "idle" };
   let tray: Tray | null = null;
   let connectWindow: BrowserWindow | null = null;
+  let connectExpiresAt = 0;
   let deckWindow: BrowserWindow | null = null;
   let bindings: HotkeyBinding[] = [];
   let failedKeys: HotkeyBinding[] = [];
@@ -90,6 +98,7 @@ async function main(): Promise<void> {
   /** The last grid the server published, so the retry below has something to
    * ask for again without waiting for her to touch the deck. */
   let deckSlots: Parameters<typeof hotkeyPlan>[0] = [];
+  let overlays: MenuView["overlays"] = [];
   let retryTimer: NodeJS.Timeout | null = null;
 
   const server = new ServerProcess({
@@ -116,7 +125,18 @@ async function main(): Promise<void> {
     port,
     onCore: (core) => {
       deckSlots = core.deck.slots;
+      const nextOverlays = core.modules
+        .filter((module) => module.overlay)
+        .map((module) => ({ id: module.id, title: module.title }));
+      const overlaysChanged =
+        nextOverlays.length !== overlays.length ||
+        nextOverlays.some(
+          (overlay, index) =>
+            overlay.id !== overlays[index]?.id || overlay.title !== overlays[index]?.title,
+        );
+      overlays = nextOverlays;
       applyHotkeys(deckSlots);
+      if (overlaysChanged) render();
     },
     onState: (connected) => {
       if (!connected) log.write("[tray] hotkeys waiting for the server\n");
@@ -190,6 +210,7 @@ async function main(): Promise<void> {
       update,
       deckWindowOpen: deckWindow !== null && !deckWindow.isDestroyed(),
       hotkeys: hotkeyLine,
+      overlays,
     };
   }
 
@@ -215,26 +236,41 @@ async function main(): Promise<void> {
   }
 
   async function run(action: MenuAction, current: MenuView): Promise<void> {
+    if (action.startsWith("copy-overlay:")) {
+      const moduleId = action.slice("copy-overlay:".length);
+      const declared = current.overlays.some((overlay) => overlay.id === moduleId);
+      if (current.links && declared) {
+        const grant = await localAccess(port);
+        if (grant) {
+          clipboard.writeText(
+            overlayLink(overlayUrl(current.links, moduleId), grant.overlayToken),
+          );
+        }
+      }
+      return;
+    }
+
     switch (action) {
       case "open-control":
-        if (current.links) await shell.openExternal(current.links.control);
+        if (current.links) {
+          const grant = await localAccess(port);
+          if (grant) await shell.openExternal(pairingLink(current.links.control, grant.pairing.code));
+        }
         break;
       case "open-deck":
-        if (current.links) await shell.openExternal(current.links.deck);
+        if (current.links) {
+          const grant = await localAccess(port);
+          if (grant) await shell.openExternal(pairingLink(current.links.deck, grant.pairing.code));
+        }
         break;
       case "deck-window":
         if (current.deckWindowOpen) closeDeckWindow();
-        else openDeckWindow(current.links);
+        else openDeckWindow();
         break;
       case "hotkeys":
         break;
       case "connect-phone":
         await openConnectWindow(current.links);
-        break;
-      case "copy-overlay":
-        // The overlay URL is the one address she pastes rather than opens, and
-        // it is long enough to mistype. Nothing else on this menu copies.
-        if (current.links) clipboard.writeText(current.links.overlay);
         break;
       case "restart-server":
         await server.restart();
@@ -271,7 +307,7 @@ async function main(): Promise<void> {
    * a button she adds on her phone is on this window before she has put the
    * phone down.
    */
-  function openDeckWindow(current: Links | null): void {
+  function openDeckWindow(): void {
     if (deckWindow && !deckWindow.isDestroyed()) {
       deckWindow.show();
       deckWindow.focus();
@@ -334,7 +370,7 @@ async function main(): Promise<void> {
 
     // The origin it was served from is this machine, so no ?server= -- the
     // page's own fallback is right here and is the one case where it is.
-    void window.loadURL(current ? current.deck : `http://127.0.0.1:${port}/deck.html`);
+    void window.loadURL(`http://127.0.0.1:${port}/deck.html`);
     render();
   }
 
@@ -347,12 +383,19 @@ async function main(): Promise<void> {
   async function openConnectWindow(current: Links | null): Promise<void> {
     if (!current) return;
     if (connectWindow && !connectWindow.isDestroyed()) {
-      connectWindow.show();
-      connectWindow.focus();
-      return;
+      if (Date.now() < connectExpiresAt) {
+        connectWindow.show();
+        connectWindow.focus();
+        return;
+      }
+      connectWindow.close();
+      connectWindow = null;
     }
+    const grant = await localAccess(port);
+    if (!grant) return;
+    connectExpiresAt = grant.pairing.expiresAt;
     const entries: ConnectEntry[] = await Promise.all(
-      connectTargets(current).map(async (target) => ({
+      connectTargets(current, grant.pairing.code).map(async (target) => ({
         ...target,
         qr: await QRCode.toString(target.url, { type: "svg", margin: 0 }),
       })),
@@ -371,9 +414,10 @@ async function main(): Promise<void> {
     window.setMenuBarVisibility(false);
     window.once("closed", () => {
       connectWindow = null;
+      connectExpiresAt = 0;
     });
     await window.loadURL(
-      `data:text/html;charset=utf-8,${encodeURIComponent(connectPageHtml(entries))}`,
+      `data:text/html;charset=utf-8,${encodeURIComponent(connectPageHtml(entries, grant.pairing.code))}`,
     );
   }
 

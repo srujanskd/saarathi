@@ -29,6 +29,20 @@ export const CORE_ACTIONS = {
   deckSet: `${CORE_ID}.deckSet`,
 } as const;
 
+export type AccessLevel = "read" | "control";
+
+/** Returned only to a client on the server machine. */
+export interface LocalAccess {
+  controlToken: string;
+  overlayToken: string;
+  pairing: { code: string; expiresAt: number };
+}
+
+/** Returned after a phone proves it has the short-lived pairing code. */
+export interface PairedAccess {
+  controlToken: string;
+}
+
 /**
  * What she is allowed to know about the OBS connection. Deliberately not the
  * password: this slice reaches every client, and in IRL mode that is her phone

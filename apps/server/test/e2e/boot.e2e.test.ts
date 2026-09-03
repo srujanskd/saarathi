@@ -40,8 +40,8 @@ describe("the server she starts", () => {
 
   it("serves the same snapshot over HTTP that a client gets", async () => {
     const snapshot = (await server.get("/api/state")) as Snapshot;
-    expect(Object.keys(snapshot.modules).sort()).toEqual(["chatlog", "gains", "goals", "moderation", "wheel"]);
-    expect(snapshot.core.modules.map((m) => m.id).sort()).toEqual(["chatlog", "gains", "goals", "moderation", "wheel"]);
+    expect(Object.keys(snapshot.modules).sort()).toEqual(["chatlog", "gains", "goals", "media", "moderation", "wheel"]);
+    expect(snapshot.core.modules.map((m) => m.id).sort()).toEqual(["chatlog", "gains", "goals", "media", "moderation", "wheel"]);
   });
 
   it("reports mock chat connected and YouTube waiting to be set up", async () => {
@@ -113,13 +113,13 @@ describe("a client that connects", () => {
 
   it("still gets core state, since that is how she sees the server is alive", async () => {
     const client = await server.connect({ surface: "overlay", modules: ["wheel"] });
-    expect(client.snapshots.at(-1)!.core.modules.length).toBe(5);
+    expect(client.snapshots.at(-1)!.core.modules.length).toBe(6);
     await client.close();
   });
 
   it("can ask for everything explicitly", async () => {
     const client = await server.connect({ surface: "control" });
-    expect(Object.keys(client.snapshots.at(-1)!.modules).sort()).toEqual(["chatlog", "gains", "goals", "moderation", "wheel"]);
+    expect(Object.keys(client.snapshots.at(-1)!.modules).sort()).toEqual(["chatlog", "gains", "goals", "media", "moderation", "wheel"]);
     await client.close();
   });
 });
@@ -156,6 +156,6 @@ describe("once the overlay pages are built", () => {
   it("still answers the API underneath them", async () => {
     expect(await built.get("/health")).toEqual({ ok: true });
     const snapshot = (await built.get("/api/state")) as Snapshot;
-    expect(Object.keys(snapshot.modules).sort()).toEqual(["chatlog", "gains", "goals", "moderation", "wheel"]);
+    expect(Object.keys(snapshot.modules).sort()).toEqual(["chatlog", "gains", "goals", "media", "moderation", "wheel"]);
   });
 });

@@ -33,7 +33,8 @@ rather than something you get with a clone.
 Early. Phases 1 and 2 of four.
 
 The server is built around the game module contract and runs. Chat events in, module state out,
-snapshot-synced over Socket.IO. Two modules ship with it: the challenge wheel and a chat log.
+snapshot-synced over Socket.IO. The wheel, goals, gains, moderation, chat log and media pack all
+ship as modules.
 
 `apps/overlays` has three pages. The wheel overlay is the browser source OBS loads at
 `overlay.html?module=wheel`. The control page is `control.html`, the phone page she drives
@@ -49,6 +50,18 @@ hotkey per button (`Ctrl+Alt+0-9` and `F13-F24`, picked from a list because she 
 grid on a phone), and a frameless always-on-top window the tray floats over OBS. The tray is a
 client of its own server for this — a hotkey opens a socket to `127.0.0.1` and calls the same
 `invoke` her phone does, so there is one code path into an action rather than two.
+
+The tray pairs every control surface. Its phone QR carries a short-lived code, while each declared
+overlay gets its own named OBS URL in the tray. Those copied URLs carry a read-only capability
+that cannot press buttons or read the moderation queue. The
+tray, floating deck and hotkeys bootstrap through a loopback-only route. "Disconnect all devices"
+rotates both capabilities when a phone or copied URL should stop working.
+
+The media pack stores up to 24 clips beside her state file. A clip can be previewed, added to the
+deck, played through one server-timed lane and stopped explicitly. The library survives a restart;
+active playback does not. An overlay that reconnects during a clip seeks to the server's elapsed
+time instead of starting the clip again. OBS needs the tray's Media overlay URL once; a wheel
+browser source deliberately subscribes only to wheel state.
 
 ## How it fits together
 
@@ -79,19 +92,17 @@ pnpm typecheck
 pnpm lint          # eslint, warnings included; `pnpm lint:fix` applies what it can
 ```
 
-The server listens on port 4400 and binds `0.0.0.0`, so a phone on the same Wi-Fi reaches it at
-`http://<pc-ip>:4400`. Run `pnpm build` once and it serves the overlay pages too, which is how
-she runs it: one address for OBS, her phone and the server.
+The server listens on port 4400 and binds `0.0.0.0`. Run `pnpm build` once and it serves the
+overlay pages too. She opens pages through the tray, which pairs her phone and copies the
+read-only overlay URL for OBS. Typing the LAN address alone deliberately does not grant access.
 
 Pages never assume they were served by the server. The address arrives as `?server=`, falling
 back to wherever the page came from, so the same build works with OBS on her PC, her phone on
 the LAN, and the server on a VPS the day she streams IRL:
 
 ```
-http://<server>:4400/overlay.html?module=wheel
-http://<server>:4400/control.html
-http://<pages-host>/overlay.html?module=wheel&server=http://<server>:4400
-http://<pages-host>/control.html?server=http://<server>:4400
+http://<pages-host>/overlay.html?module=wheel&server=http://<server>:4400&access=<read-token>
+http://<pages-host>/control.html?server=http://<server>:4400&pair=<short-code>
 ```
 
 ## Packaging it
@@ -169,6 +180,7 @@ apps/server/src/
   core/triggers.ts     command parsing and the permission/cooldown/price gate
   core/sync.ts         the only file that imports socket.io
   core/store.ts        namespaced slices, atomic debounced writes
+  core/access.ts       persistent read/control capabilities and short pairing codes
   core/gains.ts        the channel currency ledger
   core/stats.ts        the counts, polled off the adapters and published as core state
   core/obs.ts          the OBS seam, and the live obs-websocket connection in it
@@ -178,6 +190,7 @@ apps/server/src/
   modules/wheel/       the first game module; rules.ts is pure and testable
   modules/chatlog/     the second, and the proof the contract holds
   modules/goals/       subscriber, like and counted-by-hand goals; rules.ts is pure
+  modules/media/       durable clip library, file store and one playback lane
 apps/overlays/
   overlay.html         one browser source per module: ?module=wheel
   control.html         her phone: wheel card, chat log, mock-chat panel

@@ -1,11 +1,13 @@
 import type { ComponentType } from "react";
-import { CHATLOG_ID, GAINS_ID, GOALS_ID, MODERATION_ID, WHEEL_ID } from "@saarathi/shared";
+import { CHATLOG_ID, GAINS_ID, GOALS_ID, MEDIA_ID, MODERATION_ID, WHEEL_ID } from "@saarathi/shared";
 import { ChatCard } from "./chatlog/ChatCard.js";
 import { GainsCard } from "./gains/GainsCard.js";
 import { GainsOverlay } from "./gains/GainsOverlay.js";
 import { GoalsCard } from "./goals/GoalsCard.js";
 import { GoalsOverlay } from "./goals/GoalsOverlay.js";
 import { ModerationCard } from "./moderation/ModerationCard.js";
+import { MediaCard } from "./media/MediaCard.js";
+import { MediaOverlay } from "./media/MediaOverlay.js";
 import type { CardProps, OverlayProps } from "./types.js";
 import { WheelCard } from "./wheel/WheelCard.js";
 import { WheelOverlay } from "./wheel/WheelOverlay.js";
@@ -35,6 +37,7 @@ export const clients: Record<string, ModuleClient> = {
   [GAINS_ID]: { overlay: GainsOverlay, card: GainsCard },
   [MODERATION_ID]: { card: ModerationCard },
   [CHATLOG_ID]: { card: ChatCard },
+  [MEDIA_ID]: { overlay: MediaOverlay, card: MediaCard },
 };
 
 /** The ids `overlay.html?module=` will actually render, so a typo in OBS can

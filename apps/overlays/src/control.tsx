@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { OBS_ID } from "@saarathi/shared";
 import { ChatSourceCard } from "./core/ChatSourceCard.js";
+import { AccessCard } from "./core/AccessCard.js";
 import { DeckCard } from "./core/DeckCard.js";
 import { ObsCard } from "./core/ObsCard.js";
 import { ReadinessPanel } from "./core/ReadinessPanel.js";
@@ -43,6 +44,7 @@ function Control({ url, connection }: { url: string; connection: Connection }) {
 
       <main className="cards">
         {core ? <ReadinessPanel core={core} /> : null}
+        <AccessCard connection={connection} />
         {/* Wired by hand rather than through modules/registry.ts: OBS is a core
             service every module shares, not a game. It leads because it is the
             one card that explains why nothing else is working. */}

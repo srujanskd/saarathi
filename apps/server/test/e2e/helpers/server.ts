@@ -49,13 +49,17 @@ export interface RunningServer {
   readonly stateFile: string;
   /** The directory holding it, if this run created one. */
   readonly stateDir: string | null;
+  readonly controlToken: string;
+  readonly overlayToken: string;
+  readonly pairingCode: string;
   /** Everything the server printed, for diagnosing a failed boot. */
   output(): string;
   get(path: string): Promise<unknown>;
+  raw(path: string, init?: RequestInit): Promise<Response>;
   post(path: string, body: unknown): Promise<unknown>;
   mockChat(input: MockChatInput): Promise<unknown>;
   invoke(request: InvokeRequest): Promise<InvokeResult>;
-  connect(hello?: Hello): Promise<Client>;
+  connect(hello?: Hello, access?: "control" | "read" | "none"): Promise<Client>;
   /**
    * Stops the process. Pass keepState when a second run is about to boot on the
    * same file, and clean the directory up yourself afterwards.
@@ -171,8 +175,18 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
 
   await waitForHealth(origin, child, output);
 
+  const localResponse = await fetch(`${origin}/api/access/local`);
+  if (!localResponse.ok) throw new Error(`local access -> ${localResponse.status}`);
+  const local = (await localResponse.json()) as {
+    controlToken: string;
+    overlayToken: string;
+    pairing: { code: string };
+  };
+
   const request = async (path: string, init?: RequestInit) => {
-    const response = await fetch(`${origin}${path}`, init);
+    const headers = new Headers(init?.headers);
+    if (!headers.has("authorization")) headers.set("authorization", `Bearer ${local.controlToken}`);
+    const response = await fetch(`${origin}${path}`, { ...init, headers });
     if (!response.ok) throw new Error(`${path} -> ${response.status}`);
     return response.json();
   };
@@ -182,8 +196,12 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     origin,
     stateFile,
     stateDir: dir,
+    controlToken: local.controlToken,
+    overlayToken: local.overlayToken,
+    pairingCode: local.pairing.code,
     output,
     get: (path) => request(path),
+    raw: (path, init) => fetch(`${origin}${path}`, init),
     post: (path, body) =>
       request(path, {
         method: "POST",
@@ -204,8 +222,9 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
         body: JSON.stringify(req),
       }) as Promise<InvokeResult>;
     },
-    async connect(hello) {
-      const client = await connectClient(origin, hello);
+    async connect(hello, level = "control") {
+      const token = level === "control" ? local.controlToken : level === "read" ? local.overlayToken : "";
+      const client = await connectClient(origin, token, hello);
       clients.push(client);
       return client;
     },
@@ -255,8 +274,9 @@ async function stopChild(child: ChildProcess): Promise<void> {
   clearTimeout(forced);
 }
 
-async function connectClient(origin: string, hello?: Hello): Promise<Client> {
+async function connectClient(origin: string, token: string, hello?: Hello): Promise<Client> {
   const socket: TestSocket = io(origin, {
+    auth: { token },
     transports: ["websocket"],
     forceNew: true,
     reconnection: false,

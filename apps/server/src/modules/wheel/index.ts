@@ -91,6 +91,7 @@ function drain(ctx: WheelContext): void {
 export const wheel: GameModuleDef<WheelState> = {
   id: WHEEL_ID,
   title: "Challenge wheel",
+  overlay: true,
 
   initialState: {
     challenges: [...DEFAULT_CHALLENGES],

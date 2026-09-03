@@ -1,5 +1,8 @@
 export const SERVER_PORT = 4400;
 
+/** Store namespace for the two access capabilities. */
+export const ACCESS_ID = "access";
+
 /**
  * The channel currency's display name. It is not final, so it lives here and
  * nowhere else. No string literal anywhere may spell it out.

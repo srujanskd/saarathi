@@ -8,3 +8,4 @@ export * from "./modules/chatlog.js";
 export * from "./modules/goals.js";
 export * from "./modules/gains.js";
 export * from "./modules/moderation.js";
+export * from "./modules/media.js";

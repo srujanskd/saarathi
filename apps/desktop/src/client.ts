@@ -4,6 +4,7 @@ import {
   type ClientToServerEvents,
   type CoreState,
   type InvokeResult,
+  type LocalAccess,
   type ServerToClientEvents,
 } from "@saarathi/shared";
 
@@ -40,6 +41,16 @@ export class ServerClient {
 
   start(): void {
     if (this.socket) return;
+    void this.connect();
+  }
+
+  private async connect(): Promise<void> {
+    const access = await localAccess(this.options.port);
+    if (!access) {
+      this.options.onState(false);
+      this.options.log("[tray] could not get local access from the server\n");
+      return;
+    }
     // 127.0.0.1 and not the LAN address: this client is inside the machine the
     // server runs on, by definition. It is the one place in the product where
     // naming the loopback is not the rule-3 mistake, because there is no
@@ -47,6 +58,7 @@ export class ServerClient {
     const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(
       `http://127.0.0.1:${this.options.port}`,
       {
+        auth: { token: access.controlToken },
         transports: ["websocket"],
         // The server is a child we restart from a menu item, so the gap
         // between "gone" and "back" is normal rather than exceptional.
@@ -62,6 +74,13 @@ export class ServerClient {
       this.options.log("[tray] hotkeys connected\n");
     });
     socket.on("disconnect", () => this.options.onState(false));
+    socket.on("connect_error", () => {
+      // A reset rotates the token underneath this long-lived client. Fetch the
+      // new local capability and let Socket.IO keep its normal retry loop.
+      void localAccess(this.options.port).then((next) => {
+        if (next) socket.auth = { token: next.controlToken };
+      });
+    });
     socket.on("snapshot", (snapshot) => this.options.onCore(snapshot.core));
     socket.on("patch", (patch) => {
       if (patch.module === CORE_ID) this.options.onCore(patch.state as CoreState);
@@ -87,5 +106,19 @@ export class ServerClient {
   stop(): void {
     this.socket?.close();
     this.socket = null;
+  }
+}
+
+/** The only way the shell obtains authority over its child server. */
+export async function localAccess(
+  port: number,
+  request: typeof fetch = fetch,
+): Promise<LocalAccess | null> {
+  try {
+    const response = await request(`http://127.0.0.1:${port}/api/access/local`);
+    if (!response.ok) return null;
+    return (await response.json()) as LocalAccess;
+  } catch {
+    return null;
   }
 }

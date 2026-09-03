@@ -20,7 +20,7 @@ export interface ConnectEntry {
 }
 
 /** The two pages worth a QR code: the ones that live on her phone. */
-export function connectTargets(links: Links): { title: string; hint: string; url: string }[] {
+export function connectTargets(links: Links, code: string): { title: string; hint: string; url: string }[] {
   return [
     {
       title: "Control page",
@@ -32,7 +32,11 @@ export function connectTargets(links: Links): { title: string; hint: string; url
       hint: "Your button grid. Add it to your home screen.",
       url: links.deck,
     },
-  ];
+  ].map((target) => {
+    const url = new URL(target.url);
+    url.searchParams.set("pair", code);
+    return { ...target, url: url.toString() };
+  });
 }
 
 const PALETTE = `
@@ -57,7 +61,7 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
-export function connectPageHtml(entries: readonly ConnectEntry[]): string {
+export function connectPageHtml(entries: readonly ConnectEntry[], code: string): string {
   const cards = entries
     .map(
       (entry) => `
@@ -88,6 +92,7 @@ export function connectPageHtml(entries: readonly ConnectEntry[]): string {
   }
   h1 { font-size: 1.15rem; margin: 0 0 4px; }
   .lede { color: var(--muted); margin: 0 0 20px; }
+  .code { font: 700 1.45rem/1 ui-monospace, monospace; letter-spacing: .16em; color: var(--accent); }
   .cards { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
   .card {
     background: var(--card);
@@ -105,7 +110,8 @@ export function connectPageHtml(entries: readonly ConnectEntry[]): string {
 </head>
 <body>
   <h1>Connect your phone</h1>
-  <p class="lede">Point your camera at a code. Your phone has to be on the same Wi-Fi.</p>
+  <p class="lede">Point your camera at a code. Your phone has to be on the same Wi-Fi. The code lasts ten minutes.</p>
+  <p class="code">${escapeHtml(code)}</p>
   <div class="cards">${cards}</div>
 </body>
 </html>
