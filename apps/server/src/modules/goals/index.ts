@@ -36,6 +36,7 @@ type GoalsContext = ModuleContext<GoalsState>;
 export const goals: GameModuleDef<GoalsState> = {
   id: GOALS_ID,
   title: "Goals",
+  overlay: true,
 
   initialState: { goals: [] },
 

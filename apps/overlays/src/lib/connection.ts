@@ -11,11 +11,13 @@ import {
   type ServerToClientEvents,
   type Surface,
 } from "@saarathi/shared";
+import { forgetPageAccess, pageAccess, pairPageAccess, resetPageAccess } from "./access.js";
 
 export type SaarathiSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 export interface ClientState {
   connected: boolean;
+  access: { phase: "checking" | "paired" | "unpaired"; reason?: string };
   core: CoreState | null;
   /** Only the modules this client said hello about. */
   modules: Record<string, unknown>;
@@ -48,6 +50,11 @@ export interface Connection {
    */
   onEffect(listener: (effect: Effect) => void): () => void;
   mockChat(input: MockChatInput): void;
+  pair(code: string): Promise<InvokeResult>;
+  request<T>(path: string, init?: RequestInit): Promise<{ ok: true; value: T } | { ok: false; reason: string }>;
+  assetUrl(path: string): string;
+  /** Invalidate every phone and every copied overlay URL. */
+  resetAccess(): Promise<InvokeResult>;
   close(): void;
 }
 
@@ -76,10 +83,22 @@ const BOT_REPLY_LIMIT = 8;
  * waking up, land in the right state without anyone replaying events at it.
  */
 export function connect({ url, surface, modules, botReplies }: ConnectOptions): Connection {
-  const socket: SaarathiSocket = io(url, { transports: ["websocket", "polling"] });
+  const socket: SaarathiSocket = io(url, {
+    transports: ["websocket", "polling"],
+    autoConnect: false,
+  });
 
-  let state: ClientState = { connected: false, core: null, modules: {}, botReplies: [] };
+  let state: ClientState = {
+    connected: false,
+    access: { phase: "checking" },
+    core: null,
+    modules: {},
+    botReplies: [],
+  };
   const listeners = new Set<() => void>();
+  let token: string | null = null;
+  let retryingAccess = false;
+  let resettingAccess = false;
 
   /**
    * How far this client's clock is from the server's. Zero until the first
@@ -108,7 +127,58 @@ export function connect({ url, surface, modules, botReplies }: ConnectOptions): 
     set({ connected: true });
   });
 
-  socket.on("disconnect", () => set({ connected: false }));
+  socket.on("disconnect", (reason) => {
+    set({ connected: false });
+    if (reason !== "io server disconnect" || resettingAccess) return;
+    if (surface === "overlay") {
+      set({
+        access: { phase: "unpaired", reason: "This overlay URL is no longer paired" },
+        core: null,
+        modules: {},
+      });
+      return;
+    }
+
+    // A local control or deck page can recover through loopback. A phone cannot,
+    // so the same attempt ends in the pairing card rather than silently reviving
+    // a capability the user just revoked.
+    retryingAccess = true;
+    forgetPageAccess(url);
+    void pageAccess(url, surface).then((next) => {
+      retryingAccess = false;
+      token = next.token;
+      if (!token) {
+        set({
+          access: { phase: "unpaired", reason: next.reason },
+          core: null,
+          modules: {},
+        });
+        return;
+      }
+      socket.auth = { token };
+      socket.connect();
+    });
+  });
+  socket.on("connect_error", (error) => {
+    if (error.message.toLowerCase().includes("pair")) {
+      if (surface === "overlay" || retryingAccess) {
+        set({ access: { phase: "unpaired", reason: error.message }, connected: false });
+        return;
+      }
+      retryingAccess = true;
+      forgetPageAccess(url);
+      void pageAccess(url, surface).then((next) => {
+        retryingAccess = false;
+        token = next.token;
+        if (!token) {
+          set({ access: { phase: "unpaired", reason: next.reason }, connected: false });
+          return;
+        }
+        socket.auth = { token };
+        socket.connect();
+      });
+    }
+  });
 
   socket.on("snapshot", (snapshot) => {
     // Before `set`, not after: the render this snapshot causes is the one that
@@ -134,6 +204,17 @@ export function connect({ url, surface, modules, botReplies }: ConnectOptions): 
     set({ botReplies: [text, ...state.botReplies].slice(0, BOT_REPLY_LIMIT) });
   });
 
+  void pageAccess(url, surface).then((access) => {
+    token = access.token;
+    if (!token) {
+      set({ access: { phase: "unpaired", reason: access.reason } });
+      return;
+    }
+    set({ access: { phase: "paired" } });
+    socket.auth = { token };
+    socket.connect();
+  });
+
   return {
     subscribe(listener) {
       listeners.add(listener);
@@ -155,6 +236,53 @@ export function connect({ url, surface, modules, botReplies }: ConnectOptions): 
     },
     mockChat(input) {
       socket.emit("mockChat", input);
+    },
+    async pair(code) {
+      const access = await pairPageAccess(url, code.trim());
+      if (!access.token) return { ok: false, reason: access.reason ?? "Pairing failed" };
+      token = access.token;
+      resettingAccess = false;
+      socket.auth = { token };
+      set({ access: { phase: "paired" } });
+      socket.connect();
+      return { ok: true };
+    },
+    async request<T>(path: string, init?: RequestInit) {
+      if (!token) return { ok: false, reason: "This device is not paired" };
+      try {
+        const headers = new Headers(init?.headers);
+        headers.set("authorization", `Bearer ${token}`);
+        const response = await fetch(`${url}${path}`, { ...init, headers });
+        const body = (await response.json()) as T & { reason?: unknown };
+        if (response.ok) return { ok: true, value: body };
+        return {
+          ok: false,
+          reason: typeof body.reason === "string" ? body.reason : "That did not work",
+        };
+      } catch {
+        return { ok: false, reason: "Cannot reach Saarathi" };
+      }
+    },
+    assetUrl(path) {
+      return `${url}${path}`;
+    },
+    async resetAccess() {
+      if (!token) return { ok: false, reason: "This device is not paired" };
+      resettingAccess = true;
+      const result = await resetPageAccess(url, token);
+      if (!result.ok) {
+        resettingAccess = false;
+        return result;
+      }
+      token = null;
+      socket.close();
+      set({
+        connected: false,
+        access: { phase: "unpaired", reason: "All devices were disconnected" },
+        core: null,
+        modules: {},
+      });
+      return { ok: true };
     },
     close() {
       listeners.clear();
@@ -185,6 +313,11 @@ export function useModuleState<S>(connection: Connection, id: string): S | null 
 /** Whether the socket is up, on its own, for the same reason as above. */
 export function useConnected(connection: Connection): boolean {
   const read = () => connection.getState().connected;
+  return useSyncExternalStore(connection.subscribe, read, read);
+}
+
+export function useAccess(connection: Connection): ClientState["access"] {
+  const read = () => connection.getState().access;
   return useSyncExternalStore(connection.subscribe, read, read);
 }
 

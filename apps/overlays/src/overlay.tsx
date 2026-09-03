@@ -1,6 +1,6 @@
 import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { connect, type Connection } from "./lib/connection.js";
+import { connect, useAccess, type Connection } from "./lib/connection.js";
 import { moduleParam, serverUrl } from "./lib/serverUrl.js";
 import { useUnreachable } from "./lib/unreachable.js";
 import { clients, overlayIds } from "./modules/registry.js";
@@ -36,9 +36,11 @@ function Overlay({ id, url, connection }: { id: string; url: string; connection:
 
 function ConnectionStatus({ connection, url }: { connection: Connection; url: string }) {
   const unreachable = useUnreachable(connection);
+  const access = useAccess(connection);
+  const unpaired = access.phase === "unpaired";
   return (
-    <Status visible={unreachable} testId="status">
-      Cannot reach Saarathi at {url} — retrying
+    <Status visible={unreachable || unpaired} testId="status">
+      {unpaired ? access.reason : `Cannot reach Saarathi at ${url} — retrying`}
     </Status>
   );
 }

@@ -36,6 +36,7 @@ const labels = (slots: DeckSlot[]): string[] => slots.map((s) => s.label);
 const moduleStatus = (over: Partial<ModuleStatus>): ModuleStatus => ({
   id: "wheel",
   title: "Challenge wheel",
+  overlay: true,
   enabled: true,
   armed: true,
   arming: false,

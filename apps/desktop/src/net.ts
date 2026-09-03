@@ -58,7 +58,6 @@ export interface Links {
   readonly origin: string;
   readonly control: string;
   readonly deck: string;
-  readonly overlay: string;
 }
 
 /**
@@ -73,6 +72,28 @@ export function links(host: string, port: number): Links {
     origin,
     control: `${origin}/control.html`,
     deck: `${origin}/deck.html`,
-    overlay: `${origin}/overlay.html?module=wheel&server=${encodeURIComponent(origin)}`,
   };
+}
+
+/** One declared module's browser source. The server tells the tray which ids
+ * are overlays, so the shell never keeps its own list of games. */
+export function overlayUrl(links: Links, moduleId: string): string {
+  const url = new URL("/overlay.html", links.origin);
+  url.searchParams.set("module", moduleId);
+  url.searchParams.set("server", links.origin);
+  return url.toString();
+}
+
+/** A copied OBS URL carries read access and never control access. */
+export function overlayLink(link: string, token: string): string {
+  const url = new URL(link);
+  url.searchParams.set("access", token);
+  return url.toString();
+}
+
+/** A short-lived tray link that pairs the page it opens. */
+export function pairingLink(link: string, code: string): string {
+  const url = new URL(link);
+  url.searchParams.set("pair", code);
+  return url.toString();
 }

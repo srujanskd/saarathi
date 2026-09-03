@@ -12,6 +12,10 @@ const base: MenuView = {
   update: { phase: "idle" },
   deckWindowOpen: false,
   hotkeys: "No hotkeys set",
+  overlays: [
+    { id: "wheel", title: "Challenge wheel" },
+    { id: "media", title: "Media" },
+  ],
 };
 
 const ids = (view: MenuView) => trayMenu(view).map((item) => item.id);
@@ -38,6 +42,11 @@ describe("statusLabel", () => {
 });
 
 describe("trayMenu", () => {
+  it("offers every declared overlay, so a media deck button has somewhere to render in OBS", () => {
+    expect(item(base, "copy-overlay:wheel")!.label).toBe("Copy Challenge wheel overlay URL for OBS");
+    expect(item(base, "copy-overlay:media")!.label).toBe("Copy Media overlay URL for OBS");
+  });
+
   it("puts what is true at the top and the way out at the bottom", () => {
     const menu = trayMenu(base);
     expect(menu[0]!.id).toBe("status");

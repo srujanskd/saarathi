@@ -1,10 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { lanAddress, links } from "../../src/net.js";
+import { lanAddress, links, overlayLink, overlayUrl, pairingLink } from "../../src/net.js";
 
 const nic = (address: string, extra: Partial<{ internal: boolean; family: string }> = {}) => ({
   address,
   family: extra.family ?? "IPv4",
   internal: extra.internal ?? false,
+});
+
+describe("overlayLink", () => {
+  it("adds read access without replacing the server or module parameters", () => {
+    const base = overlayUrl(links("192.168.1.24", 4400), "media");
+    const paired = overlayLink(base, "read-token");
+    expect(paired).toContain("module=media");
+    expect(paired).toContain("access=read-token");
+    expect(paired).toContain(`server=${encodeURIComponent("http://192.168.1.24:4400")}`);
+  });
+});
+
+describe("pairingLink", () => {
+  it("puts the short code on a page without changing its address", () => {
+    expect(pairingLink("http://192.168.1.24:4400/control.html", "123456"))
+      .toBe("http://192.168.1.24:4400/control.html?pair=123456");
+  });
 });
 
 describe("lanAddress", () => {
@@ -52,7 +69,8 @@ describe("links", () => {
   });
 
   it("carries ?server= on the overlay, so OBS can live somewhere else", () => {
-    expect(built.overlay).toContain("module=wheel");
-    expect(built.overlay).toContain(`server=${encodeURIComponent(built.origin)}`);
+    const overlay = overlayUrl(built, "media");
+    expect(overlay).toContain("module=media");
+    expect(overlay).toContain(`server=${encodeURIComponent(built.origin)}`);
   });
 });

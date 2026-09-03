@@ -41,6 +41,7 @@ type GainsContext = ModuleContext<GainsState>;
 export const gains: GameModuleDef<GainsState> = {
   id: GAINS_ID,
   title: `Earning ${GAINS.plural}`,
+  overlay: true,
 
   initialState: {
     roster: {},

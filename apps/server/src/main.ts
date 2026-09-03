@@ -1,9 +1,11 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { createReadStream, existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import Fastify from "fastify";
 import { Server } from "socket.io";
 import {
   SERVER_PORT,
+  MAX_MEDIA_BYTES,
+  MEDIA_TYPES,
   type InvokeRequest,
   type Logger,
   type MockChatInput,
@@ -13,6 +15,7 @@ import { MockChatAdapter } from "./chat/mock.js";
 import { oauthClient } from "./chat/youtube-oauth.js";
 import { YouTubeAdapter } from "./chat/youtube.js";
 import { createKernel } from "./core/kernel.js";
+import { Access, isLoopback, isLoopbackHost, isLoopbackOrigin } from "./core/access.js";
 import { obsConfigPath } from "./core/obs-config.js";
 import { ObsWebSocketAdapter } from "./core/obs.js";
 import { JsonStore, defaultStorePath } from "./core/store.js";
@@ -21,6 +24,8 @@ import { chatlog } from "./modules/chatlog/index.js";
 import { gains } from "./modules/gains/index.js";
 import { goals } from "./modules/goals/index.js";
 import { moderation } from "./modules/moderation/index.js";
+import { createMedia } from "./modules/media/index.js";
+import { DiskMediaFiles } from "./modules/media/files.js";
 import { wheel } from "./modules/wheel/index.js";
 
 /**
@@ -31,13 +36,22 @@ import { wheel } from "./modules/wheel/index.js";
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
 
+app.addContentTypeParser(
+  Object.keys(MEDIA_TYPES),
+  { parseAs: "buffer", bodyLimit: MAX_MEDIA_BYTES },
+  (_request, body, done) => done(null, body),
+);
+
 const log: Logger = {
   info: (msg, extra) => (extra ? app.log.info({ extra }, msg) : app.log.info(msg)),
   warn: (msg, extra) => (extra ? app.log.warn({ extra }, msg) : app.log.warn(msg)),
   error: (msg, extra) => (extra ? app.log.error({ extra }, msg) : app.log.error(msg)),
 };
 
-const store = new JsonStore(process.env.STATE_FILE ?? defaultStorePath(), log);
+const stateFile = process.env.STATE_FILE ?? defaultStorePath();
+const store = new JsonStore(stateFile, log);
+const access = new Access({ store });
+const media = createMedia({ files: new DiskMediaFiles(join(dirname(stateFile), "media")) });
 
 // Mock chat is always on. Every chat-driven feature has to be drivable without
 // a live stream, or nobody can test it.
@@ -73,7 +87,7 @@ const obsConfig =
   process.env.OBS_CONFIG ?? obsConfigPath(process.platform, process.env) ?? "";
 
 const kernel = createKernel({
-  modules: [wheel, goals, gains, moderation, chatlog],
+  modules: [wheel, goals, gains, moderation, chatlog, media.module],
   chat,
   store,
   obs: new ObsWebSocketAdapter({ store, log, configPath: obsConfig || null }),
@@ -98,15 +112,164 @@ if (existsSync(overlaysDist)) {
 
 app.get("/health", async () => ({ ok: true }));
 
-/** The same snapshot a socket client gets, for eyeballing without a client. */
-app.get("/api/state", async () => kernel.snapshot());
+// Static pages are public. What they can read or do is not. The local route is
+// the bootstrapping seam for the tray, its floating deck and a browser on the
+// server machine; no LAN client can use it and it deliberately sends no CORS
+// header a hostile web page could use to read a loopback response.
+app.get("/api/access/local", async (request, reply) => {
+  if (!isLoopback(request.ip) || !isLoopbackHost(request.headers.host)) {
+    return reply.code(403).send({ reason: "Only this PC can do that" });
+  }
+  // Vite serves the dev page on another local port. A literal loopback origin
+  // may read this so `pnpm dev` still works; a LAN or DNS-rebound origin may
+  // send the GET but the browser cannot read the capability it returns.
+  const origin = request.headers.origin;
+  if (origin && isLoopbackOrigin(origin)) {
+    reply.header("Access-Control-Allow-Origin", origin);
+    reply.header("Vary", "Origin");
+  }
+  const query = request.query as { pairing?: unknown };
+  if (query.pairing === "fresh") return access.localPairing(true);
+  return query.pairing === "1" ? access.localPairing() : access.local();
+});
 
-app.post("/api/mock-chat", async (request) => {
+const allowApiOrigin = (origin: string | undefined, reply: { header(name: string, value: string): unknown }) => {
+  if (origin) reply.header("Access-Control-Allow-Origin", origin);
+  reply.header("Vary", "Origin");
+};
+
+// Runs before body parsing, so a file rejected by the size limit still gives a
+// separately hosted control page a readable HTTP error instead of looking like
+// a network failure. The loopback bootstrap route is deliberately excluded.
+app.addHook("onRequest", async (request, reply) => {
+  const path = request.url.split("?", 1)[0];
+  if (path?.startsWith("/api/media") || path === "/api/overlays" || path === "/api/access/pair" || path === "/api/access/reset") {
+    allowApiOrigin(request.headers.origin, reply);
+  }
+});
+
+app.options("/api/access/*", async (request, reply) => {
+  allowApiOrigin(request.headers.origin, reply);
+  reply.header("Access-Control-Allow-Headers", "Authorization, Content-Type");
+  reply.header("Access-Control-Allow-Methods", "POST, OPTIONS");
+  return reply.code(204).send();
+});
+
+for (const path of ["/api/media", "/api/media/*"]) {
+  app.options(path, async (request, reply) => {
+    allowApiOrigin(request.headers.origin, reply);
+    reply.header("Access-Control-Allow-Headers", "Authorization, Content-Type");
+    reply.header("Access-Control-Allow-Methods", "POST, DELETE, OPTIONS");
+    return reply.code(204).send();
+  });
+}
+
+app.post("/api/access/pair", async (request, reply) => {
+  allowApiOrigin(request.headers.origin, reply);
+  const body = request.body as { code?: unknown } | null;
+  const result = access.pair(body?.code, request.ip);
+  if (!result.ok) return reply.code(result.limited ? 429 : 401).send({ reason: result.reason });
+  return result.access;
+});
+
+app.post("/api/media", async (request, reply) => {
+  allowApiOrigin(request.headers.origin, reply);
+  if (!allows(request.headers.authorization, "control")) {
+    return reply.code(401).send({ reason: "Pair this device with Saarathi" });
+  }
+  if (!Buffer.isBuffer(request.body)) {
+    return reply.code(415).send({ reason: "Choose a supported media file" });
+  }
+  const query = request.query as Record<string, unknown>;
+  const result = media.add({
+    label: query.label,
+    mime: request.headers["content-type"]?.split(";", 1)[0],
+    volume: query.volume,
+    data: request.body,
+  });
+  if (!result.ok) return reply.code(400).send({ reason: result.reason });
+  return reply.code(201).send({ ok: true, item: result.value });
+});
+
+app.delete("/api/media/:id", async (request, reply) => {
+  allowApiOrigin(request.headers.origin, reply);
+  if (!allows(request.headers.authorization, "control")) {
+    return reply.code(401).send({ reason: "Pair this device with Saarathi" });
+  }
+  const result = media.remove((request.params as { id: string }).id);
+  if (!result.ok) return reply.code(404).send({ reason: result.reason });
+  return { ok: true };
+});
+
+app.get("/api/media/:id/:key", async (request, reply) => {
+  const { id, key } = request.params as { id: string; key: string };
+  const asset = media.asset(id, key);
+  if (!asset) return reply.code(404).send({ reason: "That clip is gone" });
+  reply.header("Accept-Ranges", "bytes");
+  reply.header("X-Content-Type-Options", "nosniff");
+  reply.type(asset.item.mime);
+
+  const range = request.headers.range;
+  if (!range) {
+    reply.header("Content-Length", asset.item.bytes);
+    return reply.send(createReadStream(asset.path));
+  }
+  const match = /^bytes=(\d+)-(\d*)$/.exec(range);
+  if (!match) return reply.code(416).header("Content-Range", `bytes */${asset.item.bytes}`).send();
+  const start = Number(match[1]);
+  const end = match[2] ? Math.min(Number(match[2]), asset.item.bytes - 1) : asset.item.bytes - 1;
+  if (start >= asset.item.bytes || end < start) {
+    return reply.code(416).header("Content-Range", `bytes */${asset.item.bytes}`).send();
+  }
+  reply.code(206);
+  reply.header("Content-Range", `bytes ${start}-${end}/${asset.item.bytes}`);
+  reply.header("Content-Length", end - start + 1);
+  return reply.send(createReadStream(asset.path, { start, end }));
+});
+
+app.options("/api/overlays", async (request, reply) => {
+  allowApiOrigin(request.headers.origin, reply);
+  reply.header("Access-Control-Allow-Headers", "Authorization");
+  reply.header("Access-Control-Allow-Methods", "GET, OPTIONS");
+  return reply.code(204).send();
+});
+
+app.get("/api/overlays", async (request, reply) => {
+  allowApiOrigin(request.headers.origin, reply);
+  if (!accessLevel(request.headers.authorization)) {
+    return reply.code(401).send({ reason: "Pair this device with Saarathi" });
+  }
+  return {
+    overlays: kernel.registry.statuses()
+      .filter((module) => module.overlay)
+      .map(({ id, title }) => ({ id, title })),
+  };
+});
+
+/** The same snapshot a socket client gets, for eyeballing without a client. */
+app.get("/api/state", async (request, reply) => {
+  const level = accessLevel(request.headers.authorization);
+  if (!level) {
+    return reply.code(401).send({ reason: "Pair this device with Saarathi" });
+  }
+  return kernel.snapshot(
+    level === "read" ? kernel.registry.overlayIds() : undefined,
+    level,
+  );
+});
+
+app.post("/api/mock-chat", async (request, reply) => {
+  if (!allows(request.headers.authorization, "control")) {
+    return reply.code(401).send({ reason: "Pair this device with Saarathi" });
+  }
   kernel.sendMockChat(request.body as MockChatInput);
   return { ok: true };
 });
 
-app.post("/api/invoke", async (request) => {
+app.post("/api/invoke", async (request, reply) => {
+  if (!allows(request.headers.authorization, "control")) {
+    return reply.code(401).send({ reason: "Pair this device with Saarathi" });
+  }
   const { action, args } = request.body as InvokeRequest;
   // Explicit, not defaulted: this is the eyeballing path, and the socket is the
   // one that knows which surface it is. Anything reaching here is a person with
@@ -115,7 +278,19 @@ app.post("/api/invoke", async (request) => {
 });
 
 const io: SaarathiServer = new Server(app.server, { cors: { origin: true } });
-attachSync(io, kernel, log);
+attachSync(io, kernel, log, access);
+
+app.post("/api/access/reset", async (request, reply) => {
+  allowApiOrigin(request.headers.origin, reply);
+  if (!allows(request.headers.authorization, "control")) {
+    return reply.code(401).send({ reason: "Pair this device with Saarathi" });
+  }
+  access.rotate();
+  // Let the HTTP answer reach the device that asked before invalidating every
+  // open socket, including that device. Reconnect now needs the new grant.
+  setImmediate(() => io.disconnectSockets(true));
+  return { ok: true };
+});
 
 await kernel.start();
 
@@ -150,3 +325,13 @@ process.on("message", (message: unknown) => {
     if ((message as { type?: unknown }).type === "shutdown") shutdown();
   }
 });
+
+function allows(header: string | undefined, need: "read" | "control"): boolean {
+  const level = accessLevel(header);
+  return level === "control" || (need === "read" && level === "read");
+}
+
+function accessLevel(header: string | undefined) {
+  const token = header?.startsWith("Bearer ") ? header.slice(7) : "";
+  return access.level(token);
+}

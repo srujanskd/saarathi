@@ -162,11 +162,41 @@ export class Kernel {
    * the socket and `/api/state` cannot disagree about what the server's clock
    * said. See `Snapshot.serverNow` for why a client needs it at all.
    */
-  snapshot(moduleIds?: string[]): Snapshot {
+  snapshot(moduleIds?: string[], access: "control" | "read" = "control"): Snapshot {
     return {
-      core: this.coreState(),
+      core: access === "control" ? this.coreState() : this.overlayCoreState(),
       modules: this.registry.snapshot(moduleIds),
       serverNow: Date.now(),
+    };
+  }
+
+  /**
+   * The read capability exists for browser sources, not for the control page.
+   * Overlay modules carry everything they render in their own slices, so the
+   * safest useful core view is an empty shell with the server start time. In
+   * particular this keeps pending Google device codes, deck labels, OBS scene
+   * names and adapter settings out of copied OBS URLs.
+   */
+  private overlayCoreState(): CoreState {
+    return {
+      startedAt: this.startedAt,
+      connections: {},
+      modules: [],
+      obs: {
+        mode: "manual",
+        host: "",
+        port: 0,
+        hasPassword: false,
+        detected: false,
+        scenes: [],
+        currentScene: null,
+        browserSources: [],
+        microphones: [],
+      },
+      deck: { slots: [] },
+      stats: {},
+      chat: {},
+      writes: { adapter: null, used: 0, ceiling: 0, reserve: 0, outOfQuota: false },
     };
   }
 
