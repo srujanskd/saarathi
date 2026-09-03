@@ -52,6 +52,8 @@ export function fakeObs(): FakeObs {
     detected: false,
     scenes: live ?? [],
     currentScene: live?.[0] ?? null,
+    browserSources: [],
+    microphones: [],
   });
 
   const publish = () => sink?.view(view());

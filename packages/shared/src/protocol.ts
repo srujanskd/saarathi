@@ -53,6 +53,19 @@ export interface ObsView {
   /** Transient: OBS tells us on connect, and we forget on disconnect. */
   scenes: string[];
   currentScene: string | null;
+  /**
+   * OBS browser inputs, discovered from OBS rather than configured here.
+   * Transient with the connection: an old source list is worse than no list.
+   */
+  browserSources: string[];
+  /**
+   * The Mic/Aux inputs OBS itself names as microphones.
+   *
+   * `muted` is null when OBS named the input but did not answer the follow-up
+   * mute query. That is different from false, and the readiness page must not
+   * turn an unknown audio state into a green check.
+   */
+  microphones: { name: string; muted: boolean | null }[];
 }
 
 /**

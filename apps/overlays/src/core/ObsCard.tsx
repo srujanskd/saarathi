@@ -65,7 +65,7 @@ export function ObsCard({
   }
 
   return (
-    <section className="card" data-testid="obs-card">
+    <section className="card" id="obs-setup" data-testid="obs-card">
       <h2>OBS</h2>
       <p className="hint" data-state={status?.state} data-testid="obs-status">
         {status?.detail ?? "Starting up"}
@@ -127,6 +127,52 @@ export function ObsCard({
                 </button>
               );
             })}
+          </div>
+        </details>
+      ) : null}
+
+      {connected ? (
+        <details className="fold" id="obs-media-setup">
+          <summary>
+            <span>Microphone and browser sources</span>
+          </summary>
+          <div className="obs-checks">
+            <div>
+              <b>Microphone</b>
+              {obs.microphones.length === 0 ? (
+                <p className="hint">
+                  In OBS, open Settings → Audio and choose your microphone under Mic/Aux.
+                </p>
+              ) : (
+                <ul>
+                  {obs.microphones.map((input) => (
+                    <li key={input.name} data-muted={input.muted === true}>
+                      {input.name}
+                      {input.muted === true
+                        ? " is muted"
+                        : input.muted === false
+                          ? " is unmuted"
+                          : " needs a mute check"}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div>
+              <b>Browser sources</b>
+              {obs.browserSources.length === 0 ? (
+                <p className="hint">
+                  In OBS, choose Sources → + → Browser, then paste the address of the Saarathi
+                  overlay you want to show.
+                </p>
+              ) : (
+                <ul>
+                  {obs.browserSources.map((source) => (
+                    <li key={source}>{source}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         </details>
       ) : null}
