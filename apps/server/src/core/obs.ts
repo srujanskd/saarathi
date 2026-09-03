@@ -162,6 +162,8 @@ export class ObsWebSocketAdapter implements ObsAdapter {
   private detected = false;
   private scenes: string[] = [];
   private currentScene: string | null = null;
+  private browserSources: string[] = [];
+  private microphones: ObsView["microphones"] = [];
 
   constructor(private readonly options: ObsOptions) {
     this.settings = this.load();
@@ -221,6 +223,8 @@ export class ObsWebSocketAdapter implements ObsAdapter {
       detected: this.detected,
       scenes: [...this.scenes],
       currentScene: this.currentScene,
+      browserSources: [...this.browserSources],
+      microphones: this.microphones.map((input) => ({ ...input })),
     };
   }
 
@@ -363,8 +367,20 @@ export class ObsWebSocketAdapter implements ObsAdapter {
       this.publish();
     });
     obs.on("SceneListChanged", () => void this.refreshScenes());
+    // Inputs are the preflight facts the control page cannot learn on its own:
+    // whether OBS has somewhere to render an overlay and whether a microphone
+    // exists. Refresh the small list when OBS changes it instead of polling.
+    obs.on("InputCreated", () => void this.refreshInputs());
+    obs.on("InputRemoved", () => void this.refreshInputs());
+    obs.on("InputNameChanged", () => void this.refreshInputs());
+    obs.on("InputMuteStateChanged", ({ inputName, inputMuted }) => {
+      const microphone = this.microphones.find((input) => input.name === inputName);
+      if (!microphone) return;
+      microphone.muted = inputMuted;
+      this.publish();
+    });
 
-    await this.refreshScenes();
+    await Promise.all([this.refreshScenes(), this.refreshInputs()]);
     this.report({ phase: "connected", host, port, scenes: this.scenes.length });
   }
 
@@ -375,6 +391,8 @@ export class ObsWebSocketAdapter implements ObsAdapter {
     this.socket = null;
     this.scenes = [];
     this.currentScene = null;
+    this.browserSources = [];
+    this.microphones = [];
     this.publish();
     this.report({ phase: "down", host: settings.host, port: settings.port });
     this.schedule();
@@ -385,6 +403,7 @@ export class ObsWebSocketAdapter implements ObsAdapter {
     if (!obs) return;
     try {
       const list = await obs.call("GetSceneList");
+      if (this.socket !== obs) return;
       this.scenes = [...list.scenes]
         // OBS's own numbering, so her buttons keep the same order every time
         // rather than whatever order the array happened to arrive in.
@@ -394,6 +413,43 @@ export class ObsWebSocketAdapter implements ObsAdapter {
       this.publish();
     } catch (err) {
       this.options.log.warn("obs: could not read the scene list", err);
+    }
+  }
+
+  private async refreshInputs(): Promise<void> {
+    const obs = this.socket;
+    if (!obs) return;
+    try {
+      const [browsers, special] = await Promise.all([
+        obs.call("GetInputList", { inputKind: "browser_source" }),
+        obs.call("GetSpecialInputs"),
+      ]);
+
+      const browserSources = browsers.inputs
+        .map((input) => input.inputName)
+        .filter((name): name is string => typeof name === "string" && name.length > 0)
+        .sort((a, b) => a.localeCompare(b));
+
+      const microphoneNames = Object.entries(special)
+        .filter(([key, value]) => key.startsWith("mic") && typeof value === "string" && value)
+        .map(([, value]) => value as string);
+
+      const microphones = await Promise.all(
+        microphoneNames.map(async (name) => {
+          try {
+            const result = await obs.call("GetInputMute", { inputName: name });
+            return { name, muted: result.inputMuted };
+          } catch {
+            return { name, muted: null };
+          }
+        }),
+      );
+      if (this.socket !== obs) return;
+      this.browserSources = browserSources;
+      this.microphones = microphones;
+      this.publish();
+    } catch (err) {
+      this.options.log.warn("obs: could not inspect browser sources and microphones", err);
     }
   }
 
@@ -452,6 +508,8 @@ export class ObsWebSocketAdapter implements ObsAdapter {
     this.socket = null;
     this.scenes = [];
     this.currentScene = null;
+    this.browserSources = [];
+    this.microphones = [];
     this.publish();
     if (obs) await obs.disconnect().catch(() => {});
   }

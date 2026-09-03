@@ -60,7 +60,12 @@ async function point(client: Client, port: number, password: string) {
 
 describe("OBS control, end to end", () => {
   it("connects, authenticates, and reports her scenes", async () => {
-    obs = await startFakeObs({ password: "s3cret", scenes: ["Workout", "Just Chatting", "BRB"] });
+    obs = await startFakeObs({
+      password: "s3cret",
+      scenes: ["Workout", "Just Chatting", "BRB"],
+      browserSources: ["Saarathi overlay"],
+      microphones: [{ name: "Mic/Aux", muted: false }],
+    });
     server = await startServer();
     const control = await server.connect({ surface: "control" });
 
@@ -72,6 +77,8 @@ describe("OBS control, end to end", () => {
     // fake does too, and getting these in her order is the adapter's job.
     expect(core.obs.scenes).toEqual(["BRB", "Just Chatting", "Workout"]);
     expect(core.obs.currentScene).toBe("Workout");
+    expect(core.obs.browserSources).toEqual(["Saarathi overlay"]);
+    expect(core.obs.microphones).toEqual([{ name: "Mic/Aux", muted: false }]);
   });
 
   it("connects with no password when OBS is not asking for one", async () => {
@@ -153,6 +160,8 @@ describe("OBS control, end to end", () => {
     // Scenes are transient: a card that still lists them would offer buttons
     // that cannot work.
     expect(down.obs.scenes).toEqual([]);
+    expect(down.obs.browserSources).toEqual([]);
+    expect(down.obs.microphones).toEqual([]);
 
     obs = await startFakeObs({ password: "s3cret", port });
     await until(control, "connected", "reconnected");

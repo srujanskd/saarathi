@@ -69,7 +69,7 @@ export function ChatSourceCard({
   }
 
   return (
-    <section className="card" data-testid="chat-card">
+    <section className="card" id={`chat-${name}`} data-testid="chat-card">
       <h2>{view.title}</h2>
       <p className="hint" data-state={status?.state} data-testid="chat-status">
         {status?.detail ?? "Starting up"}

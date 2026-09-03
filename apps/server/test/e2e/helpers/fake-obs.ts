@@ -39,6 +39,9 @@ export interface FakeObsOptions {
    * wide and untestable.
    */
   helloDelayMs?: number;
+  /** Inputs the readiness check should discover through OBS. */
+  browserSources?: string[];
+  microphones?: { name: string; muted?: boolean }[];
 }
 
 export interface FakeObs {
@@ -61,6 +64,8 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
   const switches: string[] = [];
   const toggles: FakeObs["toggles"] = [];
   const identified = new Set<WebSocket>();
+  const browserSources = options.browserSources ?? [];
+  const microphones = options.microphones ?? [];
 
   const wss = new WebSocketServer({
     port: options.port ?? 0,
@@ -136,6 +141,33 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
         case "GetSceneList":
           reply(sceneList());
           return;
+        case "GetInputList":
+          reply({
+            inputs:
+              requestData?.inputKind === "browser_source"
+                ? browserSources.map((inputName) => ({
+                    inputName,
+                    inputKind: "browser_source",
+                    unversionedInputKind: "browser_source",
+                  }))
+                : [],
+          });
+          return;
+        case "GetSpecialInputs":
+          reply(
+            Object.fromEntries(microphones.map((microphone, index) => [`mic${index + 1}`, microphone.name])),
+          );
+          return;
+        case "GetInputMute": {
+          const inputName = String(requestData?.inputName ?? "");
+          const microphone = microphones.find((input) => input.name === inputName);
+          if (!microphone) {
+            reply(undefined, false, "No input by that name.");
+            return;
+          }
+          reply({ inputMuted: microphone.muted ?? false });
+          return;
+        }
         case "SetCurrentProgramScene": {
           const sceneName = String(requestData?.sceneName ?? "");
           if (!scenes.includes(sceneName)) {

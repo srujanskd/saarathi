@@ -5,6 +5,143 @@
 
 @import "./base.css";
 
+/* The first answer on the page. It is deliberately not another module card:
+   this is the one place that turns five separate facts into "ready" or the
+   exact next fixes. */
+.readiness {
+  padding: 1rem;
+  border: 1px solid rgb(255 217 160 / 0.4);
+  border-radius: 18px;
+  background: rgb(255 217 160 / 0.06);
+}
+
+.readiness[data-ready="true"] {
+  border-color: rgb(74 222 128 / 0.45);
+  background: rgb(74 222 128 / 0.06);
+}
+
+.readiness-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.65rem;
+}
+
+.readiness-head .kicker {
+  margin: 0 0 0.2rem;
+}
+
+.readiness-head h2 {
+  margin: 0;
+  font-size: 1.45rem;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  text-transform: none;
+  color: var(--text);
+}
+
+.readiness-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  min-width: 2.7rem;
+  height: 2.7rem;
+  padding: 0 0.55rem;
+  border-radius: 999px;
+  background: var(--warn);
+  color: var(--accent-ink);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.readiness[data-ready="true"] .readiness-mark {
+  background: var(--accent);
+}
+
+.readiness-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.readiness-list li {
+  display: grid;
+  grid-template-columns: 0.65rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.72rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.readiness-list strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.readiness-list p {
+  margin: 0.12rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.readiness-dot {
+  align-self: start;
+  width: 0.6rem;
+  height: 0.6rem;
+  margin-top: 0.35rem;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.readiness-list [data-state="ready"] .readiness-dot {
+  background: var(--accent);
+}
+
+.readiness-list [data-state="waiting"] .readiness-dot {
+  background: var(--muted);
+}
+
+.readiness-fix {
+  display: grid;
+  place-items: center;
+  min-width: 3.5rem;
+  min-height: 2.75rem;
+  padding: 0 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card-2);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.obs-checks {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.obs-checks p,
+.obs-checks ul {
+  margin: 0.3rem 0 0;
+}
+
+.obs-checks ul {
+  padding-left: 1.2rem;
+  color: var(--muted);
+}
+
+.obs-checks [data-muted="true"] {
+  color: var(--warn);
+}
+
+#obs-setup,
+#obs-media-setup,
+#deck-setup,
+[id^="chat-"] {
+  scroll-margin-top: 1rem;
+}
+
 .caption {
   display: flex;
   flex-direction: column;

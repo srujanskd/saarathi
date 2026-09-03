@@ -69,7 +69,7 @@ export function DeckCard({
   }
 
   return (
-    <section className="card" data-testid="deck-card">
+    <section className="card" id="deck-setup" data-testid="deck-card">
       <h2>Deck</h2>
       <p className="hint">
         Her buttons, full screen: <a href={href}>open the deck</a>. Add it to the home screen of
