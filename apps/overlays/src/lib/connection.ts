@@ -98,6 +98,7 @@ export function connect({ url, surface, modules, botReplies }: ConnectOptions): 
   const listeners = new Set<() => void>();
   let token: string | null = null;
   let retryingAccess = false;
+  let resettingAccess = false;
 
   /**
    * How far this client's clock is from the server's. Zero until the first
@@ -126,7 +127,38 @@ export function connect({ url, surface, modules, botReplies }: ConnectOptions): 
     set({ connected: true });
   });
 
-  socket.on("disconnect", () => set({ connected: false }));
+  socket.on("disconnect", (reason) => {
+    set({ connected: false });
+    if (reason !== "io server disconnect" || resettingAccess) return;
+    if (surface === "overlay") {
+      set({
+        access: { phase: "unpaired", reason: "This overlay URL is no longer paired" },
+        core: null,
+        modules: {},
+      });
+      return;
+    }
+
+    // A local control or deck page can recover through loopback. A phone cannot,
+    // so the same attempt ends in the pairing card rather than silently reviving
+    // a capability the user just revoked.
+    retryingAccess = true;
+    forgetPageAccess(url);
+    void pageAccess(url, surface).then((next) => {
+      retryingAccess = false;
+      token = next.token;
+      if (!token) {
+        set({
+          access: { phase: "unpaired", reason: next.reason },
+          core: null,
+          modules: {},
+        });
+        return;
+      }
+      socket.auth = { token };
+      socket.connect();
+    });
+  });
   socket.on("connect_error", (error) => {
     if (error.message.toLowerCase().includes("pair")) {
       if (surface === "overlay" || retryingAccess) {
@@ -209,6 +241,7 @@ export function connect({ url, surface, modules, botReplies }: ConnectOptions): 
       const access = await pairPageAccess(url, code.trim());
       if (!access.token) return { ok: false, reason: access.reason ?? "Pairing failed" };
       token = access.token;
+      resettingAccess = false;
       socket.auth = { token };
       set({ access: { phase: "paired" } });
       socket.connect();
@@ -235,8 +268,12 @@ export function connect({ url, surface, modules, botReplies }: ConnectOptions): 
     },
     async resetAccess() {
       if (!token) return { ok: false, reason: "This device is not paired" };
+      resettingAccess = true;
       const result = await resetPageAccess(url, token);
-      if (!result.ok) return result;
+      if (!result.ok) {
+        resettingAccess = false;
+        return result;
+      }
       token = null;
       socket.close();
       set({

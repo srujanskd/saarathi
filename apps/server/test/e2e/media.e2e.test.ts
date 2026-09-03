@@ -19,12 +19,31 @@ async function upload(label: string, target = server, durationMs = 2_000): Promi
     method: "POST",
     headers: {
       authorization: `Bearer ${target.controlToken}`,
-      "content-type": "audio/mpeg",
+      "content-type": "audio/wav",
     },
-    body: Buffer.from("media-bytes"),
+    body: wav(durationMs),
   });
   expect(response.status).toBe(201);
   return ((await response.json()) as { item: MediaItem }).item;
+}
+
+function wav(durationMs: number): Buffer<ArrayBuffer> {
+  const sampleRate = 8_000;
+  const bytes = Math.round(sampleRate * durationMs / 1_000);
+  const out = Buffer.alloc(44 + bytes);
+  out.write("RIFF", 0);
+  out.writeUInt32LE(out.length - 8, 4);
+  out.write("WAVEfmt ", 8);
+  out.writeUInt32LE(16, 16);
+  out.writeUInt16LE(1, 20);
+  out.writeUInt16LE(1, 22);
+  out.writeUInt32LE(sampleRate, 24);
+  out.writeUInt32LE(sampleRate, 28);
+  out.writeUInt16LE(1, 32);
+  out.writeUInt16LE(8, 34);
+  out.write("data", 36);
+  out.writeUInt32LE(bytes, 40);
+  return out;
 }
 
 describe("the media pack", () => {
@@ -40,13 +59,13 @@ describe("the media pack", () => {
   it("uploads, serves ranges, plays, reconnects mid-cue and removes", async () => {
     const item = await upload("Air horn");
     const whole = await server.raw(`/api/media/${item.id}/${item.assetKey}`);
-    expect(await whole.text()).toBe("media-bytes");
+    expect((await whole.arrayBuffer()).byteLength).toBe(wav(2_000).length);
 
     const range = await server.raw(`/api/media/${item.id}/${item.assetKey}`, {
       headers: { range: "bytes=6-10" },
     });
     expect(range.status).toBe(206);
-    expect(await range.text()).toBe("bytes");
+    expect((await range.arrayBuffer()).byteLength).toBe(5);
 
     const control = await server.connect({ surface: "control", modules: [MEDIA_ID] });
     await expect(control.invoke({ action: `${MEDIA_ID}.play`, args: [item.id] })).resolves.toEqual({ ok: true });
@@ -89,7 +108,8 @@ describe("the media pack", () => {
       const state = snapshot.modules[MEDIA_ID] as MediaState;
       expect(state.items.map((saved) => saved.label)).toEqual(["Restart clip"]);
       expect(state.active).toBeNull();
-      expect(await (await second.raw(`/api/media/${item.id}/${item.assetKey}`)).text()).toBe("media-bytes");
+      expect((await (await second.raw(`/api/media/${item.id}/${item.assetKey}`)).arrayBuffer()).byteLength)
+        .toBe(wav(20_000).length);
     } finally {
       if (!firstStopped) await first.stop({ keepState: true });
       await second?.stop();

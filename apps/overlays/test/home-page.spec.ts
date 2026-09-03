@@ -13,10 +13,16 @@ test("the home page links every page and registered overlay", async ({ page, pag
     new RegExp(`deck\\.html.*server=.*${saarathi.port}`),
   );
 
-  const overlays = ["wheel", "goals", "gains", "media"];
-  for (const id of overlays) {
+  const overlays = [
+    ["wheel", "Challenge wheel overlay"],
+    ["goals", "Goals overlay"],
+    ["gains", "Earning gains overlay"],
+    ["media", "Media overlay"],
+  ] as const;
+  for (const [id, title] of overlays) {
     const link = page.getByTestId(`home-overlay-${id}`);
     await expect(link).toBeVisible();
+    await expect(link.locator("strong")).toHaveText(title);
     await expect(link).toHaveAttribute("href", /overlay\.html\?/);
     await expect(link).toHaveAttribute("href", new RegExp(`module=${id}`));
     await expect(link).toHaveAttribute("href", new RegExp(`server=.*${saarathi.port}`));

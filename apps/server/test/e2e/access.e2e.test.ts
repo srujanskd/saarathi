@@ -33,6 +33,21 @@ describe("HTTP access", () => {
     })).status).toBe(401);
   });
 
+  it("lists overlays from server declarations for the home page", async () => {
+    const response = await server.raw("/api/overlays", {
+      headers: { authorization: `Bearer ${server.overlayToken}` },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      overlays: [
+        { id: "wheel", title: "Challenge wheel" },
+        { id: "goals", title: "Goals" },
+        { id: "gains", title: "Earning gains" },
+        { id: "media", title: "Media" },
+      ],
+    });
+  });
+
   it("exchanges the tray code for control access", async () => {
     const response = await server.raw("/api/access/pair", {
       method: "POST",

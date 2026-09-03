@@ -17,7 +17,6 @@ import "./media-card.css";
 interface Draft {
   file: File;
   label: string;
-  durationMs: number;
   volume: number;
 }
 
@@ -43,7 +42,6 @@ export function MediaCard({ connection, deck }: CardProps) {
     setDraft({
       file,
       label: file.name.replace(/\.[^.]+$/, "").slice(0, 48),
-      durationMs: inspected.durationMs,
       volume: 0.8,
     });
   }
@@ -53,7 +51,6 @@ export function MediaCard({ connection, deck }: CardProps) {
     setUploading(true);
     const query = new URLSearchParams({
       label: draft.label,
-      durationMs: String(draft.durationMs),
       volume: String(draft.volume),
     });
     const result = await connection.request<{ item: MediaItem }>(`/api/media?${query}`, {

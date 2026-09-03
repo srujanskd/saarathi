@@ -31,10 +31,14 @@ export const CORE_ACTIONS = {
 
 export type AccessLevel = "read" | "control";
 
-/** Returned only to a client on the server machine. */
-export interface LocalAccess {
+/** Persistent capabilities returned only to a client on the server machine. */
+export interface LocalTokens {
   controlToken: string;
   overlayToken: string;
+}
+
+/** Returned only when the tray deliberately opens a new pairing window. */
+export interface LocalAccess extends LocalTokens {
   pairing: { code: string; expiresAt: number };
 }
 

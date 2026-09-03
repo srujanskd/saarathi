@@ -15,7 +15,7 @@ import {
 import { autoUpdater } from "electron-updater";
 import QRCode from "qrcode";
 import { SERVER_PORT } from "@saarathi/shared";
-import { localAccess, ServerClient } from "./client.js";
+import { localAccess, localPairing, ServerClient } from "./client.js";
 import { connectPageHtml, connectTargets, type ConnectEntry } from "./connect-page.js";
 import {
   boundsToSave,
@@ -110,6 +110,9 @@ async function main(): Promise<void> {
     onStatus: (next) => {
       status = next;
       log.write(`[tray] ${next.phase}${next.detail ? ` — ${next.detail}` : ""}\n`);
+      // ServerProcess.start() returns after spawning. The health transition is
+      // the first moment the loopback access route is guaranteed to exist.
+      if (next.phase === "running") client.start();
       render();
     },
     onLog: (line) => log.write(line),
@@ -253,13 +256,13 @@ async function main(): Promise<void> {
     switch (action) {
       case "open-control":
         if (current.links) {
-          const grant = await localAccess(port);
+          const grant = await localPairing(port);
           if (grant) await shell.openExternal(pairingLink(current.links.control, grant.pairing.code));
         }
         break;
       case "open-deck":
         if (current.links) {
-          const grant = await localAccess(port);
+          const grant = await localPairing(port);
           if (grant) await shell.openExternal(pairingLink(current.links.deck, grant.pairing.code));
         }
         break;
@@ -391,7 +394,7 @@ async function main(): Promise<void> {
       connectWindow.close();
       connectWindow = null;
     }
-    const grant = await localAccess(port);
+    const grant = await localPairing(port, true);
     if (!grant) return;
     connectExpiresAt = grant.pairing.expiresAt;
     const entries: ConnectEntry[] = await Promise.all(
@@ -445,7 +448,6 @@ async function main(): Promise<void> {
   ipcMain.on("deck-window:close", () => closeDeckWindow());
 
   await server.start();
-  client.start();
 
   // Ask again for the keys something else already owned. A grid that has none
   // makes this a no-op, and one that does is the only case where she would

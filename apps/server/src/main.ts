@@ -128,10 +128,12 @@ app.get("/api/access/local", async (request, reply) => {
     reply.header("Access-Control-Allow-Origin", origin);
     reply.header("Vary", "Origin");
   }
-  return access.local();
+  const query = request.query as { pairing?: unknown };
+  if (query.pairing === "fresh") return access.localPairing(true);
+  return query.pairing === "1" ? access.localPairing() : access.local();
 });
 
-const allowPairingOrigin = (origin: string | undefined, reply: { header(name: string, value: string): unknown }) => {
+const allowApiOrigin = (origin: string | undefined, reply: { header(name: string, value: string): unknown }) => {
   if (origin) reply.header("Access-Control-Allow-Origin", origin);
   reply.header("Vary", "Origin");
 };
@@ -141,13 +143,13 @@ const allowPairingOrigin = (origin: string | undefined, reply: { header(name: st
 // a network failure. The loopback bootstrap route is deliberately excluded.
 app.addHook("onRequest", async (request, reply) => {
   const path = request.url.split("?", 1)[0];
-  if (path?.startsWith("/api/media") || path === "/api/access/pair" || path === "/api/access/reset") {
-    allowPairingOrigin(request.headers.origin, reply);
+  if (path?.startsWith("/api/media") || path === "/api/overlays" || path === "/api/access/pair" || path === "/api/access/reset") {
+    allowApiOrigin(request.headers.origin, reply);
   }
 });
 
 app.options("/api/access/*", async (request, reply) => {
-  allowPairingOrigin(request.headers.origin, reply);
+  allowApiOrigin(request.headers.origin, reply);
   reply.header("Access-Control-Allow-Headers", "Authorization, Content-Type");
   reply.header("Access-Control-Allow-Methods", "POST, OPTIONS");
   return reply.code(204).send();
@@ -155,7 +157,7 @@ app.options("/api/access/*", async (request, reply) => {
 
 for (const path of ["/api/media", "/api/media/*"]) {
   app.options(path, async (request, reply) => {
-    allowPairingOrigin(request.headers.origin, reply);
+    allowApiOrigin(request.headers.origin, reply);
     reply.header("Access-Control-Allow-Headers", "Authorization, Content-Type");
     reply.header("Access-Control-Allow-Methods", "POST, DELETE, OPTIONS");
     return reply.code(204).send();
@@ -163,7 +165,7 @@ for (const path of ["/api/media", "/api/media/*"]) {
 }
 
 app.post("/api/access/pair", async (request, reply) => {
-  allowPairingOrigin(request.headers.origin, reply);
+  allowApiOrigin(request.headers.origin, reply);
   const body = request.body as { code?: unknown } | null;
   const result = access.pair(body?.code, request.ip);
   if (!result.ok) return reply.code(result.limited ? 429 : 401).send({ reason: result.reason });
@@ -171,7 +173,7 @@ app.post("/api/access/pair", async (request, reply) => {
 });
 
 app.post("/api/media", async (request, reply) => {
-  allowPairingOrigin(request.headers.origin, reply);
+  allowApiOrigin(request.headers.origin, reply);
   if (!allows(request.headers.authorization, "control")) {
     return reply.code(401).send({ reason: "Pair this device with Saarathi" });
   }
@@ -182,7 +184,6 @@ app.post("/api/media", async (request, reply) => {
   const result = media.add({
     label: query.label,
     mime: request.headers["content-type"]?.split(";", 1)[0],
-    durationMs: query.durationMs,
     volume: query.volume,
     data: request.body,
   });
@@ -191,7 +192,7 @@ app.post("/api/media", async (request, reply) => {
 });
 
 app.delete("/api/media/:id", async (request, reply) => {
-  allowPairingOrigin(request.headers.origin, reply);
+  allowApiOrigin(request.headers.origin, reply);
   if (!allows(request.headers.authorization, "control")) {
     return reply.code(401).send({ reason: "Pair this device with Saarathi" });
   }
@@ -224,6 +225,25 @@ app.get("/api/media/:id/:key", async (request, reply) => {
   reply.header("Content-Range", `bytes ${start}-${end}/${asset.item.bytes}`);
   reply.header("Content-Length", end - start + 1);
   return reply.send(createReadStream(asset.path, { start, end }));
+});
+
+app.options("/api/overlays", async (request, reply) => {
+  allowApiOrigin(request.headers.origin, reply);
+  reply.header("Access-Control-Allow-Headers", "Authorization");
+  reply.header("Access-Control-Allow-Methods", "GET, OPTIONS");
+  return reply.code(204).send();
+});
+
+app.get("/api/overlays", async (request, reply) => {
+  allowApiOrigin(request.headers.origin, reply);
+  if (!accessLevel(request.headers.authorization)) {
+    return reply.code(401).send({ reason: "Pair this device with Saarathi" });
+  }
+  return {
+    overlays: kernel.registry.statuses()
+      .filter((module) => module.overlay)
+      .map(({ id, title }) => ({ id, title })),
+  };
 });
 
 /** The same snapshot a socket client gets, for eyeballing without a client. */
@@ -261,7 +281,7 @@ const io: SaarathiServer = new Server(app.server, { cors: { origin: true } });
 attachSync(io, kernel, log, access);
 
 app.post("/api/access/reset", async (request, reply) => {
-  allowPairingOrigin(request.headers.origin, reply);
+  allowApiOrigin(request.headers.origin, reply);
   if (!allows(request.headers.authorization, "control")) {
     return reply.code(401).send({ reason: "Pair this device with Saarathi" });
   }

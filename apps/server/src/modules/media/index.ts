@@ -7,11 +7,11 @@ import {
   MEDIA_TYPES,
   type GameModuleDef,
   type MediaItem,
-  type MediaMime,
   type MediaState,
   type ModuleContext,
 } from "@saarathi/shared";
 import type { MediaFiles } from "./files.js";
+import { inspectMedia } from "./inspect.js";
 
 const MAX_LABEL = 48;
 const MIN_DURATION_MS = 500;
@@ -19,7 +19,6 @@ const MIN_DURATION_MS = 500;
 export interface MediaUpload {
   label: unknown;
   mime: unknown;
-  durationMs: unknown;
   volume: unknown;
   data: Buffer;
 }
@@ -95,7 +94,8 @@ export function createMedia(options: MediaOptions): MediaController {
       if (present.length !== ctx.state.items.length) ctx.setState({ items: present });
     },
 
-    teardown() {
+    teardown(ctx) {
+      if (ctx.state.active) ctx.setState({ active: null });
       context = null;
     },
   };
@@ -156,7 +156,11 @@ function makeItem(
   if (upload.data.length > MAX_MEDIA_BYTES) {
     return { ok: false, reason: `Keep media under ${Math.floor(MAX_MEDIA_BYTES / 1024 / 1024)} MB` };
   }
-  const durationMs = Number(upload.durationMs);
+  const inspected = inspectMedia(upload.data);
+  if (!inspected || inspected.mime !== upload.mime) {
+    return { ok: false, reason: "That file does not match its media type" };
+  }
+  const durationMs = inspected.durationMs;
   if (!Number.isInteger(durationMs) || durationMs < MIN_DURATION_MS || durationMs > MAX_MEDIA_DURATION_MS) {
     return { ok: false, reason: "Keep playback between half a second and 30 seconds" };
   }
@@ -164,7 +168,7 @@ function makeItem(
   if (!Number.isFinite(volume) || volume < 0 || volume > 1) {
     return { ok: false, reason: "Volume has to be between silent and full" };
   }
-  const mime = upload.mime as MediaMime;
+  const mime = inspected.mime;
   return {
     ok: true,
     value: {

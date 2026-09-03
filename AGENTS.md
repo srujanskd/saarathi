@@ -412,7 +412,8 @@ Do not open a browser or use computer use to verify unless I ask for it.
 - Media files live in a `media/` directory beside `state.json`. Their URLs
   carry a random key for that one file, never either account capability. Media
   triggers call the named `media.play` and `media.stop` actions; heart-rate or
-  future recipes do not grow a second playback path.
+  future recipes do not grow a second playback path. The server derives their
+  MIME type and duration from the bytes; browser metadata is only early feedback.
 - Every timestamp in the state is server time. A client corrects for its own clock using
   `Snapshot.serverNow` and never subtracts `Date.now()` from a server timestamp directly: the
   server may be a VPS while the page is on her phone, and a phone's clock is routinely tens of

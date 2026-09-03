@@ -175,7 +175,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
 
   await waitForHealth(origin, child, output);
 
-  const localResponse = await fetch(`${origin}/api/access/local`);
+  const localResponse = await fetch(`${origin}/api/access/local?pairing=fresh`);
   if (!localResponse.ok) throw new Error(`local access -> ${localResponse.status}`);
   const local = (await localResponse.json()) as {
     controlToken: string;

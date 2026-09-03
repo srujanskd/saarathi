@@ -5,6 +5,7 @@ import {
   type CoreState,
   type InvokeResult,
   type LocalAccess,
+  type LocalTokens,
   type ServerToClientEvents,
 } from "@saarathi/shared";
 
@@ -32,23 +33,37 @@ export interface ServerClientOptions {
    * disagree about it would be worse than one. */
   onState(connected: boolean): void;
   log(line: string): void;
+  request?: typeof fetch;
+  retryMs?: number;
 }
 
 export class ServerClient {
   private socket: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;
+  private retry: NodeJS.Timeout | null = null;
+  private connecting = false;
+  private stopped = false;
 
   constructor(private readonly options: ServerClientOptions) {}
 
   start(): void {
-    if (this.socket) return;
+    if (this.socket || this.retry || this.connecting) return;
+    this.stopped = false;
     void this.connect();
   }
 
   private async connect(): Promise<void> {
-    const access = await localAccess(this.options.port);
+    this.connecting = true;
+    const access = await localAccess(this.options.port, this.options.request);
+    this.connecting = false;
+    if (this.stopped) return;
     if (!access) {
       this.options.onState(false);
       this.options.log("[tray] could not get local access from the server\n");
+      this.retry = setTimeout(() => {
+        this.retry = null;
+        this.start();
+      }, this.options.retryMs ?? 500);
+      this.retry.unref();
       return;
     }
     // 127.0.0.1 and not the LAN address: this client is inside the machine the
@@ -73,11 +88,18 @@ export class ServerClient {
       this.options.onState(true);
       this.options.log("[tray] hotkeys connected\n");
     });
-    socket.on("disconnect", () => this.options.onState(false));
+    socket.on("disconnect", (reason) => {
+      this.options.onState(false);
+      if (reason !== "io server disconnect") return;
+      // Access rotation deliberately uses a server disconnect so remote clients
+      // stay revoked. This shell is loopback-trusted, so it fetches the new
+      // capability and explicitly reconnects.
+      void reconnectLocalAccess(this.options.port, socket, this.options.request);
+    });
     socket.on("connect_error", () => {
       // A reset rotates the token underneath this long-lived client. Fetch the
       // new local capability and let Socket.IO keep its normal retry loop.
-      void localAccess(this.options.port).then((next) => {
+      void localAccess(this.options.port, this.options.request).then((next) => {
         if (next) socket.auth = { token: next.controlToken };
       });
     });
@@ -104,6 +126,9 @@ export class ServerClient {
   }
 
   stop(): void {
+    this.stopped = true;
+    if (this.retry) clearTimeout(this.retry);
+    this.retry = null;
     this.socket?.close();
     this.socket = null;
   }
@@ -113,11 +138,44 @@ export class ServerClient {
 export async function localAccess(
   port: number,
   request: typeof fetch = fetch,
+): Promise<LocalTokens | null> {
+  return fetchLocalAccess<LocalTokens>(port, "", request);
+}
+
+export async function localPairing(
+  port: number,
+  fresh = false,
+  request: typeof fetch = fetch,
 ): Promise<LocalAccess | null> {
+  return fetchLocalAccess<LocalAccess>(port, fresh ? "?pairing=fresh" : "?pairing=1", request);
+}
+
+interface ReconnectableSocket {
+  auth: unknown;
+  connect(): unknown;
+}
+
+export async function reconnectLocalAccess(
+  port: number,
+  socket: ReconnectableSocket,
+  request: typeof fetch = fetch,
+): Promise<boolean> {
+  const next = await localAccess(port, request);
+  if (!next) return false;
+  socket.auth = { token: next.controlToken };
+  socket.connect();
+  return true;
+}
+
+async function fetchLocalAccess<T>(
+  port: number,
+  query: string,
+  request: typeof fetch,
+): Promise<T | null> {
   try {
-    const response = await request(`http://127.0.0.1:${port}/api/access/local`);
+    const response = await request(`http://127.0.0.1:${port}/api/access/local${query}`);
     if (!response.ok) return null;
-    return (await response.json()) as LocalAccess;
+    return (await response.json()) as T;
   } catch {
     return null;
   }

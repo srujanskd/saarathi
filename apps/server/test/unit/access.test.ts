@@ -33,7 +33,7 @@ describe("Access", () => {
     const { access } = accessAt(now);
     expect(access.pair("123456", "phone")).toMatchObject({ ok: false });
 
-    const local = access.local();
+    const local = access.localPairing();
     expect(access.pair(local.pairing.code, "phone")).toEqual({
       ok: true,
       access: { controlToken: local.controlToken },
@@ -46,7 +46,7 @@ describe("Access", () => {
   it("limits guesses per client and opens again after the window", () => {
     const now = { value: 1_000 };
     const { access } = accessAt(now);
-    access.local();
+    access.localPairing();
     for (let i = 0; i < 5; i++) expect(access.pair("000000", "phone").ok).toBe(false);
     expect(access.pair("123456", "phone")).toMatchObject({ ok: false, limited: true });
 
@@ -64,6 +64,16 @@ describe("Access", () => {
     expect(access.level(before.overlayToken)).toBeNull();
     expect(after.controlToken).toBe("control-two");
     expect(after.overlayToken).toBe("overlay-two");
+  });
+
+  it("starts a fresh ten-minute window only when pairing is requested", () => {
+    const now = { value: 1_000 };
+    const { access } = accessAt(now);
+    access.local();
+    now.value += 9 * 60_000;
+
+    const opened = access.localPairing();
+    expect(opened.pairing.expiresAt).toBe(now.value + 10 * 60_000);
   });
 });
 

@@ -1,5 +1,11 @@
 import { randomBytes, randomInt, timingSafeEqual } from "node:crypto";
-import { ACCESS_ID, type AccessLevel, type LocalAccess, type PairedAccess } from "@saarathi/shared";
+import {
+  ACCESS_ID,
+  type AccessLevel,
+  type LocalAccess,
+  type LocalTokens,
+  type PairedAccess,
+} from "@saarathi/shared";
 import type { StateStore } from "./store.js";
 
 const PAIRING_LIFETIME_MS = 10 * 60_000;
@@ -64,7 +70,14 @@ export class Access {
     return null;
   }
 
-  local(): LocalAccess {
+  local(): LocalTokens {
+    return { ...this.saved };
+  }
+
+  localPairing(fresh = false): LocalAccess {
+    // Background loopback clients must not spend this window before she opens
+    // Connect. Each explicit open gets the full ten minutes promised by the UI.
+    if (fresh) this.pairing = null;
     return { ...this.saved, pairing: this.openPairing() };
   }
 
