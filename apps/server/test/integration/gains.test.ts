@@ -5,8 +5,8 @@ import {
   EARN_TICK_MS,
   GAINS,
   GAINS_ID,
-  GAINS_QUERY_COOLDOWN_MS,
   LEDGER_ID,
+  POINTS_QUERY_COOLDOWN_MS,
   STREAK_CAP,
   type ChatLogState,
   type ChannelStats,
@@ -356,8 +356,8 @@ describe("asking for a balance in chat", () => {
       balances: { Asha: 125, Bo: 50 },
     });
 
-    live.chat({ author: "Asha", text: "!gains" });
-    live.chat({ author: "Bo", text: "!gains" });
+    live.chat({ author: "Asha", text: "!points" });
+    live.chat({ author: "Bo", text: "!points" });
     await vi.advanceTimersByTimeAsync(0);
 
     expect(live.seen.said()).toEqual([
@@ -377,21 +377,21 @@ describe("asking for a balance in chat", () => {
     vi.useFakeTimers();
     live = await harness({ modules: [gains], balances: { Asha: 125, Bo: 50 } });
 
-    live.chat({ author: "Asha", text: "!gains" });
-    live.chat({ author: "Asha", text: "!gains" });
-    live.chat({ author: "Bo", text: "!gains" });
+    live.chat({ author: "Asha", text: "!points" });
+    live.chat({ author: "Asha", text: "!points" });
+    live.chat({ author: "Bo", text: "!points" });
     await vi.advanceTimersByTimeAsync(0);
 
     expect(live.seen.said().filter((line) => line.includes("you have"))).toEqual([
       balanceReply("Asha", 135),
       balanceReply("Bo", 60),
     ]);
-    expect(live.seen.said().some((line) => line.includes("@Asha !gains is cooling down"))).toBe(
+    expect(live.seen.said().some((line) => line.includes("@Asha !points is cooling down"))).toBe(
       true,
     );
 
-    await vi.advanceTimersByTimeAsync(GAINS_QUERY_COOLDOWN_MS);
-    live.chat({ author: "Asha", text: "!gains" });
+    await vi.advanceTimersByTimeAsync(POINTS_QUERY_COOLDOWN_MS);
+    live.chat({ author: "Asha", text: "!points" });
     await vi.advanceTimersByTimeAsync(0);
     expect(live.seen.said().at(-1)).toBe(balanceReply("Asha", 135));
   });

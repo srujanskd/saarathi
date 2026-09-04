@@ -158,13 +158,13 @@ describe("MockChatAdapter writes", () => {
     const { sink, events } = testSink();
     const adapter = new MockChatAdapter();
     await adapter.start(sink);
-    await adapter.writes.say("@TestViewer 12 gains");
+    await adapter.writes.say("@TestViewer 12 points");
 
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       type: "chat-message",
       source: "mock",
-      text: "@TestViewer 12 gains",
+      text: "@TestViewer 12 points",
       // As her, because that is who the grant belongs to on the real path --
       // and it is what keeps the bot out of her own moderation queue.
       author: { id: "mock:Saarathi", name: "Saarathi", isStreamer: true },

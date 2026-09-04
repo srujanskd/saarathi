@@ -293,7 +293,7 @@ export interface Reply {
    * What this reply is about, and the only thing merged replies have in common.
    *
    * A command binding for a refusal, the same binding (or action id) for
-   * `ctx.say`. Per command rather than globally: "!spin costs 50 gains; you
+   * `ctx.say`. Per command rather than globally: "!spin costs 50 points; you
    * have 10" and a balance belong in different sentences, and one line carrying
    * both is a line nobody reads.
    */

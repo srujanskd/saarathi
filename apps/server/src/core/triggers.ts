@@ -141,7 +141,7 @@ const SWEEP_ABOVE = 500;
  *
  * A cooldown belongs to one viewer on one binding, not to the binding alone: a
  * balance is per viewer, and so is patience. Keying it per binding meant the
- * first person to type !gains locked the whole chat out of it, which is the
+ * first person to type !points locked the whole chat out of it, which is the
  * same insight !spin already acted on when it replaced its cooldown with a
  * price. A paid event or a deck button invoking the same action is still not
  * rate-limited at all -- she paid for it, or she pressed it herself.

@@ -63,7 +63,7 @@ describe("posting a line as her channel", () => {
   it("sends the documented shape for a text message", async () => {
     const yt = youtube({ status: 200, body: {} });
 
-    await insertMessage(CHAT_ID, "@viewer 12 gains", yt.api());
+    await insertMessage(CHAT_ID, "@viewer 12 points", yt.api());
 
     expect(yt.asked[0]).toMatchObject({
       method: "POST",
@@ -72,7 +72,7 @@ describe("posting a line as her channel", () => {
         snippet: {
           type: "textMessageEvent",
           liveChatId: CHAT_ID,
-          textMessageDetails: { messageText: "@viewer 12 gains" },
+          textMessageDetails: { messageText: "@viewer 12 points" },
         },
       },
     });

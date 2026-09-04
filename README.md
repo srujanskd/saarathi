@@ -66,7 +66,7 @@ browser source deliberately subscribes only to wheel state.
 The OBS card can mute, unmute or cough-mute each named Mic/Aux input. All three can be saved to the
 same deck grid and therefore also work from a global hotkey or the floating deck.
 
-Chat can ask `!gains` for its own balance. The command cools down per viewer, so one person cannot
+Chat can ask `!points` for its own balance. The command cools down per viewer, so one person cannot
 lock everybody else out, and replies in the same burst share the bot's existing five-second write
 window.
 
@@ -83,7 +83,7 @@ they call `setState`, and the core coalesces the broadcast and persists the keys
 declared durable. Adding a module adds zero socket events.
 
 Free triggers are refused when the wheel is busy; paid ones queue and run themselves when it
-frees up, and the queue is persisted. A viewer who spent money or gains never gets nothing.
+frees up, and the queue is persisted. A viewer who spent money or points never gets nothing.
 
 State is the truth; effects are advisory. Anything visible for more than a moment lives in state
 with a timestamp — a spin is `{ label, startedAt, durationMs }` — so an overlay that connects

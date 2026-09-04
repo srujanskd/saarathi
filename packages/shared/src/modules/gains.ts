@@ -116,4 +116,4 @@ export const MAX_BOARD_NAME = 24;
  * person spend the day's allowance by holding Enter. Kept per viewer by the
  * core's command gate, which means somebody else can still ask immediately.
  */
-export const GAINS_QUERY_COOLDOWN_MS = 30_000;
+export const POINTS_QUERY_COOLDOWN_MS = 30_000;

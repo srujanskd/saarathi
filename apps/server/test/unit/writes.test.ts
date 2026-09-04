@@ -123,7 +123,7 @@ describe("WriteMeter", () => {
     spend(m, WRITE_CEILING - MODERATION_RESERVE - 1);
     expect(m.allows("info")).toBe(true);
 
-    m.spend("say gains");
+    m.spend("say points");
     expect(m.allows("info")).toBe(false);
     expect(m.allows("refusal")).toBe(false);
     // Exactly the reserve, untouched by anything the bot said.
