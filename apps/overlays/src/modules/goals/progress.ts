@@ -56,13 +56,18 @@ export function fill(goal: Goal): number {
   return Math.min(1, Math.max(0, goal.current / goal.target));
 }
 
+/** Whether the number on screen is at its target right now. */
+export function atTarget(goal: Goal): boolean {
+  return goal.current !== null && goal.current >= goal.target;
+}
+
 /**
  * Whether this goal landed recently enough to still be celebrating.
  *
  * Worked out from `completedAt` against the server's clock, never from an event
  * the page had to be present for: a browser source that reloads mid-celebration
- * rejoins the one in progress, and one that opens a minute later shows a goal
- * that is simply done.
+ * rejoins the one in progress. This timestamp records the alert, not whether
+ * the current count is still at its target, because likes can fall again.
  */
 export function celebrating(goal: Goal, serverNow: number): boolean {
   if (goal.completedAt === null) return false;

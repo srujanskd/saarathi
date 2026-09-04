@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { GOAL_ALERT_MS, type Goal } from "@saarathi/shared";
 import {
+  atTarget,
   celebrating,
   countStep,
   countText,
@@ -72,6 +73,21 @@ describe("how full the bar draws", () => {
     expect(fill(goal())).toBe(0);
     expect(fill(goal({ current: 500 }))).toBe(0.5);
     expect(fill(goal({ current: 4_000 }))).toBe(1);
+  });
+});
+
+describe("whether the goal is at its target now", () => {
+  it("stops showing complete when the count falls below the target", () => {
+    expect(atTarget(goal({ current: 999, completedAt: 1_000 }))).toBe(false);
+  });
+
+  it("is complete at and above the target", () => {
+    expect(atTarget(goal({ current: 1_000, completedAt: 1_000 }))).toBe(true);
+    expect(atTarget(goal({ current: 1_001, completedAt: 1_000 }))).toBe(true);
+  });
+
+  it("is not complete until the first count arrives", () => {
+    expect(atTarget(goal({ current: null, completedAt: 1_000 }))).toBe(false);
   });
 });
 
