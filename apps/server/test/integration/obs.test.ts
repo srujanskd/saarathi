@@ -65,6 +65,42 @@ describe("her surfaces drive OBS through core actions", () => {
     expect(obs.scenes).toEqual(["BRB"]);
   });
 
+  it("creates and removes only server-declared overlays", async () => {
+    const { h, obs } = await start();
+    obs.arrive(["Workout"]);
+
+    expect(
+      await h.kernel.invoke("core.obsBrowserSource", {
+        args: ["wheel", "http://192.168.1.20:4400"],
+      }),
+    ).toEqual({ ok: true });
+    expect(obs.browserSourceChanges).toEqual([
+      {
+        operation: "create",
+        overlay: {
+          id: "wheel",
+          title: "Challenge wheel",
+          sourceName: "Saarathi Challenge wheel",
+        },
+        serverUrl: "http://192.168.1.20:4400",
+      },
+    ]);
+
+    expect(
+      await h.kernel.invoke("core.obsRemoveBrowserSource", { args: ["wheel"] }),
+    ).toEqual({ ok: true });
+    expect(obs.browserSourceChanges.at(-1)).toMatchObject({
+      operation: "remove",
+      overlay: { id: "wheel" },
+    });
+
+    expect(
+      await h.kernel.invoke("core.obsBrowserSource", {
+        args: ["chatlog", "http://192.168.1.20:4400"],
+      }),
+    ).toEqual({ ok: false, reason: 'There is no overlay "chatlog"' });
+  });
+
   it("says why, rather than nothing, when OBS is not there", async () => {
     const { h } = await start();
     expect(await h.kernel.invoke("core.obsScene", { args: ["BRB"] })).toEqual({

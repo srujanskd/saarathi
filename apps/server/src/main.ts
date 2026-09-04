@@ -90,7 +90,12 @@ const kernel = createKernel({
   modules: [wheel, goals, gains, moderation, chatlog, media.module],
   chat,
   store,
-  obs: new ObsWebSocketAdapter({ store, log, configPath: obsConfig || null }),
+  obs: new ObsWebSocketAdapter({
+    store,
+    log,
+    configPath: obsConfig || null,
+    overlayToken: () => access.local().overlayToken,
+  }),
   log,
 });
 

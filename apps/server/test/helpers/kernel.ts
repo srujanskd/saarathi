@@ -12,7 +12,7 @@ import type { ChatAdapter } from "../../src/chat/adapter.js";
 import { MockChatAdapter, mockAuthorId } from "../../src/chat/mock.js";
 import { createKernel, type Kernel } from "../../src/core/kernel.js";
 import { obsStatus } from "../../src/core/obs-config.js";
-import type { ManualSettings, ObsAdapter, ObsSink } from "../../src/core/obs.js";
+import type { ManualSettings, ObsAdapter, ObsOverlay, ObsSink } from "../../src/core/obs.js";
 import { MemoryStore, type StateStore } from "../../src/core/store.js";
 import { chatlog } from "../../src/modules/chatlog/index.js";
 import { wheel } from "../../src/modules/wheel/index.js";
@@ -23,6 +23,7 @@ export interface FakeObs extends ObsAdapter {
   /** Scenes she switched to, in order. */
   readonly scenes: string[];
   readonly visibility: { scene: string; source: string; visible: boolean }[];
+  readonly browserSourceChanges: { operation: "create" | "remove"; overlay: ObsOverlay; serverUrl?: string }[];
   /** Settings saved from her control page, in order. */
   readonly saves: ManualSettings[];
   /** Pretend OBS came up, or went away. Pushes status the way the real one does. */
@@ -40,6 +41,7 @@ export function fakeObs(): FakeObs {
   const scenes: string[] = [];
   const visibility: FakeObs["visibility"] = [];
   const saves: FakeObs["saves"] = [];
+  const browserSourceChanges: FakeObs["browserSourceChanges"] = [];
   let sink: ObsSink | null = null;
   let live: string[] | null = null;
 
@@ -63,6 +65,7 @@ export function fakeObs(): FakeObs {
     name: OBS_ID,
     scenes,
     visibility,
+    browserSourceChanges,
     saves,
     actions: {
       get connected() {
@@ -98,6 +101,16 @@ export function fakeObs(): FakeObs {
       if (!live.includes(name)) return { ok: false, reason: `OBS has no scene called "${name}"` };
       scenes.push(name);
       publish();
+      return { ok: true };
+    },
+    async createBrowserSource(overlay, serverUrl) {
+      if (live === null) return { ok: false, reason: "OBS is not connected" };
+      browserSourceChanges.push({ operation: "create", overlay, serverUrl });
+      return { ok: true };
+    },
+    async removeBrowserSource(overlay) {
+      if (live === null) return { ok: false, reason: "OBS is not connected" };
+      browserSourceChanges.push({ operation: "remove", overlay });
       return { ok: true };
     },
     arrive(list = ["Workout", "Just Chatting"]) {

@@ -8,7 +8,19 @@ const core = (overrides: Partial<CoreState> = {}): CoreState => ({
     [OBS_ID]: { state: "connected", detail: "OBS connected" },
     youtube: { state: "disconnected", detail: "No live stream found" },
   },
-  modules: [],
+  modules: [
+    {
+      id: "wheel",
+      title: "Challenge wheel",
+      overlay: true,
+      browserSourceName: "Saarathi Challenge wheel",
+      enabled: true,
+      armed: true,
+      arming: false,
+      actions: [],
+      commands: [],
+    },
+  ],
   obs: {
     mode: "auto",
     host: "stream-pc",
@@ -17,7 +29,7 @@ const core = (overrides: Partial<CoreState> = {}): CoreState => ({
     detected: true,
     scenes: ["Workout"],
     currentScene: "Workout",
-    browserSources: ["Saarathi wheel"],
+    browserSources: ["Saarathi Challenge wheel"],
     microphones: [{ name: "Mic/Aux", muted: false }],
   },
   deck: { slots: [{ action: "wheel.spin", args: [], label: "Spin", icon: "" }] },
@@ -78,6 +90,16 @@ describe("stream readiness", () => {
       core({ obs: { ...core().obs, microphones: [{ name: "Mic/Aux", muted: null }] } }),
     );
     expect(result.checks.find((check) => check.id === "microphone")).toMatchObject({
+      state: "fix",
+      fixAt: "#obs-media-setup",
+    });
+  });
+
+  it("does not mistake an unrelated browser input for a Saarathi overlay", () => {
+    const result = streamReadiness(
+      core({ obs: { ...core().obs, browserSources: ["Chat dock"] } }),
+    );
+    expect(result.checks.find((check) => check.id === "overlays")).toMatchObject({
       state: "fix",
       fixAt: "#obs-media-setup",
     });

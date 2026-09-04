@@ -19,6 +19,8 @@ export const CORE_ACTIONS = {
   obsAuto: `${CORE_ID}.obsAuto`,
   obsForget: `${CORE_ID}.obsForget`,
   obsScene: `${CORE_ID}.obsScene`,
+  obsBrowserSource: `${CORE_ID}.obsBrowserSource`,
+  obsRemoveBrowserSource: `${CORE_ID}.obsRemoveBrowserSource`,
   obsSettings: `${CORE_ID}.obsSettings`,
   chatSettings: `${CORE_ID}.chatSettings`,
   chatForgetKey: `${CORE_ID}.chatForgetKey`,

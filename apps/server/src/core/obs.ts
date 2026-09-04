@@ -46,6 +46,17 @@ export interface ManualSettings {
   password: string;
 }
 
+/** One server-declared overlay, already checked by the module registry. */
+export interface ObsOverlay {
+  id: string;
+  title: string;
+  sourceName: string;
+}
+
+export function obsBrowserSourceName(title: string): string {
+  return `Saarathi ${title}`;
+}
+
 /** Everything her surfaces can ask of OBS, and all `obsCommand` needs to route. */
 export interface ObsCommands {
   connect(): Promise<InvokeResult>;
@@ -53,6 +64,8 @@ export interface ObsCommands {
   useAuto(): Promise<InvokeResult>;
   forgetPassword(): Promise<InvokeResult>;
   setScene(name: string): Promise<InvokeResult>;
+  createBrowserSource(overlay: ObsOverlay, serverUrl: string): Promise<InvokeResult>;
+  removeBrowserSource(overlay: ObsOverlay): Promise<InvokeResult>;
   setSettings(settings: ManualSettings): Promise<InvokeResult>;
 }
 
@@ -86,7 +99,22 @@ export function obsCommand(
   obs: ObsCommands,
   actionId: string,
   args: string[],
+  findOverlay: (id: string) => ObsOverlay | null,
 ): Promise<InvokeResult> | null {
+  if (actionId === CORE_ACTIONS.obsBrowserSource) {
+    const overlay = findOverlay(args[0] ?? "");
+    if (!overlay) {
+      return Promise.resolve({ ok: false, reason: `There is no overlay "${args[0] ?? ""}"` });
+    }
+    return obs.createBrowserSource(overlay, args[1] ?? "");
+  }
+  if (actionId === CORE_ACTIONS.obsRemoveBrowserSource) {
+    const overlay = findOverlay(args[0] ?? "");
+    if (!overlay) {
+      return Promise.resolve({ ok: false, reason: `There is no overlay "${args[0] ?? ""}"` });
+    }
+    return obs.removeBrowserSource(overlay);
+  }
   const run = OBS_COMMANDS.get(actionId);
   return run ? run(obs, args) : null;
 }
@@ -122,6 +150,8 @@ export interface ObsOptions {
   log: Logger;
   /** Where OBS keeps its own settings, or null when we cannot know. */
   configPath: string | null;
+  /** Read at creation time so an access reset is repaired by the next tap. */
+  overlayToken: () => string;
 }
 
 /**
@@ -282,6 +312,72 @@ export class ObsWebSocketAdapter implements ObsAdapter {
     }
     const ok = await this.switchScene(name);
     return ok ? { ok: true } : { ok: false, reason: "OBS did not take that. Check the log." };
+  }
+
+  async createBrowserSource(overlay: ObsOverlay, serverUrl: string): Promise<InvokeResult> {
+    if (!this.socket) return { ok: false, reason: "OBS is not connected" };
+    const sceneName = this.currentScene;
+    if (!sceneName) return { ok: false, reason: "OBS has no current scene" };
+
+    const url = overlayUrl(serverUrl, overlay.id, this.options.overlayToken());
+    if (!url) {
+      return { ok: false, reason: "That server address is not a valid http or https address" };
+    }
+
+    const inputSettings = {
+      url,
+      width: 1920,
+      height: 1080,
+      shutdown: false,
+      restart_when_active: true,
+    };
+    const exists = this.browserSources.includes(overlay.sourceName);
+    const ok = await this.request(
+      exists ? "repair a browser source" : "create a browser source",
+      async (obs) => {
+        if (exists) {
+          await obs.call("SetInputSettings", {
+            inputName: overlay.sourceName,
+            inputSettings,
+            overlay: true,
+          });
+          try {
+            await obs.call("GetSceneItemId", {
+              sceneName,
+              sourceName: overlay.sourceName,
+            });
+          } catch {
+            await obs.call("CreateSceneItem", {
+              sceneName,
+              sourceName: overlay.sourceName,
+              sceneItemEnabled: true,
+            });
+          }
+          return;
+        }
+        await obs.call("CreateInput", {
+          sceneName,
+          inputName: overlay.sourceName,
+          inputKind: "browser_source",
+          inputSettings,
+          sceneItemEnabled: true,
+        });
+      },
+    );
+    if (!ok) return { ok: false, reason: "OBS did not create that source. Check the log." };
+    await this.refreshInputs();
+    return { ok: true };
+  }
+
+  async removeBrowserSource(overlay: ObsOverlay): Promise<InvokeResult> {
+    if (!this.socket) return { ok: false, reason: "OBS is not connected" };
+    if (!this.browserSources.includes(overlay.sourceName)) return { ok: true };
+    const ok = await this.request("remove a browser source", (obs) =>
+      obs.call("RemoveInput", { inputName: overlay.sourceName }),
+    );
+    if (!ok) return { ok: false, reason: "OBS did not remove that source. Check the log." };
+    await this.refreshInputs();
+    return { ok: true };
   }
 
   /** The one place a scene is switched, for her button and for `ctx.obs` alike. */
@@ -564,6 +660,22 @@ export class ObsWebSocketAdapter implements ObsAdapter {
 
   private publish(): void {
     this.sink?.view(this.view());
+  }
+}
+
+/** Builds the exact URL OBS receives without returning its read token to a client. */
+function overlayUrl(serverUrl: string, moduleId: string, token: string): string | null {
+  try {
+    const server = new URL(serverUrl);
+    if (server.protocol !== "http:" && server.protocol !== "https:") return null;
+    if (server.username || server.password) return null;
+    const overlay = new URL("/overlay.html", server.origin);
+    overlay.searchParams.set("module", moduleId);
+    overlay.searchParams.set("server", server.origin);
+    overlay.searchParams.set("access", token);
+    return overlay.toString();
+  } catch {
+    return null;
   }
 }
 

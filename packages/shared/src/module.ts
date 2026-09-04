@@ -305,6 +305,8 @@ export interface ModuleStatus {
   title: string;
   /** Whether OBS may subscribe to this module's state and render its overlay. */
   overlay: boolean;
+  /** The deterministic OBS input name, present only when `overlay` is true. */
+  browserSourceName?: string;
   enabled: boolean;
   /** Always true for modules that did not opt into arming. */
   armed: boolean;

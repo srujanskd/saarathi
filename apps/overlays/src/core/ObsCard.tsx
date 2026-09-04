@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { CORE_ACTIONS, type ConnectionStatus, type ObsView } from "@saarathi/shared";
+import {
+  CORE_ACTIONS,
+  type ConnectionStatus,
+  type ModuleStatus,
+  type ObsView,
+} from "@saarathi/shared";
 import type { Connection } from "../lib/connection.js";
 import { useInvoke } from "../lib/invoke.js";
 import { Notice } from "./Notice.js";
@@ -33,18 +38,26 @@ export function ObsCard({
   obs,
   status,
   deck,
+  modules,
+  serverUrl,
 }: {
   connection: Connection;
   obs: ObsView;
   status: ConnectionStatus | undefined;
   /** Shared with the deck card, which is the other thing that writes buttons. */
   deck: DeckDraft;
+  modules: ModuleStatus[];
+  serverUrl: string;
 }) {
   const invoke = useInvoke(connection);
   const [draft, setDraft] = useState<{ host: string; port: string; password: string } | null>(null);
 
   const busy = invoke.working;
   const connected = status?.state === "connected";
+  const overlays = modules.filter(
+    (module): module is ModuleStatus & { browserSourceName: string } =>
+      module.overlay && typeof module.browserSourceName === "string",
+  );
 
   // Same discipline as the challenge editor: a draft shadows the server only
   // while it exists, so one keystroke cannot freeze these fields against the
@@ -62,6 +75,18 @@ export function ObsCard({
   /** A scene, onto the grid she is looking at. See `addToDeck`. */
   async function addScene(scene: string): Promise<void> {
     await addToDeck(deck, invoke, sceneSlot(scene));
+  }
+
+  async function createSource(module: ModuleStatus): Promise<void> {
+    if (await run(CORE_ACTIONS.obsBrowserSource, [module.id, serverUrl])) {
+      invoke.say(`${module.title} is ready in ${obs.currentScene ?? "the current scene"}.`);
+    }
+  }
+
+  async function removeSource(module: ModuleStatus): Promise<void> {
+    if (await run(CORE_ACTIONS.obsRemoveBrowserSource, [module.id])) {
+      invoke.say(`${module.title} was removed from OBS.`);
+    }
   }
 
   return (
@@ -160,18 +185,63 @@ export function ObsCard({
             </div>
             <div>
               <b>Browser sources</b>
-              {obs.browserSources.length === 0 ? (
+              <p className="hint">
+                Choose what belongs in {obs.currentScene ?? "the current scene"}. Saarathi adds
+                the read-only overlay address and keeps the source at 1920 × 1080.
+              </p>
+              {overlays.length === 0 ? (
                 <p className="hint">
-                  In OBS, choose Sources → + → Browser, then paste the address of the Saarathi
-                  overlay you want to show.
+                  No installed module exposes an OBS overlay yet.
                 </p>
               ) : (
-                <ul>
-                  {obs.browserSources.map((source) => (
-                    <li key={source}>{source}</li>
-                  ))}
-                </ul>
+                <div className="obs-sources">
+                  {overlays.map((module) => {
+                    const installed = obs.browserSources.includes(module.browserSourceName);
+                    return (
+                      <div className="obs-source" key={module.id} data-installed={installed}>
+                        <div>
+                          <b>{module.title}</b>
+                          <span>{installed ? "Ready in OBS" : "Not added"}</span>
+                        </div>
+                        <div className="obs-source-actions">
+                          <button
+                            type="button"
+                            className="btn"
+                            aria-label={`${installed ? "Refresh" : "Add"} ${module.title} browser source`}
+                            disabled={busy}
+                            onClick={() => void createSource(module)}
+                          >
+                            {installed ? "Refresh" : "Add"}
+                          </button>
+                          {installed ? (
+                            <button
+                              type="button"
+                              className="btn"
+                              aria-label={`Remove ${module.title} browser source`}
+                              disabled={busy}
+                              onClick={() => void removeSource(module)}
+                            >
+                              Remove
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
+              {obs.browserSources.some(
+                (source) => !overlays.some((module) => module.browserSourceName === source),
+              ) ? (
+                <p className="hint">
+                  Other OBS browser sources: {obs.browserSources
+                    .filter(
+                      (source) =>
+                        !overlays.some((module) => module.browserSourceName === source),
+                    )
+                    .join(", ")}
+                </p>
+              ) : null}
             </div>
           </div>
         </details>

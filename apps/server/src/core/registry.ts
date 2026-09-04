@@ -20,7 +20,7 @@ import {
 } from "@saarathi/shared";
 import { chatCommand, type ChatAdapter } from "../chat/adapter.js";
 import { deckCommand, type DeckCommands } from "./deck.js";
-import { obsCommand, type ObsAdapter } from "./obs.js";
+import { obsBrowserSourceName, obsCommand, type ObsAdapter, type ObsOverlay } from "./obs.js";
 import type { StateStore } from "./store.js";
 import { ActionRefused } from "./triggers.js";
 
@@ -168,6 +168,9 @@ export class Registry {
       id: runtime.def.id,
       title: runtime.def.title,
       overlay: Boolean(runtime.def.overlay),
+      ...(runtime.def.overlay
+        ? { browserSourceName: obsBrowserSourceName(runtime.def.title) }
+        : {}),
       enabled: runtime.enabled,
       armed: runtime.def.arming ? runtime.armed : true,
       arming: Boolean(runtime.def.arming),
@@ -272,7 +275,7 @@ export class Registry {
     // layer and about the deck, and this file is about modules. A fourth of
     // them is an entry in this list.
     const routers = [
-      () => obsCommand(this.deps.obs, actionId, input.args),
+      () => obsCommand(this.deps.obs, actionId, input.args, (id) => this.obsOverlay(id)),
       () =>
         chatCommand(this.deps.chat, actionId, input.args)?.then((result) => {
           // Explicitly, rather than leaning on the reconnect a save happens to
@@ -325,6 +328,16 @@ export class Registry {
       default:
         return { ok: false, reason: `There is no core action "${name}"` };
     }
+  }
+
+  private obsOverlay(id: string): ObsOverlay | null {
+    const runtime = this.modules.get(id);
+    if (!runtime?.def.overlay) return null;
+    return {
+      id: runtime.def.id,
+      title: runtime.def.title,
+      sourceName: obsBrowserSourceName(runtime.def.title),
+    };
   }
 
   private async startModule(runtime: Runtime): Promise<void> {

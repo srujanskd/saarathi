@@ -110,6 +110,66 @@ describe("OBS control, end to end", () => {
     );
   });
 
+  it("creates, repairs, and removes a read-only browser source in the current scene", async () => {
+    obs = await startFakeObs({ password: "s3cret", scenes: ["Workout"] });
+    server = await startServer();
+    const control = await server.connect({ surface: "control" });
+    await point(control, obs.port, "s3cret");
+    await until(control, "connected");
+
+    const serverUrl = "http://192.168.1.20:4400";
+    expect(
+      await control.invoke({
+        action: "core.obsBrowserSource",
+        args: ["wheel", serverUrl],
+      }),
+    ).toEqual({ ok: true });
+    await waitFor("browser source created", () => obs!.browserSourceChanges.length === 1);
+
+    const created = obs.browserSourceChanges[0]!;
+    expect(created).toMatchObject({
+      operation: "create",
+      scene: "Workout",
+      name: "Saarathi Challenge wheel",
+      settings: { width: 1920, height: 1080 },
+    });
+    const url = new URL(String(created.settings?.url));
+    expect(url.origin).toBe(serverUrl);
+    expect(url.searchParams.get("module")).toBe("wheel");
+    expect(url.searchParams.get("server")).toBe(serverUrl);
+    expect(url.searchParams.get("access")).toBe(server.overlayToken);
+    expect(url.searchParams.get("access")).not.toBe(server.controlToken);
+    await control.waitFor("source reaches the control page", () =>
+      coreOf(control)?.obs.browserSources.includes("Saarathi Challenge wheel") === true,
+    );
+
+    // A second tap repairs the URL instead of adding a duplicate source with
+    // an OBS-generated suffix. The adapter also reads the access token again.
+    const movedServerUrl = "https://saarathi.example";
+    expect(
+      await control.invoke({
+        action: "core.obsBrowserSource",
+        args: ["wheel", movedServerUrl],
+      }),
+    ).toEqual({ ok: true });
+    expect(obs.browserSourceChanges.at(-1)?.operation).toBe("update");
+    expect(
+      new URL(String(obs.browserSourceChanges.at(-1)?.settings?.url)).searchParams.get("server"),
+    ).toBe(movedServerUrl);
+
+    expect(
+      await control.invoke({ action: "core.obsRemoveBrowserSource", args: ["wheel"] }),
+    ).toEqual({ ok: true });
+    expect(obs.browserSourceChanges.at(-1)).toMatchObject({
+      operation: "remove",
+      name: "Saarathi Challenge wheel",
+    });
+    await control.waitFor(
+      "source removal reaches the control page",
+      () => !coreOf(control)?.obs.browserSources.includes("Saarathi Challenge wheel"),
+    );
+  });
+
   it("refuses a scene OBS does not have, rather than asking it", async () => {
     obs = await startFakeObs({ password: "s3cret" });
     server = await startServer();
