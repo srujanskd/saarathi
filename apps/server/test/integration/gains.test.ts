@@ -3,14 +3,19 @@ import {
   ACTIVE_WINDOW_MS,
   DEFAULT_PER_MINUTE,
   EARN_TICK_MS,
+  GAINS,
   GAINS_ID,
+  GAINS_QUERY_COOLDOWN_MS,
   LEDGER_ID,
   STREAK_CAP,
+  type ChatLogState,
   type ChannelStats,
 } from "@saarathi/shared";
 import type { ChatAdapter, ChatSink } from "../../src/chat/adapter.js";
 import { MockChatAdapter } from "../../src/chat/mock.js";
 import { MemoryStore } from "../../src/core/store.js";
+import { REPLY_WINDOW_MS } from "../../src/core/writes.js";
+import { chatlog } from "../../src/modules/chatlog/index.js";
 import { gains } from "../../src/modules/gains/index.js";
 import { gainsState, harness, type Harness } from "../helpers/kernel.js";
 
@@ -60,6 +65,8 @@ const board = () => gainsState(live!.kernel).board;
 const drain = () => vi.advanceTimersByTimeAsync(1_000);
 const balance = (name: string) =>
   (live!.store.read(LEDGER_ID)?.balances as Record<string, number>)?.[`mock:${name}`] ?? 0;
+const balanceReply = (name: string, amount: number) =>
+  `@${name} you have ${amount} ${amount === 1 ? GAINS.singular : GAINS.plural}`;
 
 describe("earning gains for turning up", () => {
   it("pays everyone who spoke, once a minute", async () => {
@@ -338,5 +345,54 @@ describe("her hands on it", () => {
     live!.chat({ author: "Asha", text: "hello" });
     await vi.advanceTimersByTimeAsync(EARN_TICK_MS);
     expect(balance("Asha")).toBe(45 + 45);
+  });
+});
+
+describe("asking for a balance in chat", () => {
+  it("answers two viewers in one coalesced reply", async () => {
+    vi.useFakeTimers();
+    live = await harness({
+      modules: [gains, chatlog],
+      balances: { Asha: 125, Bo: 50 },
+    });
+
+    live.chat({ author: "Asha", text: "!gains" });
+    live.chat({ author: "Bo", text: "!gains" });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(live.seen.said()).toEqual([
+      balanceReply("Asha", 135),
+      balanceReply("Bo", 60),
+    ]);
+    await vi.advanceTimersByTimeAsync(REPLY_WINDOW_MS);
+
+    const log = live.kernel.snapshot().modules.chatlog as ChatLogState;
+    const replies = log.events.filter((event) => event.author.name === "Saarathi");
+    expect(replies).toHaveLength(1);
+    expect(replies[0]!.text).toContain(balanceReply("Asha", 135));
+    expect(replies[0]!.text).toContain(balanceReply("Bo", 60));
+  });
+
+  it("limits one viewer without locking another viewer out", async () => {
+    vi.useFakeTimers();
+    live = await harness({ modules: [gains], balances: { Asha: 125, Bo: 50 } });
+
+    live.chat({ author: "Asha", text: "!gains" });
+    live.chat({ author: "Asha", text: "!gains" });
+    live.chat({ author: "Bo", text: "!gains" });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(live.seen.said().filter((line) => line.includes("you have"))).toEqual([
+      balanceReply("Asha", 135),
+      balanceReply("Bo", 60),
+    ]);
+    expect(live.seen.said().some((line) => line.includes("@Asha !gains is cooling down"))).toBe(
+      true,
+    );
+
+    await vi.advanceTimersByTimeAsync(GAINS_QUERY_COOLDOWN_MS);
+    live.chat({ author: "Asha", text: "!gains" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(live.seen.said().at(-1)).toBe(balanceReply("Asha", 135));
   });
 });

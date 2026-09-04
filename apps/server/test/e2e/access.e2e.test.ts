@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { CORE_ACTIONS, type Snapshot } from "@saarathi/shared";
+import { CORE_ACTIONS, GAINS, type Snapshot } from "@saarathi/shared";
 import { startServer, type RunningServer } from "./helpers/server.js";
 
 let server: RunningServer;
@@ -42,7 +42,7 @@ describe("HTTP access", () => {
       overlays: [
         { id: "wheel", title: "Challenge wheel" },
         { id: "goals", title: "Goals" },
-        { id: "gains", title: "Earning gains" },
+        { id: "gains", title: `Earning ${GAINS.plural}` },
         { id: "media", title: "Media" },
       ],
     });

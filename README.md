@@ -66,6 +66,10 @@ browser source deliberately subscribes only to wheel state.
 The OBS card can mute, unmute or cough-mute each named Mic/Aux input. All three can be saved to the
 same deck grid and therefore also work from a global hotkey or the floating deck.
 
+Chat can ask `!gains` for its own balance. The command cools down per viewer, so one person cannot
+lock everybody else out, and replies in the same burst share the bot's existing five-second write
+window.
+
 ## How it fits together
 
 Events in, actions out. Every trigger she has — `!spin` in chat, a Super Chat or a tip, a deck

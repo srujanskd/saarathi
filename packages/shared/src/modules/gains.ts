@@ -108,3 +108,12 @@ export const MAX_ROSTER = 500;
 
 /** How long a name may be on a board row over her camera. */
 export const MAX_BOARD_NAME = 24;
+
+/**
+ * How often one viewer may ask the bot for their balance.
+ *
+ * The answer costs a platform write, so a command with no cooldown lets one
+ * person spend the day's allowance by holding Enter. Kept per viewer by the
+ * core's command gate, which means somebody else can still ask immediately.
+ */
+export const GAINS_QUERY_COOLDOWN_MS = 30_000;
