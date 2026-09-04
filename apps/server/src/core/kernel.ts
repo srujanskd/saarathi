@@ -17,7 +17,7 @@ import { chatViews, type ChatAdapter, type ChatSink } from "../chat/adapter.js";
 import { MockChatAdapter } from "../chat/mock.js";
 import { Deck } from "./deck.js";
 import { Gains } from "./gains.js";
-import type { ObsAdapter } from "./obs.js";
+import type { ObsAdapter, ObsCommandContext } from "./obs.js";
 import { Registry } from "./registry.js";
 import { Stats } from "./stats.js";
 import type { StateStore } from "./store.js";
@@ -213,13 +213,21 @@ export class Kernel {
   // --- triggers -------------------------------------------------------------
 
   /** Her own surfaces: the control page, the deck, a hotkey. She is in charge, so no gate. */
-  invoke(action: string, input?: Partial<ActionInput>): Promise<InvokeResult> {
-    return this.registry.dispatch(action, {
-      by: "streamer",
-      via: "control",
-      args: [],
-      ...input,
-    });
+  invoke(
+    action: string,
+    input?: Partial<ActionInput>,
+    context?: ObsCommandContext,
+  ): Promise<InvokeResult> {
+    return this.registry.dispatch(
+      action,
+      {
+        by: "streamer",
+        via: "control",
+        args: [],
+        ...input,
+      },
+      context,
+    );
   }
 
   sendMockChat(input: MockChatInput): void {

@@ -54,6 +54,8 @@ function Control({ url, connection }: { url: string; connection: Connection }) {
             obs={core.obs}
             status={core.connections[OBS_ID]}
             deck={deck}
+            modules={core.modules}
+            serverUrl={url}
           />
         ) : null}
         {/* One per adapter that has anything to set up, which today is

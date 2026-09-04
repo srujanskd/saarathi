@@ -148,15 +148,21 @@ function overlayCheck(core: CoreState, obsConnected: boolean): ReadinessCheck {
     };
   }
 
-  const count = core.obs.browserSources.length;
+  const expected = new Set(
+    core.modules
+      .filter((module) => module.overlay)
+      .map((module) => module.browserSourceName)
+      .filter((name): name is string => typeof name === "string"),
+  );
+  const count = core.obs.browserSources.filter((source) => expected.has(source)).length;
   return {
     id: "overlays",
     title: "Browser sources",
     state: count > 0 ? "ready" : "fix",
     detail:
       count > 0
-        ? `OBS has ${count} browser ${count === 1 ? "source" : "sources"}.`
-        : "OBS has no browser source. Add one for the Saarathi overlay you want on stream.",
+        ? `${count} Saarathi browser ${count === 1 ? "source is" : "sources are"} ready in OBS.`
+        : "Add at least one Saarathi overlay to OBS for this stream.",
     fixAt: count > 0 ? undefined : "#obs-media-setup",
   };
 }

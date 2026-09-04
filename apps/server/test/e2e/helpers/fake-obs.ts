@@ -50,6 +50,12 @@ export interface FakeObs {
   readonly switches: string[];
   /** Scene item toggles, as `SetSceneItemEnabled` received them. */
   readonly toggles: { scene: string; sceneItemId: number; enabled: boolean }[];
+  readonly browserSourceChanges: {
+    operation: "create" | "update" | "attach" | "remove";
+    scene?: string;
+    name: string;
+    settings?: Record<string, unknown>;
+  }[];
   currentScene(): string;
   /** Rename or reorder the scene list and tell whoever is listening. */
   setScenes(scenes: string[]): void;
@@ -64,7 +70,9 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
   const switches: string[] = [];
   const toggles: FakeObs["toggles"] = [];
   const identified = new Set<WebSocket>();
-  const browserSources = options.browserSources ?? [];
+  const browserSources = [...(options.browserSources ?? [])];
+  const browserSourceChanges: FakeObs["browserSourceChanges"] = [];
+  const sceneItems = new Set(browserSources.map((name) => `${current}\0${name}`));
   const microphones = options.microphones ?? [];
 
   const wss = new WebSocketServer({
@@ -180,9 +188,16 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
           broadcast("CurrentProgramSceneChanged", { sceneName });
           return;
         }
-        case "GetSceneItemId":
+        case "GetSceneItemId": {
+          const scene = String(requestData?.sceneName ?? "");
+          const name = String(requestData?.sourceName ?? "");
+          if (!sceneItems.has(`${scene}\0${name}`)) {
+            reply(undefined, false, "No scene item by that name.");
+            return;
+          }
           reply({ sceneItemId: 7 });
           return;
+        }
         case "SetSceneItemEnabled":
           toggles.push({
             scene: String(requestData?.sceneName ?? ""),
@@ -191,6 +206,58 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
           });
           reply(undefined);
           return;
+        case "CreateInput": {
+          const name = String(requestData?.inputName ?? "");
+          if (browserSources.includes(name)) {
+            reply(undefined, false, "An input with that name already exists.");
+            return;
+          }
+          browserSources.push(name);
+          sceneItems.add(`${String(requestData?.sceneName ?? "")}\0${name}`);
+          browserSourceChanges.push({
+            operation: "create",
+            scene: String(requestData?.sceneName ?? ""),
+            name,
+            settings: requestData?.inputSettings as Record<string, unknown>,
+          });
+          reply({ sceneItemId: 8 });
+          return;
+        }
+        case "CreateSceneItem": {
+          const scene = String(requestData?.sceneName ?? "");
+          const name = String(requestData?.sourceName ?? "");
+          if (!browserSources.includes(name)) {
+            reply(undefined, false, "No input by that name.");
+            return;
+          }
+          sceneItems.add(`${scene}\0${name}`);
+          browserSourceChanges.push({ operation: "attach", scene, name });
+          reply({ sceneItemId: 9 });
+          return;
+        }
+        case "SetInputSettings":
+          browserSourceChanges.push({
+            operation: "update",
+            name: String(requestData?.inputName ?? ""),
+            settings: requestData?.inputSettings as Record<string, unknown>,
+          });
+          reply(undefined);
+          return;
+        case "RemoveInput": {
+          const name = String(requestData?.inputName ?? "");
+          const index = browserSources.indexOf(name);
+          if (index < 0) {
+            reply(undefined, false, "No input by that name.");
+            return;
+          }
+          browserSources.splice(index, 1);
+          for (const item of sceneItems) {
+            if (item.endsWith(`\0${name}`)) sceneItems.delete(item);
+          }
+          browserSourceChanges.push({ operation: "remove", name });
+          reply(undefined);
+          return;
+        }
         default:
           reply(undefined, false, `Unhandled in the fake: ${requestType}`);
       }
@@ -203,10 +270,15 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
     port: (wss.address() as AddressInfo).port,
     switches,
     toggles,
+    browserSourceChanges,
     currentScene: () => current,
     setScenes(next) {
       scenes = next;
       current = next.includes(current) ? current : (next[0] ?? "");
+      for (const item of sceneItems) {
+        const scene = item.slice(0, item.indexOf("\0"));
+        if (!next.includes(scene)) sceneItems.delete(item);
+      }
       broadcast("SceneListChanged", { scenes: sceneList().scenes });
     },
     close() {
