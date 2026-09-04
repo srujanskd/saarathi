@@ -182,6 +182,173 @@ describe("OBS control, end to end", () => {
     ]);
   });
 
+  it("leaves a microphone muted when cough mute started from muted", async () => {
+    obs = await startFakeObs({
+      password: "s3cret",
+      microphones: [{ name: "Mic/Aux", muted: true }],
+    });
+    server = await startServer();
+    const control = await server.connect({ surface: "control" });
+    await point(control, obs.port, "s3cret");
+    await until(control, "connected");
+
+    expect(await control.invoke({ action: "core.obsCoughMute", args: ["Mic/Aux"] })).toEqual({
+      ok: true,
+    });
+    await control.waitFor(
+      "cough mute finishes without opening the microphone",
+      () => coreOf(control)?.obs.microphones[0]?.coughMutedUntil === null,
+      COUGH_MUTE_MS + 2_000,
+    );
+    expect(obs.microphoneChanges.at(-1)).toEqual({ name: "Mic/Aux", muted: true });
+  });
+
+  it("publishes when a normal mute cancels a cough mute", async () => {
+    obs = await startFakeObs({
+      password: "s3cret",
+      microphones: [{ name: "Mic/Aux", muted: false }],
+    });
+    server = await startServer();
+    const control = await server.connect({ surface: "control" });
+    await point(control, obs.port, "s3cret");
+    await until(control, "connected");
+    await control.invoke({ action: "core.obsCoughMute", args: ["Mic/Aux"] });
+    await control.waitFor(
+      "cough mute is visible",
+      () => typeof coreOf(control)?.obs.microphones[0]?.coughMutedUntil === "number",
+    );
+
+    expect(await control.invoke({ action: "core.obsMute", args: ["Mic/Aux"] })).toEqual({
+      ok: true,
+    });
+    await control.waitFor(
+      "normal mute clears the cough deadline",
+      () => coreOf(control)?.obs.microphones[0]?.coughMutedUntil === null,
+    );
+  });
+
+  it("reads the resulting mute state from OBS instead of assuming the requested value", async () => {
+    obs = await startFakeObs({
+      password: "s3cret",
+      microphones: [{ name: "Mic/Aux", muted: false }],
+      ignoreMicrophoneChanges: true,
+    });
+    server = await startServer();
+    const control = await server.connect({ surface: "control" });
+    await point(control, obs.port, "s3cret");
+    await until(control, "connected");
+
+    expect(await control.invoke({ action: "core.obsMute", args: ["Mic/Aux"] })).toEqual({
+      ok: true,
+    });
+    expect(coreOf(control)?.obs.microphones[0]?.muted).toBe(false);
+  });
+
+  it("retries a failed cough restore while OBS remains connected", async () => {
+    obs = await startFakeObs({
+      password: "s3cret",
+      microphones: [{ name: "Mic/Aux", muted: false }],
+      failMicrophoneUnmutes: 1,
+    });
+    server = await startServer();
+    const control = await server.connect({ surface: "control" });
+    await point(control, obs.port, "s3cret");
+    await until(control, "connected");
+    await control.invoke({ action: "core.obsCoughMute", args: ["Mic/Aux"] });
+
+    await control.waitFor(
+      "the failed restore is retried",
+      () => {
+        const microphone = coreOf(control)?.obs.microphones[0];
+        return microphone?.muted === false && microphone.coughMutedUntil === null;
+      },
+      COUGH_MUTE_MS + OBS_RETRY_MS + 2_000,
+    );
+    expect(obs.microphoneChanges).toEqual([
+      { name: "Mic/Aux", muted: true },
+      { name: "Mic/Aux", muted: false },
+    ]);
+  });
+
+  it("does not let an older restore clear a newer cough mute", async () => {
+    obs = await startFakeObs({
+      password: "s3cret",
+      microphones: [{ name: "Mic/Aux", muted: false }],
+      microphoneUnmuteReplyDelayMs: 750,
+    });
+    server = await startServer();
+    const control = await server.connect({ surface: "control" });
+    await point(control, obs.port, "s3cret");
+    await until(control, "connected");
+    await control.invoke({ action: "core.obsCoughMute", args: ["Mic/Aux"] });
+    await waitFor(
+      "the first restore is waiting for its reply",
+      () => obs!.microphoneChanges.some((change) => change.muted === false),
+      COUGH_MUTE_MS + 2_000,
+    );
+
+    expect(await control.invoke({ action: "core.obsCoughMute", args: ["Mic/Aux"] })).toEqual({
+      ok: true,
+    });
+    await waitFor(
+      "the older restore receives its delayed reply",
+      () => obs!.microphoneReplies.some((reply) => reply.muted === false),
+    );
+    expect(coreOf(control)?.obs.microphones[0]?.muted).toBe(true);
+    expect(coreOf(control)?.obs.microphones[0]?.coughMutedUntil).toBeGreaterThan(Date.now());
+  });
+
+  it("sends an active cough deadline to a reconnecting control page", async () => {
+    obs = await startFakeObs({
+      password: "s3cret",
+      microphones: [{ name: "Mic/Aux", muted: false }],
+    });
+    server = await startServer();
+    const first = await server.connect({ surface: "control" });
+    await point(first, obs.port, "s3cret");
+    await until(first, "connected");
+    await first.invoke({ action: "core.obsCoughMute", args: ["Mic/Aux"] });
+    await first.close();
+
+    const second = await server.connect({ surface: "control" });
+    await second.waitFor(
+      "active cough arrives in the reconnect snapshot",
+      () => typeof coreOf(second)?.obs.microphones[0]?.coughMutedUntil === "number",
+    );
+  });
+
+  it("restores an overdue cough mute after OBS reconnects", async () => {
+    obs = await startFakeObs({
+      password: "s3cret",
+      microphones: [{ name: "Mic/Aux", muted: false }],
+    });
+    const port = obs.port;
+    server = await startServer();
+    const control = await server.connect({ surface: "control" });
+    await point(control, port, "s3cret");
+    await until(control, "connected");
+    await control.invoke({ action: "core.obsCoughMute", args: ["Mic/Aux"] });
+    await waitFor("microphone muted", () => obs!.microphoneChanges.length === 1);
+
+    await obs.close();
+    obs = null;
+    await until(control, "disconnected", "dropped");
+    obs = await startFakeObs({
+      password: "s3cret",
+      port,
+      microphones: [{ name: "Mic/Aux", muted: true }],
+    });
+    await until(control, "connected", "reconnected");
+    await control.waitFor(
+      "overdue cough mute restores after reconnect",
+      () => {
+        const microphone = coreOf(control)?.obs.microphones[0];
+        return microphone?.muted === false && microphone.coughMutedUntil === null;
+      },
+      COUGH_MUTE_MS + OBS_RETRY_MS + 2_000,
+    );
+  });
+
   it("restores a cough mute when Saarathi shuts down", async () => {
     obs = await startFakeObs({
       password: "s3cret",
