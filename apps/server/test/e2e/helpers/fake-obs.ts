@@ -42,6 +42,12 @@ export interface FakeObsOptions {
   /** Inputs the readiness check should discover through OBS. */
   browserSources?: string[];
   microphones?: { name: string; muted?: boolean }[];
+  /** Acknowledge mute writes without changing state or emitting an event. */
+  ignoreMicrophoneChanges?: boolean;
+  /** Refuse this many unmute requests before accepting one. */
+  failMicrophoneUnmutes?: number;
+  /** Hold successful unmute replies open to expose overlapping commands. */
+  microphoneUnmuteReplyDelayMs?: number;
 }
 
 export interface FakeObs {
@@ -50,6 +56,10 @@ export interface FakeObs {
   readonly switches: string[];
   /** Scene item toggles, as `SetSceneItemEnabled` received them. */
   readonly toggles: { scene: string; sceneItemId: number; enabled: boolean }[];
+  /** Microphone changes, as `SetInputMute` received them. */
+  readonly microphoneChanges: { name: string; muted: boolean }[];
+  /** Successful microphone replies, after any deliberate test delay. */
+  readonly microphoneReplies: { name: string; muted: boolean }[];
   readonly browserSourceChanges: {
     operation: "create" | "update" | "attach" | "remove";
     scene?: string;
@@ -59,6 +69,10 @@ export interface FakeObs {
   currentScene(): string;
   /** Rename or reorder the scene list and tell whoever is listening. */
   setScenes(scenes: string[]): void;
+  /** Refuse the next matching microphone write. */
+  failNextMicrophoneChange(muted: boolean): void;
+  /** Delay the next matching microphone reply after applying the change. */
+  delayNextMicrophoneChange(muted: boolean, ms: number): void;
   /** What OBS quitting looks like from the outside. */
   close(): Promise<void>;
 }
@@ -73,7 +87,12 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
   const browserSources = [...(options.browserSources ?? [])];
   const browserSourceChanges: FakeObs["browserSourceChanges"] = [];
   const sceneItems = new Set(browserSources.map((name) => `${current}\0${name}`));
-  const microphones = options.microphones ?? [];
+  const microphones = (options.microphones ?? []).map((microphone) => ({ ...microphone }));
+  const microphoneChanges: FakeObs["microphoneChanges"] = [];
+  const microphoneReplies: FakeObs["microphoneReplies"] = [];
+  let failedMicrophoneUnmutes = 0;
+  let nextFailedMicrophoneChange: boolean | null = null;
+  let nextDelayedMicrophoneChange: { muted: boolean; ms: number } | null = null;
 
   const wss = new WebSocketServer({
     port: options.port ?? 0,
@@ -176,6 +195,46 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
           reply({ inputMuted: microphone.muted ?? false });
           return;
         }
+        case "SetInputMute": {
+          const inputName = String(requestData?.inputName ?? "");
+          const microphone = microphones.find((input) => input.name === inputName);
+          if (!microphone) {
+            reply(undefined, false, "No input by that name.");
+            return;
+          }
+          const inputMuted = requestData?.inputMuted === true;
+          if (nextFailedMicrophoneChange === inputMuted) {
+            nextFailedMicrophoneChange = null;
+            reply(undefined, false, "The microphone did not change.");
+            return;
+          }
+          if (!inputMuted && failedMicrophoneUnmutes < (options.failMicrophoneUnmutes ?? 0)) {
+            failedMicrophoneUnmutes += 1;
+            reply(undefined, false, "The microphone did not change.");
+            return;
+          }
+          if (options.ignoreMicrophoneChanges) {
+            reply(undefined);
+            return;
+          }
+          microphone.muted = inputMuted;
+          microphoneChanges.push({ name: inputName, muted: inputMuted });
+          broadcast("InputMuteStateChanged", { inputName, inputMuted });
+          const finish = () => {
+            microphoneReplies.push({ name: inputName, muted: inputMuted });
+            reply(undefined);
+          };
+          const nextDelay = nextDelayedMicrophoneChange;
+          if (nextDelay?.muted === inputMuted) {
+            nextDelayedMicrophoneChange = null;
+            setTimeout(finish, nextDelay.ms).unref?.();
+          } else if (!inputMuted && options.microphoneUnmuteReplyDelayMs) {
+            setTimeout(finish, options.microphoneUnmuteReplyDelayMs).unref?.();
+          } else {
+            finish();
+          }
+          return;
+        }
         case "SetCurrentProgramScene": {
           const sceneName = String(requestData?.sceneName ?? "");
           if (!scenes.includes(sceneName)) {
@@ -270,6 +329,8 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
     port: (wss.address() as AddressInfo).port,
     switches,
     toggles,
+    microphoneChanges,
+    microphoneReplies,
     browserSourceChanges,
     currentScene: () => current,
     setScenes(next) {
@@ -280,6 +341,12 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
         if (!next.includes(scene)) sceneItems.delete(item);
       }
       broadcast("SceneListChanged", { scenes: sceneList().scenes });
+    },
+    failNextMicrophoneChange(muted) {
+      nextFailedMicrophoneChange = muted;
+    },
+    delayNextMicrophoneChange(muted, ms) {
+      nextDelayedMicrophoneChange = { muted, ms };
     },
     close() {
       for (const socket of identified) socket.terminate();

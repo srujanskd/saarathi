@@ -30,7 +30,7 @@ rather than something you get with a clone.
 
 ## Status
 
-Early. Phases 1 and 2 of four.
+Phases 1 and 2 are complete. Phase 3 is underway.
 
 The server is built around the game module contract and runs. Chat events in, module state out,
 snapshot-synced over Socket.IO. The wheel, goals, gains, moderation, chat log and media pack all
@@ -62,6 +62,9 @@ deck, played through one server-timed lane and stopped explicitly. The library s
 active playback does not. An overlay that reconnects during a clip seeks to the server's elapsed
 time instead of starting the clip again. OBS needs the tray's Media overlay URL once; a wheel
 browser source deliberately subscribes only to wheel state.
+
+The OBS card can mute, unmute or cough-mute each named Mic/Aux input. All three can be saved to the
+same deck grid and therefore also work from a global hotkey or the floating deck.
 
 ## How it fits together
 

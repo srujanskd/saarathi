@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import OBSWebSocket, { OBSWebSocketError } from "obs-websocket-js/json";
 import {
   CORE_ACTIONS,
+  COUGH_MUTE_MS,
   OBS_CALL_TIMEOUT_MS,
   OBS_CONNECT_TIMEOUT_MS,
   OBS_DEFAULT_PORT,
@@ -69,6 +70,8 @@ export interface ObsCommands {
   useAuto(): Promise<InvokeResult>;
   forgetPassword(): Promise<InvokeResult>;
   setScene(name: string): Promise<InvokeResult>;
+  setMicrophoneMuted(name: string, muted: boolean): Promise<InvokeResult>;
+  coughMute(name: string): Promise<InvokeResult>;
   createBrowserSource(overlay: ObsOverlay, serverUrl: string): Promise<InvokeResult>;
   removeBrowserSource(overlay: ObsOverlay): Promise<InvokeResult>;
   setSettings(settings: ManualSettings): Promise<InvokeResult>;
@@ -157,6 +160,9 @@ const OBS_COMMANDS = new Map<string, (obs: ObsCommands, args: string[]) => Promi
   [CORE_ACTIONS.obsAuto, (obs) => obs.useAuto()],
   [CORE_ACTIONS.obsForget, (obs) => obs.forgetPassword()],
   [CORE_ACTIONS.obsScene, (obs, args) => obs.setScene(args[0] ?? "")],
+  [CORE_ACTIONS.obsMute, (obs, args) => obs.setMicrophoneMuted(args[0] ?? "", true)],
+  [CORE_ACTIONS.obsUnmute, (obs, args) => obs.setMicrophoneMuted(args[0] ?? "", false)],
+  [CORE_ACTIONS.obsCoughMute, (obs, args) => obs.coughMute(args[0] ?? "")],
   [CORE_ACTIONS.obsSettings, (obs, args) => applySettings(obs, args)],
 ]);
 
@@ -226,6 +232,12 @@ export class ObsWebSocketAdapter implements ObsAdapter {
   private currentScene: string | null = null;
   private browserSources: string[] = [];
   private microphones: ObsView["microphones"] = [];
+  private readonly coughMutes = new Map<
+    string,
+    { until: number; restoreMuted: boolean; timer: NodeJS.Timeout | null }
+  >();
+  /** Invalidates a cough start when a later explicit command overtakes it. */
+  private readonly microphoneCommandVersions = new Map<string, number>();
 
   constructor(private readonly options: ObsOptions) {
     this.settings = this.load();
@@ -270,6 +282,15 @@ export class ObsWebSocketAdapter implements ObsAdapter {
   async stop(): Promise<void> {
     this.stopped = true;
     this.clearTimer();
+    const coughMuted = [...this.coughMutes];
+    this.clearCoughTimers();
+    // A normal mute belongs to OBS and survives us. A cough mute promised to
+    // restore itself, so a clean tray shutdown must keep that promise before
+    // it drops the socket.
+    for (const [name, pending] of coughMuted) {
+      await this.changeMicrophoneMuted(name, pending.restoreMuted);
+    }
+    this.coughMutes.clear();
     await this.drop();
     this.sink = null;
   }
@@ -286,7 +307,10 @@ export class ObsWebSocketAdapter implements ObsAdapter {
       scenes: [...this.scenes],
       currentScene: this.currentScene,
       browserSources: [...this.browserSources],
-      microphones: this.microphones.map((input) => ({ ...input })),
+      microphones: this.microphones.map((input) => ({
+        ...input,
+        coughMutedUntil: this.coughMutes.get(input.name)?.until ?? null,
+      })),
     };
   }
 
@@ -344,6 +368,44 @@ export class ObsWebSocketAdapter implements ObsAdapter {
     }
     const ok = await this.switchScene(name);
     return ok ? { ok: true } : { ok: false, reason: "OBS did not take that. Check the log." };
+  }
+
+  async setMicrophoneMuted(name: string, muted: boolean): Promise<InvokeResult> {
+    this.nextMicrophoneCommand(name);
+    if (this.clearCough(name)) this.publish();
+    return this.changeMicrophoneMuted(name, muted);
+  }
+
+  async coughMute(name: string): Promise<InvokeResult> {
+    const microphone = this.microphones.find((input) => input.name === name);
+    if (!microphone) return { ok: false, reason: `OBS has no microphone called "${name}"` };
+    if (microphone.muted == null) {
+      return { ok: false, reason: `OBS has not reported whether "${name}" is muted` };
+    }
+
+    const pending = this.coughMutes.get(name);
+    if (pending) {
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.until = Date.now() + COUGH_MUTE_MS;
+      pending.timer = null;
+      this.scheduleCoughRestore(name, pending.until);
+      this.publish();
+      return { ok: true };
+    }
+
+    const restoreMuted = microphone.muted;
+    const commandVersion = this.nextMicrophoneCommand(name);
+    const result = await this.changeMicrophoneMuted(name, true);
+    if (!result.ok) return result;
+    // An explicit mute or unmute arrived while OBS was answering this request.
+    // That later command owns the microphone and must not inherit our timer.
+    if (this.microphoneCommandVersions.get(name) !== commandVersion) return { ok: true };
+
+    const until = Date.now() + COUGH_MUTE_MS;
+    this.coughMutes.set(name, { until, restoreMuted, timer: null });
+    this.scheduleCoughRestore(name, until);
+    this.publish();
+    return { ok: true };
   }
 
   async createBrowserSource(overlay: ObsOverlay, serverUrl: string): Promise<InvokeResult> {
@@ -505,6 +567,7 @@ export class ObsWebSocketAdapter implements ObsAdapter {
       const microphone = this.microphones.find((input) => input.name === inputName);
       if (!microphone) return;
       microphone.muted = inputMuted;
+      if (!inputMuted) this.clearCough(inputName);
       this.publish();
     });
 
@@ -521,6 +584,7 @@ export class ObsWebSocketAdapter implements ObsAdapter {
     this.currentScene = null;
     this.browserSources = [];
     this.microphones = [];
+    this.clearCoughTimers();
     this.publish();
     this.report({ phase: "down", host: settings.host, port: settings.port });
     this.schedule();
@@ -576,8 +640,98 @@ export class ObsWebSocketAdapter implements ObsAdapter {
       this.browserSources = browserSources;
       this.microphones = microphones;
       this.publish();
+      // Also runs after an InputCreated event. If the named microphone was
+      // absent during reconnect, restoring waits until OBS names it again.
+      this.resumeCoughMutes();
     } catch (err) {
       this.options.log.warn("obs: could not inspect browser sources and microphones", err);
+    }
+  }
+
+  private async changeMicrophoneMuted(name: string, muted: boolean): Promise<InvokeResult> {
+    if (!name) return { ok: false, reason: "No microphone named" };
+    if (!this.socket) return { ok: false, reason: "OBS is not connected" };
+    const microphone = this.microphones.find((input) => input.name === name);
+    if (!microphone) return { ok: false, reason: `OBS has no microphone called "${name}"` };
+
+    const verb = muted ? "mute" : "unmute";
+    const ok = await this.request(`${verb} ${name}`, (obs) =>
+      obs.call("SetInputMute", { inputName: name, inputMuted: muted }),
+    );
+    if (!ok) return { ok: false, reason: `OBS did not ${verb} ${name}. Check the log.` };
+
+    // The event is authoritative. Reading the value back also covers OBS builds
+    // that acknowledge this request without sending InputMuteStateChanged.
+    const observed = await this.refreshMicrophoneMute(name);
+    return observed === muted
+      ? { ok: true }
+      : { ok: false, reason: `OBS did not ${verb} ${name}. Check the log.` };
+  }
+
+  private async refreshMicrophoneMute(name: string): Promise<boolean | null> {
+    let observed: boolean | undefined;
+    const ok = await this.request(`check whether ${name} is muted`, async (obs) => {
+      const result = await obs.call("GetInputMute", { inputName: name });
+      if (this.socket === obs) observed = result.inputMuted;
+    });
+    if (!ok || observed === undefined) return null;
+    const microphone = this.microphones.find((input) => input.name === name);
+    if (!microphone) return null;
+    microphone.muted = observed;
+    this.publish();
+    return observed;
+  }
+
+  private scheduleCoughRestore(
+    name: string,
+    until: number,
+    delayMs = Math.max(0, until - Date.now()),
+  ): void {
+    const pending = this.coughMutes.get(name);
+    if (!pending || pending.until !== until) return;
+    const timer = setTimeout(() => void this.finishCough(name, until), delayMs);
+    timer.unref?.();
+    pending.timer = timer;
+  }
+
+  private async finishCough(name: string, until: number): Promise<void> {
+    const pending = this.coughMutes.get(name);
+    if (!pending || pending.until !== until) return;
+    pending.timer = null;
+    if (!this.socket) return;
+    const result = await this.changeMicrophoneMuted(name, pending.restoreMuted);
+    const current = this.coughMutes.get(name);
+    if (!current || current.until !== until) return;
+    if (result.ok) {
+      this.coughMutes.delete(name);
+      this.publish();
+    } else {
+      this.scheduleCoughRestore(name, until, OBS_RETRY_MS);
+    }
+  }
+
+  private resumeCoughMutes(): void {
+    for (const [name, pending] of this.coughMutes) {
+      if (!pending.timer) this.scheduleCoughRestore(name, pending.until);
+    }
+  }
+
+  private clearCough(name: string): boolean {
+    const pending = this.coughMutes.get(name);
+    if (pending?.timer) clearTimeout(pending.timer);
+    return this.coughMutes.delete(name);
+  }
+
+  private nextMicrophoneCommand(name: string): number {
+    const version = (this.microphoneCommandVersions.get(name) ?? 0) + 1;
+    this.microphoneCommandVersions.set(name, version);
+    return version;
+  }
+
+  private clearCoughTimers(): void {
+    for (const pending of this.coughMutes.values()) {
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.timer = null;
     }
   }
 

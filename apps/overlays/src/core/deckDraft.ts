@@ -30,6 +30,9 @@ import {
  */
 const CORE_ACTION_NAMES: Record<string, string> = {
   [CORE_ACTIONS.obsScene]: "OBS scene",
+  [CORE_ACTIONS.obsMute]: "Mute microphone",
+  [CORE_ACTIONS.obsUnmute]: "Unmute microphone",
+  [CORE_ACTIONS.obsCoughMute]: "Cough mute",
 };
 
 /**
@@ -116,6 +119,45 @@ export function hasScene(slots: DeckSlot[], scene: string): boolean {
  * declared. */
 export function sceneSlot(scene: string): DeckSlot {
   return { action: CORE_ACTIONS.obsScene, args: [scene], label: scene, icon: "" };
+}
+
+export type MicrophoneToggleAction =
+  | typeof CORE_ACTIONS.obsMute
+  | typeof CORE_ACTIONS.obsUnmute;
+
+/** A microphone button built where she can pick the named OBS input. */
+export function microphoneSlot(name: string, action: MicrophoneToggleAction): DeckSlot {
+  return {
+    action,
+    args: [name],
+    label: `${action === CORE_ACTIONS.obsMute ? "Mute" : "Unmute"} ${name}`,
+    icon: "",
+  };
+}
+
+/** Whether this exact microphone operation is already on her deck. */
+export function hasMicrophoneAction(
+  slots: DeckSlot[],
+  name: string,
+  action: MicrophoneToggleAction,
+): boolean {
+  return slots.some((slot) => slot.action === action && slot.args[0] === name);
+}
+
+/** A timed mute that restores the microphone without a second tap. */
+export function coughMicrophoneSlot(name: string): DeckSlot {
+  return {
+    action: CORE_ACTIONS.obsCoughMute,
+    args: [name],
+    label: `Cough mute ${name}`,
+    icon: "",
+  };
+}
+
+export function hasCoughMicrophone(slots: DeckSlot[], name: string): boolean {
+  return slots.some(
+    (slot) => slot.action === CORE_ACTIONS.obsCoughMute && slot.args[0] === name,
+  );
 }
 
 export interface ActionGroup {

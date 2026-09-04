@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  COUGH_MUTE_MS,
   CORE_ACTIONS,
   type ConnectionStatus,
   type ModuleStatus,
@@ -9,7 +10,15 @@ import type { Connection } from "../lib/connection.js";
 import { useInvoke } from "../lib/invoke.js";
 import { Notice } from "./Notice.js";
 import { addToDeck } from "./addToDeck.js";
-import { hasScene, sceneSlot } from "./deckDraft.js";
+import {
+  coughMicrophoneSlot,
+  hasCoughMicrophone,
+  hasMicrophoneAction,
+  hasScene,
+  microphoneSlot,
+  sceneSlot,
+  type MicrophoneToggleAction,
+} from "./deckDraft.js";
 import type { DeckDraft } from "./useDeckDraft.js";
 
 /**
@@ -75,6 +84,14 @@ export function ObsCard({
   /** A scene, onto the grid she is looking at. See `addToDeck`. */
   async function addScene(scene: string): Promise<void> {
     await addToDeck(deck, invoke, sceneSlot(scene));
+  }
+
+  async function addMicrophone(name: string, action: MicrophoneToggleAction): Promise<void> {
+    await addToDeck(deck, invoke, microphoneSlot(name, action));
+  }
+
+  async function addCoughMicrophone(name: string): Promise<void> {
+    await addToDeck(deck, invoke, coughMicrophoneSlot(name));
   }
 
   async function createSource(module: ModuleStatus): Promise<void> {
@@ -169,18 +186,97 @@ export function ObsCard({
                   In OBS, open Settings → Audio and choose your microphone under Mic/Aux.
                 </p>
               ) : (
-                <ul>
-                  {obs.microphones.map((input) => (
-                    <li key={input.name} data-muted={input.muted === true}>
-                      {input.name}
-                      {input.muted === true
-                        ? " is muted"
-                        : input.muted === false
-                          ? " is unmuted"
-                          : " needs a mute check"}
-                    </li>
-                  ))}
-                </ul>
+                <div className="obs-sources" data-testid="obs-microphones">
+                  {obs.microphones.map((input) => {
+                    const muteOnDeck = hasMicrophoneAction(
+                      deck.slots,
+                      input.name,
+                      CORE_ACTIONS.obsMute,
+                    );
+                    const unmuteOnDeck = hasMicrophoneAction(
+                      deck.slots,
+                      input.name,
+                      CORE_ACTIONS.obsUnmute,
+                    );
+                    const coughOnDeck = hasCoughMicrophone(deck.slots, input.name);
+                    const coughing = input.coughMutedUntil != null;
+                    return (
+                      <div className="obs-source" key={input.name} data-muted={input.muted === true}>
+                        <div>
+                          <b>{input.name}</b>
+                          <span>
+                            {coughing
+                              ? "Cough mute active"
+                              : input.muted === true
+                              ? "Muted"
+                              : input.muted === false
+                                ? "Live"
+                                : "Mute state unknown"}
+                          </span>
+                        </div>
+                        <div className="obs-source-actions">
+                          {input.muted !== true ? (
+                            <button
+                              type="button"
+                              className="btn"
+                              aria-label={`Mute ${input.name}`}
+                              disabled={busy}
+                              onClick={() => void run(CORE_ACTIONS.obsMute, [input.name])}
+                            >
+                              Mute
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn"
+                              aria-label={`Unmute ${input.name}`}
+                              disabled={busy}
+                              onClick={() => void run(CORE_ACTIONS.obsUnmute, [input.name])}
+                            >
+                              Unmute
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="btn"
+                            aria-label={`Cough mute ${input.name} for ${COUGH_MUTE_MS / 1000} seconds`}
+                            disabled={busy || coughing}
+                            onClick={() => void run(CORE_ACTIONS.obsCoughMute, [input.name])}
+                          >
+                            Cough {COUGH_MUTE_MS / 1000}s
+                          </button>
+                          <button
+                            type="button"
+                            className="btn"
+                            aria-label={`Add mute ${input.name} to deck`}
+                            disabled={busy || muteOnDeck}
+                            onClick={() => void addMicrophone(input.name, CORE_ACTIONS.obsMute)}
+                          >
+                            {muteOnDeck ? "Mute on deck" : "Add mute"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn"
+                            aria-label={`Add cough mute ${input.name} to deck`}
+                            disabled={busy || coughOnDeck}
+                            onClick={() => void addCoughMicrophone(input.name)}
+                          >
+                            {coughOnDeck ? "Cough on deck" : "Add cough"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn"
+                            aria-label={`Add unmute ${input.name} to deck`}
+                            disabled={busy || unmuteOnDeck}
+                            onClick={() => void addMicrophone(input.name, CORE_ACTIONS.obsUnmute)}
+                          >
+                            {unmuteOnDeck ? "Unmute on deck" : "Add unmute"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
             <div>

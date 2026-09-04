@@ -23,11 +23,12 @@ export interface FakeObs extends ObsAdapter {
   /** Scenes she switched to, in order. */
   readonly scenes: string[];
   readonly visibility: { scene: string; source: string; visible: boolean }[];
+  readonly microphoneChanges: { name: string; muted: boolean }[];
   readonly browserSourceChanges: { operation: "create" | "remove"; overlay: ObsOverlay; serverUrl?: string }[];
   /** Settings saved from her control page, in order. */
   readonly saves: ManualSettings[];
   /** Pretend OBS came up, or went away. Pushes status the way the real one does. */
-  arrive(scenes?: string[]): void;
+  arrive(scenes?: string[], microphones?: ObsView["microphones"]): void;
   depart(): void;
 }
 
@@ -40,10 +41,12 @@ export interface FakeObs extends ObsAdapter {
 export function fakeObs(): FakeObs {
   const scenes: string[] = [];
   const visibility: FakeObs["visibility"] = [];
+  const microphoneChanges: FakeObs["microphoneChanges"] = [];
   const saves: FakeObs["saves"] = [];
   const browserSourceChanges: FakeObs["browserSourceChanges"] = [];
   let sink: ObsSink | null = null;
   let live: string[] | null = null;
+  let microphones: ObsView["microphones"] = [];
 
   const where = { host: OBS_DEFAULT_HOST, port: OBS_DEFAULT_PORT };
 
@@ -55,7 +58,7 @@ export function fakeObs(): FakeObs {
     scenes: live ?? [],
     currentScene: live?.[0] ?? null,
     browserSources: [],
-    microphones: [],
+    microphones: live === null ? [] : microphones.map((input) => ({ ...input })),
   });
 
   const publish = () => sink?.view(view());
@@ -65,6 +68,7 @@ export function fakeObs(): FakeObs {
     name: OBS_ID,
     scenes,
     visibility,
+    microphoneChanges,
     browserSourceChanges,
     saves,
     actions: {
@@ -103,6 +107,18 @@ export function fakeObs(): FakeObs {
       publish();
       return { ok: true };
     },
+    async setMicrophoneMuted(name, muted) {
+      if (live === null) return { ok: false, reason: "OBS is not connected" };
+      const microphone = microphones.find((input) => input.name === name);
+      if (!microphone) return { ok: false, reason: `OBS has no microphone called "${name}"` };
+      microphone.muted = muted;
+      microphoneChanges.push({ name, muted });
+      publish();
+      return { ok: true };
+    },
+    async coughMute(name) {
+      return this.setMicrophoneMuted(name, true);
+    },
     async createBrowserSource(overlay, serverUrl) {
       if (live === null) return { ok: false, reason: "OBS is not connected" };
       browserSourceChanges.push({ operation: "create", overlay, serverUrl });
@@ -113,13 +129,15 @@ export function fakeObs(): FakeObs {
       browserSourceChanges.push({ operation: "remove", overlay });
       return { ok: true };
     },
-    arrive(list = ["Workout", "Just Chatting"]) {
+    arrive(list = ["Workout", "Just Chatting"], nextMicrophones = []) {
       live = list;
+      microphones = nextMicrophones.map((input) => ({ ...input }));
       publish();
       sink?.status(obsStatus({ phase: "connected", ...where, scenes: list.length }));
     },
     depart() {
       live = null;
+      microphones = [];
       publish();
       sink?.status(obsStatus({ phase: "down", ...where }));
     },
