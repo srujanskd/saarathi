@@ -50,6 +50,8 @@ export interface FakeObs {
   readonly switches: string[];
   /** Scene item toggles, as `SetSceneItemEnabled` received them. */
   readonly toggles: { scene: string; sceneItemId: number; enabled: boolean }[];
+  /** Microphone changes, as `SetInputMute` received them. */
+  readonly microphoneChanges: { name: string; muted: boolean }[];
   readonly browserSourceChanges: {
     operation: "create" | "update" | "attach" | "remove";
     scene?: string;
@@ -73,7 +75,8 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
   const browserSources = [...(options.browserSources ?? [])];
   const browserSourceChanges: FakeObs["browserSourceChanges"] = [];
   const sceneItems = new Set(browserSources.map((name) => `${current}\0${name}`));
-  const microphones = options.microphones ?? [];
+  const microphones = (options.microphones ?? []).map((microphone) => ({ ...microphone }));
+  const microphoneChanges: FakeObs["microphoneChanges"] = [];
 
   const wss = new WebSocketServer({
     port: options.port ?? 0,
@@ -176,6 +179,20 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
           reply({ inputMuted: microphone.muted ?? false });
           return;
         }
+        case "SetInputMute": {
+          const inputName = String(requestData?.inputName ?? "");
+          const microphone = microphones.find((input) => input.name === inputName);
+          if (!microphone) {
+            reply(undefined, false, "No input by that name.");
+            return;
+          }
+          const inputMuted = requestData?.inputMuted === true;
+          microphone.muted = inputMuted;
+          microphoneChanges.push({ name: inputName, muted: inputMuted });
+          reply(undefined);
+          broadcast("InputMuteStateChanged", { inputName, inputMuted });
+          return;
+        }
         case "SetCurrentProgramScene": {
           const sceneName = String(requestData?.sceneName ?? "");
           if (!scenes.includes(sceneName)) {
@@ -270,6 +287,7 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
     port: (wss.address() as AddressInfo).port,
     switches,
     toggles,
+    microphoneChanges,
     browserSourceChanges,
     currentScene: () => current,
     setScenes(next) {

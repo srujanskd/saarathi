@@ -58,6 +58,9 @@ export const OBS_CONNECT_TIMEOUT_MS = 10_000;
  */
 export const OBS_CALL_TIMEOUT_MS = 5_000;
 
+/** Long enough to cough and take a breath, short enough not to lose a sentence. */
+export const COUGH_MUTE_MS = 5_000;
+
 /** Namespace her deck persists under. */
 export const DECK_ID = "deck";
 

@@ -19,6 +19,9 @@ export const CORE_ACTIONS = {
   obsAuto: `${CORE_ID}.obsAuto`,
   obsForget: `${CORE_ID}.obsForget`,
   obsScene: `${CORE_ID}.obsScene`,
+  obsMute: `${CORE_ID}.obsMute`,
+  obsUnmute: `${CORE_ID}.obsUnmute`,
+  obsCoughMute: `${CORE_ID}.obsCoughMute`,
   obsBrowserSource: `${CORE_ID}.obsBrowserSource`,
   obsRemoveBrowserSource: `${CORE_ID}.obsRemoveBrowserSource`,
   obsSettings: `${CORE_ID}.obsSettings`,
@@ -85,7 +88,12 @@ export interface ObsView {
    * mute query. That is different from false, and the readiness page must not
    * turn an unknown audio state into a green check.
    */
-  microphones: { name: string; muted: boolean | null }[];
+  microphones: {
+    name: string;
+    muted: boolean | null;
+    /** Server time. Null unless a timed cough mute is waiting to restore it. */
+    coughMutedUntil?: number | null;
+  }[];
 }
 
 /**

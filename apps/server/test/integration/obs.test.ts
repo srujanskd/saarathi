@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { CORE_ID, OBS_ID } from "@saarathi/shared";
+import { CORE_ACTIONS, CORE_ID, OBS_ID } from "@saarathi/shared";
 import { fakeObs, harness, type FakeObs, type Harness } from "../helpers/kernel.js";
 
 /**
@@ -63,6 +63,34 @@ describe("her surfaces drive OBS through core actions", () => {
 
     expect(await h.kernel.invoke("core.obsScene", { args: ["BRB"] })).toEqual({ ok: true });
     expect(obs.scenes).toEqual(["BRB"]);
+  });
+
+  it("routes named microphone controls through the OBS connection", async () => {
+    const { h, obs } = await start();
+    obs.arrive(["Workout"], [{ name: "Mic/Aux", muted: false }]);
+
+    expect(await h.kernel.invoke(CORE_ACTIONS.obsMute, { args: ["Mic/Aux"] })).toEqual({
+      ok: true,
+    });
+    expect(core(h).obs.microphones[0]?.muted).toBe(true);
+    expect(await h.kernel.invoke(CORE_ACTIONS.obsUnmute, { args: ["Mic/Aux"] })).toEqual({
+      ok: true,
+    });
+    expect(obs.microphoneChanges).toEqual([
+      { name: "Mic/Aux", muted: true },
+      { name: "Mic/Aux", muted: false },
+    ]);
+  });
+
+  it("refuses a microphone OBS did not name", async () => {
+    const { h, obs } = await start();
+    obs.arrive(["Workout"], [{ name: "Mic/Aux", muted: false }]);
+
+    expect(await h.kernel.invoke(CORE_ACTIONS.obsMute, { args: ["Guest mic"] })).toEqual({
+      ok: false,
+      reason: 'OBS has no microphone called "Guest mic"',
+    });
+    expect(obs.microphoneChanges).toEqual([]);
   });
 
   it("creates and removes only server-declared overlays", async () => {

@@ -8,14 +8,18 @@ import {
 import {
   actionChoices,
   appendSlot,
+  coughMicrophoneSlot,
   deckSizeNote,
   describeAction,
   editSlot,
   encodeGrid,
   findAction,
+  hasCoughMicrophone,
+  hasMicrophoneAction,
   hasScene,
   hotkeyChoices,
   moveSlot,
+  microphoneSlot,
   removeSlot,
   sameGrid,
   sceneSlot,
@@ -140,6 +144,42 @@ describe("the scene button the OBS card writes", () => {
     // Same argument, different action. Two buttons that do different things
     // are two buttons, whatever they are pointed at.
     expect(hasScene([slot({ action: "wheel.setChallenges", args: ["BRB"] })], "BRB")).toBe(false);
+  });
+});
+
+describe("the microphone buttons the OBS card writes", () => {
+  it("keeps the microphone name in the saved arguments", () => {
+    expect(microphoneSlot("Mic/Aux", true)).toEqual({
+      action: CORE_ACTIONS.obsMute,
+      args: ["Mic/Aux"],
+      label: "Mute Mic/Aux",
+      icon: "",
+    });
+    expect(microphoneSlot("Mic/Aux", false)).toEqual({
+      action: CORE_ACTIONS.obsUnmute,
+      args: ["Mic/Aux"],
+      label: "Unmute Mic/Aux",
+      icon: "",
+    });
+  });
+
+  it("distinguishes mute from unmute for the same microphone", () => {
+    const saved = [microphoneSlot("Mic/Aux", true)];
+    expect(hasMicrophoneAction(saved, "Mic/Aux", true)).toBe(true);
+    expect(hasMicrophoneAction(saved, "Mic/Aux", false)).toBe(false);
+    expect(hasMicrophoneAction(saved, "Guest mic", true)).toBe(false);
+  });
+
+  it("builds a separate timed cough button", () => {
+    const saved = coughMicrophoneSlot("Mic/Aux");
+    expect(saved).toEqual({
+      action: CORE_ACTIONS.obsCoughMute,
+      args: ["Mic/Aux"],
+      label: "Cough mute Mic/Aux",
+      icon: "",
+    });
+    expect(hasCoughMicrophone([saved], "Mic/Aux")).toBe(true);
+    expect(hasCoughMicrophone([saved], "Guest mic")).toBe(false);
   });
 });
 

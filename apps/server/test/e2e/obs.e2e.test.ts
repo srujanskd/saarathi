@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { CORE_ID, OBS_ID, OBS_RETRY_MS, type CoreState } from "@saarathi/shared";
+import { COUGH_MUTE_MS, CORE_ID, OBS_ID, OBS_RETRY_MS, type CoreState } from "@saarathi/shared";
 import { startFakeObs, type FakeObs } from "./helpers/fake-obs.js";
 import { startServer, waitFor, type Client, type RunningServer } from "./helpers/server.js";
 
@@ -78,7 +78,9 @@ describe("OBS control, end to end", () => {
     expect(core.obs.scenes).toEqual(["BRB", "Just Chatting", "Workout"]);
     expect(core.obs.currentScene).toBe("Workout");
     expect(core.obs.browserSources).toEqual(["Saarathi overlay"]);
-    expect(core.obs.microphones).toEqual([{ name: "Mic/Aux", muted: false }]);
+    expect(core.obs.microphones).toEqual([
+      { name: "Mic/Aux", muted: false, coughMutedUntil: null },
+    ]);
   });
 
   it("connects with no password when OBS is not asking for one", async () => {
@@ -108,6 +110,96 @@ describe("OBS control, end to end", () => {
       "scene list follows OBS",
       () => coreOf(control)?.obs.scenes.join() === "Cooldown,BRB",
     );
+  });
+
+  it("mutes and unmutes the named microphone, with OBS as the source of truth", async () => {
+    obs = await startFakeObs({
+      password: "s3cret",
+      microphones: [{ name: "Mic/Aux", muted: false }],
+    });
+    server = await startServer();
+    const control = await server.connect({ surface: "control" });
+    await point(control, obs.port, "s3cret");
+    await until(control, "connected");
+
+    expect(await control.invoke({ action: "core.obsMute", args: ["Mic/Aux"] })).toEqual({
+      ok: true,
+    });
+    await control.waitFor(
+      "microphone mute reaches the snapshot",
+      () => coreOf(control)?.obs.microphones[0]?.muted === true,
+    );
+    expect(obs.microphoneChanges).toEqual([{ name: "Mic/Aux", muted: true }]);
+
+    expect(await control.invoke({ action: "core.obsUnmute", args: ["Mic/Aux"] })).toEqual({
+      ok: true,
+    });
+    await control.waitFor(
+      "microphone unmute reaches the snapshot",
+      () => coreOf(control)?.obs.microphones[0]?.muted === false,
+    );
+    expect(obs.microphoneChanges).toEqual([
+      { name: "Mic/Aux", muted: true },
+      { name: "Mic/Aux", muted: false },
+    ]);
+  });
+
+  it("cough-mutes briefly, then returns the microphone to normal", async () => {
+    obs = await startFakeObs({
+      password: "s3cret",
+      microphones: [{ name: "Mic/Aux", muted: false }],
+    });
+    server = await startServer();
+    const control = await server.connect({ surface: "control" });
+    await point(control, obs.port, "s3cret");
+    await until(control, "connected");
+
+    expect(await control.invoke({ action: "core.obsCoughMute", args: ["Mic/Aux"] })).toEqual({
+      ok: true,
+    });
+    await control.waitFor(
+      "cough mute reaches the snapshot",
+      () => {
+        const microphone = coreOf(control)?.obs.microphones[0];
+        return microphone?.muted === true && typeof microphone.coughMutedUntil === "number";
+      },
+    );
+    const untilAt = coreOf(control)!.obs.microphones[0]!.coughMutedUntil!;
+    expect(untilAt).toBeGreaterThan(Date.now());
+    expect(untilAt).toBeLessThanOrEqual(Date.now() + COUGH_MUTE_MS);
+
+    await control.waitFor(
+      "cough mute restores the microphone",
+      () => {
+        const microphone = coreOf(control)?.obs.microphones[0];
+        return microphone?.muted === false && microphone.coughMutedUntil === null;
+      },
+      COUGH_MUTE_MS + 2_000,
+    );
+    expect(obs.microphoneChanges).toEqual([
+      { name: "Mic/Aux", muted: true },
+      { name: "Mic/Aux", muted: false },
+    ]);
+  });
+
+  it("restores a cough mute when Saarathi shuts down", async () => {
+    obs = await startFakeObs({
+      password: "s3cret",
+      microphones: [{ name: "Mic/Aux", muted: false }],
+    });
+    server = await startServer();
+    const control = await server.connect({ surface: "control" });
+    await point(control, obs.port, "s3cret");
+    await until(control, "connected");
+    await control.invoke({ action: "core.obsCoughMute", args: ["Mic/Aux"] });
+    await waitFor("microphone muted", () => obs!.microphoneChanges.length === 1);
+
+    await server.stop();
+    server = null;
+    expect(obs.microphoneChanges).toEqual([
+      { name: "Mic/Aux", muted: true },
+      { name: "Mic/Aux", muted: false },
+    ]);
   });
 
   it("creates, repairs, and removes a read-only browser source in the current scene", async () => {

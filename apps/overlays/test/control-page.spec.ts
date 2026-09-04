@@ -1,4 +1,5 @@
 import { MAX_CHALLENGES, WHEEL_ID, type WheelState } from "@saarathi/shared";
+import { startFakeObs } from "../../server/test/e2e/helpers/fake-obs.js";
 import { controlUrl, expect, test } from "./helpers/fixtures.js";
 
 /**
@@ -52,6 +53,45 @@ test("sends mock chat from the panel, so a spin can be tested without YouTube", 
   await expect(page.getByTestId("wheel-result")).toContainText(
     snapshot.modules[WHEEL_ID]!.spin!.label,
   );
+});
+
+test("controls a named OBS microphone and can put its cough mute on the deck", async ({
+  page,
+  pages,
+  saarathi,
+}) => {
+  const obs = await startFakeObs({ microphones: [{ name: "Mic/Aux", muted: false }] });
+  try {
+    await page.goto(controlUrl(pages, saarathi));
+    await expect(page.getByTestId("status")).toHaveText("Connected");
+    expect(
+      await saarathi.invoke({
+        action: "core.obsSettings",
+        args: ["127.0.0.1", String(obs.port), ""],
+      }),
+    ).toEqual({ ok: true });
+
+    await page.locator("#obs-media-setup > summary").click();
+    const microphones = page.getByTestId("obs-microphones");
+    await expect(microphones).toContainText("Mic/Aux");
+    await microphones.getByRole("button", { name: "Mute Mic/Aux", exact: true }).click();
+    await expect(microphones).toContainText("Muted");
+    await microphones.getByRole("button", { name: "Unmute Mic/Aux", exact: true }).click();
+    await expect(microphones).toContainText("Live");
+
+    await microphones.getByRole("button", { name: "Add cough mute Mic/Aux to deck" }).click();
+    const snapshot = (await saarathi.get("/api/state")) as {
+      core: { deck: { slots: { action: string; args: string[] }[] } };
+    };
+    expect(snapshot.core.deck.slots).toContainEqual({
+      action: "core.obsCoughMute",
+      args: ["Mic/Aux"],
+      label: "Cough mute Mic/Aux",
+      icon: "",
+    });
+  } finally {
+    await obs.close();
+  }
 });
 
 /**
