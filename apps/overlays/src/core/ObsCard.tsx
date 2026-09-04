@@ -17,6 +17,7 @@ import {
   hasScene,
   microphoneSlot,
   sceneSlot,
+  type MicrophoneToggleAction,
 } from "./deckDraft.js";
 import type { DeckDraft } from "./useDeckDraft.js";
 
@@ -85,8 +86,8 @@ export function ObsCard({
     await addToDeck(deck, invoke, sceneSlot(scene));
   }
 
-  async function addMicrophone(name: string, muted: boolean): Promise<void> {
-    await addToDeck(deck, invoke, microphoneSlot(name, muted));
+  async function addMicrophone(name: string, action: MicrophoneToggleAction): Promise<void> {
+    await addToDeck(deck, invoke, microphoneSlot(name, action));
   }
 
   async function addCoughMicrophone(name: string): Promise<void> {
@@ -187,8 +188,16 @@ export function ObsCard({
               ) : (
                 <div className="obs-sources" data-testid="obs-microphones">
                   {obs.microphones.map((input) => {
-                    const muteOnDeck = hasMicrophoneAction(deck.slots, input.name, true);
-                    const unmuteOnDeck = hasMicrophoneAction(deck.slots, input.name, false);
+                    const muteOnDeck = hasMicrophoneAction(
+                      deck.slots,
+                      input.name,
+                      CORE_ACTIONS.obsMute,
+                    );
+                    const unmuteOnDeck = hasMicrophoneAction(
+                      deck.slots,
+                      input.name,
+                      CORE_ACTIONS.obsUnmute,
+                    );
                     const coughOnDeck = hasCoughMicrophone(deck.slots, input.name);
                     const coughing = input.coughMutedUntil != null;
                     return (
@@ -241,7 +250,7 @@ export function ObsCard({
                             className="btn"
                             aria-label={`Add mute ${input.name} to deck`}
                             disabled={busy || muteOnDeck}
-                            onClick={() => void addMicrophone(input.name, true)}
+                            onClick={() => void addMicrophone(input.name, CORE_ACTIONS.obsMute)}
                           >
                             {muteOnDeck ? "Mute on deck" : "Add mute"}
                           </button>
@@ -259,7 +268,7 @@ export function ObsCard({
                             className="btn"
                             aria-label={`Add unmute ${input.name} to deck`}
                             disabled={busy || unmuteOnDeck}
-                            onClick={() => void addMicrophone(input.name, false)}
+                            onClick={() => void addMicrophone(input.name, CORE_ACTIONS.obsUnmute)}
                           >
                             {unmuteOnDeck ? "Unmute on deck" : "Add unmute"}
                           </button>

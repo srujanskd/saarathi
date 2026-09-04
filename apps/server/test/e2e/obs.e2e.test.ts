@@ -182,6 +182,35 @@ describe("OBS control, end to end", () => {
     ]);
   });
 
+  it("keeps the original restore state when cough mute is pressed twice", async () => {
+    obs = await startFakeObs({
+      password: "s3cret",
+      microphones: [{ name: "Mic/Aux", muted: false }],
+    });
+    server = await startServer();
+    const control = await server.connect({ surface: "control" });
+    await point(control, obs.port, "s3cret");
+    await until(control, "connected");
+
+    await control.invoke({ action: "core.obsCoughMute", args: ["Mic/Aux"] });
+    await control.waitFor(
+      "the first cough mute is active",
+      () => typeof coreOf(control)?.obs.microphones[0]?.coughMutedUntil === "number",
+    );
+    expect(await control.invoke({ action: "core.obsCoughMute", args: ["Mic/Aux"] })).toEqual({
+      ok: true,
+    });
+
+    await control.waitFor(
+      "the repeated cough mute restores the originally live microphone",
+      () => {
+        const microphone = coreOf(control)?.obs.microphones[0];
+        return microphone?.muted === false && microphone.coughMutedUntil === null;
+      },
+      COUGH_MUTE_MS + 2_000,
+    );
+  });
+
   it("leaves a microphone muted when cough mute started from muted", async () => {
     obs = await startFakeObs({
       password: "s3cret",
@@ -227,6 +256,80 @@ describe("OBS control, end to end", () => {
     );
   });
 
+  it("cancels a cough mute immediately even when the explicit command fails", async () => {
+    obs = await startFakeObs({
+      password: "s3cret",
+      microphones: [{ name: "Mic/Aux", muted: false }],
+    });
+    server = await startServer();
+    const control = await server.connect({ surface: "control" });
+    await point(control, obs.port, "s3cret");
+    await until(control, "connected");
+    await control.invoke({ action: "core.obsCoughMute", args: ["Mic/Aux"] });
+    await control.waitFor(
+      "cough mute is visible",
+      () => typeof coreOf(control)?.obs.microphones[0]?.coughMutedUntil === "number",
+    );
+
+    obs.failNextMicrophoneChange(true);
+    expect(await control.invoke({ action: "core.obsMute", args: ["Mic/Aux"] })).toEqual({
+      ok: false,
+      reason: "OBS did not mute Mic/Aux. Check the log.",
+    });
+    expect(coreOf(control)?.obs.microphones[0]?.coughMutedUntil).toBeNull();
+  });
+
+  it("publishes cough cancellation before a slow explicit command finishes", async () => {
+    obs = await startFakeObs({
+      password: "s3cret",
+      microphones: [{ name: "Mic/Aux", muted: false }],
+    });
+    server = await startServer();
+    const control = await server.connect({ surface: "control" });
+    await point(control, obs.port, "s3cret");
+    await until(control, "connected");
+    await control.invoke({ action: "core.obsCoughMute", args: ["Mic/Aux"] });
+    await control.waitFor(
+      "cough mute is visible",
+      () => typeof coreOf(control)?.obs.microphones[0]?.coughMutedUntil === "number",
+    );
+
+    obs.delayNextMicrophoneChange(true, 750);
+    const muting = control.invoke({ action: "core.obsMute", args: ["Mic/Aux"] });
+    await control.waitFor(
+      "cough cancellation is published before OBS replies",
+      () => coreOf(control)?.obs.microphones[0]?.coughMutedUntil === null,
+      500,
+    );
+    expect(await muting).toEqual({ ok: true });
+  });
+
+  it("does not install a cough timer after a later explicit mute", async () => {
+    obs = await startFakeObs({
+      password: "s3cret",
+      microphones: [{ name: "Mic/Aux", muted: false }],
+    });
+    server = await startServer();
+    const control = await server.connect({ surface: "control" });
+    await point(control, obs.port, "s3cret");
+    await until(control, "connected");
+
+    obs.delayNextMicrophoneChange(true, 750);
+    const coughing = control.invoke({ action: "core.obsCoughMute", args: ["Mic/Aux"] });
+    await waitFor(
+      "cough mute reaches OBS before its reply",
+      () => obs!.microphoneChanges.some((change) => change.muted),
+    );
+    expect(await control.invoke({ action: "core.obsMute", args: ["Mic/Aux"] })).toEqual({
+      ok: true,
+    });
+    expect(await coughing).toEqual({ ok: true });
+    expect(coreOf(control)?.obs.microphones[0]).toMatchObject({
+      muted: true,
+      coughMutedUntil: null,
+    });
+  });
+
   it("reads the resulting mute state from OBS instead of assuming the requested value", async () => {
     obs = await startFakeObs({
       password: "s3cret",
@@ -239,7 +342,8 @@ describe("OBS control, end to end", () => {
     await until(control, "connected");
 
     expect(await control.invoke({ action: "core.obsMute", args: ["Mic/Aux"] })).toEqual({
-      ok: true,
+      ok: false,
+      reason: "OBS did not mute Mic/Aux. Check the log.",
     });
     expect(coreOf(control)?.obs.microphones[0]?.muted).toBe(false);
   });

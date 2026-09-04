@@ -69,6 +69,10 @@ export interface FakeObs {
   currentScene(): string;
   /** Rename or reorder the scene list and tell whoever is listening. */
   setScenes(scenes: string[]): void;
+  /** Refuse the next matching microphone write. */
+  failNextMicrophoneChange(muted: boolean): void;
+  /** Delay the next matching microphone reply after applying the change. */
+  delayNextMicrophoneChange(muted: boolean, ms: number): void;
   /** What OBS quitting looks like from the outside. */
   close(): Promise<void>;
 }
@@ -87,6 +91,8 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
   const microphoneChanges: FakeObs["microphoneChanges"] = [];
   const microphoneReplies: FakeObs["microphoneReplies"] = [];
   let failedMicrophoneUnmutes = 0;
+  let nextFailedMicrophoneChange: boolean | null = null;
+  let nextDelayedMicrophoneChange: { muted: boolean; ms: number } | null = null;
 
   const wss = new WebSocketServer({
     port: options.port ?? 0,
@@ -197,6 +203,11 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
             return;
           }
           const inputMuted = requestData?.inputMuted === true;
+          if (nextFailedMicrophoneChange === inputMuted) {
+            nextFailedMicrophoneChange = null;
+            reply(undefined, false, "The microphone did not change.");
+            return;
+          }
           if (!inputMuted && failedMicrophoneUnmutes < (options.failMicrophoneUnmutes ?? 0)) {
             failedMicrophoneUnmutes += 1;
             reply(undefined, false, "The microphone did not change.");
@@ -213,7 +224,11 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
             microphoneReplies.push({ name: inputName, muted: inputMuted });
             reply(undefined);
           };
-          if (!inputMuted && options.microphoneUnmuteReplyDelayMs) {
+          const nextDelay = nextDelayedMicrophoneChange;
+          if (nextDelay?.muted === inputMuted) {
+            nextDelayedMicrophoneChange = null;
+            setTimeout(finish, nextDelay.ms).unref?.();
+          } else if (!inputMuted && options.microphoneUnmuteReplyDelayMs) {
             setTimeout(finish, options.microphoneUnmuteReplyDelayMs).unref?.();
           } else {
             finish();
@@ -326,6 +341,12 @@ export async function startFakeObs(options: FakeObsOptions = {}): Promise<FakeOb
         if (!next.includes(scene)) sceneItems.delete(item);
       }
       broadcast("SceneListChanged", { scenes: sceneList().scenes });
+    },
+    failNextMicrophoneChange(muted) {
+      nextFailedMicrophoneChange = muted;
+    },
+    delayNextMicrophoneChange(muted, ms) {
+      nextDelayedMicrophoneChange = { muted, ms };
     },
     close() {
       for (const socket of identified) socket.terminate();

@@ -149,13 +149,13 @@ describe("the scene button the OBS card writes", () => {
 
 describe("the microphone buttons the OBS card writes", () => {
   it("keeps the microphone name in the saved arguments", () => {
-    expect(microphoneSlot("Mic/Aux", true)).toEqual({
+    expect(microphoneSlot("Mic/Aux", CORE_ACTIONS.obsMute)).toEqual({
       action: CORE_ACTIONS.obsMute,
       args: ["Mic/Aux"],
       label: "Mute Mic/Aux",
       icon: "",
     });
-    expect(microphoneSlot("Mic/Aux", false)).toEqual({
+    expect(microphoneSlot("Mic/Aux", CORE_ACTIONS.obsUnmute)).toEqual({
       action: CORE_ACTIONS.obsUnmute,
       args: ["Mic/Aux"],
       label: "Unmute Mic/Aux",
@@ -164,10 +164,10 @@ describe("the microphone buttons the OBS card writes", () => {
   });
 
   it("distinguishes mute from unmute for the same microphone", () => {
-    const saved = [microphoneSlot("Mic/Aux", true)];
-    expect(hasMicrophoneAction(saved, "Mic/Aux", true)).toBe(true);
-    expect(hasMicrophoneAction(saved, "Mic/Aux", false)).toBe(false);
-    expect(hasMicrophoneAction(saved, "Guest mic", true)).toBe(false);
+    const saved = [microphoneSlot("Mic/Aux", CORE_ACTIONS.obsMute)];
+    expect(hasMicrophoneAction(saved, "Mic/Aux", CORE_ACTIONS.obsMute)).toBe(true);
+    expect(hasMicrophoneAction(saved, "Mic/Aux", CORE_ACTIONS.obsUnmute)).toBe(false);
+    expect(hasMicrophoneAction(saved, "Guest mic", CORE_ACTIONS.obsMute)).toBe(false);
   });
 
   it("builds a separate timed cough button", () => {

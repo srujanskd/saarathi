@@ -236,6 +236,8 @@ export class ObsWebSocketAdapter implements ObsAdapter {
     string,
     { until: number; restoreMuted: boolean; timer: NodeJS.Timeout | null }
   >();
+  /** Invalidates a cough start when a later explicit command overtakes it. */
+  private readonly microphoneCommandVersions = new Map<string, number>();
 
   constructor(private readonly options: ObsOptions) {
     this.settings = this.load();
@@ -369,9 +371,9 @@ export class ObsWebSocketAdapter implements ObsAdapter {
   }
 
   async setMicrophoneMuted(name: string, muted: boolean): Promise<InvokeResult> {
-    const result = await this.changeMicrophoneMuted(name, muted);
-    if (result.ok && this.clearCough(name)) this.publish();
-    return result;
+    this.nextMicrophoneCommand(name);
+    if (this.clearCough(name)) this.publish();
+    return this.changeMicrophoneMuted(name, muted);
   }
 
   async coughMute(name: string): Promise<InvokeResult> {
@@ -380,11 +382,25 @@ export class ObsWebSocketAdapter implements ObsAdapter {
     if (microphone.muted == null) {
       return { ok: false, reason: `OBS has not reported whether "${name}" is muted` };
     }
+
+    const pending = this.coughMutes.get(name);
+    if (pending) {
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.until = Date.now() + COUGH_MUTE_MS;
+      pending.timer = null;
+      this.scheduleCoughRestore(name, pending.until);
+      this.publish();
+      return { ok: true };
+    }
+
     const restoreMuted = microphone.muted;
+    const commandVersion = this.nextMicrophoneCommand(name);
     const result = await this.changeMicrophoneMuted(name, true);
     if (!result.ok) return result;
+    // An explicit mute or unmute arrived while OBS was answering this request.
+    // That later command owns the microphone and must not inherit our timer.
+    if (this.microphoneCommandVersions.get(name) !== commandVersion) return { ok: true };
 
-    this.clearCough(name);
     const until = Date.now() + COUGH_MUTE_MS;
     this.coughMutes.set(name, { until, restoreMuted, timer: null });
     this.scheduleCoughRestore(name, until);
@@ -646,27 +662,34 @@ export class ObsWebSocketAdapter implements ObsAdapter {
 
     // The event is authoritative. Reading the value back also covers OBS builds
     // that acknowledge this request without sending InputMuteStateChanged.
-    await this.refreshMicrophoneMute(name);
-    return { ok: true };
+    const observed = await this.refreshMicrophoneMute(name);
+    return observed === muted
+      ? { ok: true }
+      : { ok: false, reason: `OBS did not ${verb} ${name}. Check the log.` };
   }
 
-  private async refreshMicrophoneMute(name: string): Promise<void> {
+  private async refreshMicrophoneMute(name: string): Promise<boolean | null> {
     let observed: boolean | undefined;
     const ok = await this.request(`check whether ${name} is muted`, async (obs) => {
       const result = await obs.call("GetInputMute", { inputName: name });
       if (this.socket === obs) observed = result.inputMuted;
     });
-    if (!ok || observed === undefined) return;
+    if (!ok || observed === undefined) return null;
     const microphone = this.microphones.find((input) => input.name === name);
-    if (!microphone) return;
+    if (!microphone) return null;
     microphone.muted = observed;
     this.publish();
+    return observed;
   }
 
-  private scheduleCoughRestore(name: string, until: number): void {
+  private scheduleCoughRestore(
+    name: string,
+    until: number,
+    delayMs = Math.max(0, until - Date.now()),
+  ): void {
     const pending = this.coughMutes.get(name);
     if (!pending || pending.until !== until) return;
-    const timer = setTimeout(() => void this.finishCough(name, until), Math.max(0, until - Date.now()));
+    const timer = setTimeout(() => void this.finishCough(name, until), delayMs);
     timer.unref?.();
     pending.timer = timer;
   }
@@ -683,9 +706,7 @@ export class ObsWebSocketAdapter implements ObsAdapter {
       this.coughMutes.delete(name);
       this.publish();
     } else {
-      const timer = setTimeout(() => void this.finishCough(name, until), OBS_RETRY_MS);
-      timer.unref?.();
-      current.timer = timer;
+      this.scheduleCoughRestore(name, until, OBS_RETRY_MS);
     }
   }
 
@@ -699,6 +720,12 @@ export class ObsWebSocketAdapter implements ObsAdapter {
     const pending = this.coughMutes.get(name);
     if (pending?.timer) clearTimeout(pending.timer);
     return this.coughMutes.delete(name);
+  }
+
+  private nextMicrophoneCommand(name: string): number {
+    const version = (this.microphoneCommandVersions.get(name) ?? 0) + 1;
+    this.microphoneCommandVersions.set(name, version);
+    return version;
   }
 
   private clearCoughTimers(): void {

@@ -121,12 +121,16 @@ export function sceneSlot(scene: string): DeckSlot {
   return { action: CORE_ACTIONS.obsScene, args: [scene], label: scene, icon: "" };
 }
 
+export type MicrophoneToggleAction =
+  | typeof CORE_ACTIONS.obsMute
+  | typeof CORE_ACTIONS.obsUnmute;
+
 /** A microphone button built where she can pick the named OBS input. */
-export function microphoneSlot(name: string, muted: boolean): DeckSlot {
+export function microphoneSlot(name: string, action: MicrophoneToggleAction): DeckSlot {
   return {
-    action: muted ? CORE_ACTIONS.obsMute : CORE_ACTIONS.obsUnmute,
+    action,
     args: [name],
-    label: `${muted ? "Mute" : "Unmute"} ${name}`,
+    label: `${action === CORE_ACTIONS.obsMute ? "Mute" : "Unmute"} ${name}`,
     icon: "",
   };
 }
@@ -135,9 +139,8 @@ export function microphoneSlot(name: string, muted: boolean): DeckSlot {
 export function hasMicrophoneAction(
   slots: DeckSlot[],
   name: string,
-  muted: boolean,
+  action: MicrophoneToggleAction,
 ): boolean {
-  const action = muted ? CORE_ACTIONS.obsMute : CORE_ACTIONS.obsUnmute;
   return slots.some((slot) => slot.action === action && slot.args[0] === name);
 }
 
