@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { GAINS } from "@saarathi/shared";
 import {
   activeChatId,
   banUser,
@@ -62,8 +63,9 @@ describe("finding the chat on the video she is live on", () => {
 describe("posting a line as her channel", () => {
   it("sends the documented shape for a text message", async () => {
     const yt = youtube({ status: 200, body: {} });
+    const reply = `@viewer 12 ${GAINS.plural}`;
 
-    await insertMessage(CHAT_ID, "@viewer 12 points", yt.api());
+    await insertMessage(CHAT_ID, reply, yt.api());
 
     expect(yt.asked[0]).toMatchObject({
       method: "POST",
@@ -72,7 +74,7 @@ describe("posting a line as her channel", () => {
         snippet: {
           type: "textMessageEvent",
           liveChatId: CHAT_ID,
-          textMessageDetails: { messageText: "@viewer 12 points" },
+          textMessageDetails: { messageText: reply },
         },
       },
     });

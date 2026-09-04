@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ACTIVE_WINDOW_MS,
+  BALANCE_QUERY_COOLDOWN_MS,
   DEFAULT_PER_MINUTE,
   EARN_TICK_MS,
   GAINS,
   GAINS_ID,
   LEDGER_ID,
-  POINTS_QUERY_COOLDOWN_MS,
   STREAK_CAP,
   type ChatLogState,
   type ChannelStats,
@@ -67,6 +67,7 @@ const balance = (name: string) =>
   (live!.store.read(LEDGER_ID)?.balances as Record<string, number>)?.[`mock:${name}`] ?? 0;
 const balanceReply = (name: string, amount: number) =>
   `@${name} you have ${amount} ${amount === 1 ? GAINS.singular : GAINS.plural}`;
+const balanceCommand = `!${GAINS.plural}`;
 
 describe("earning gains for turning up", () => {
   it("pays everyone who spoke, once a minute", async () => {
@@ -356,8 +357,8 @@ describe("asking for a balance in chat", () => {
       balances: { Asha: 125, Bo: 50 },
     });
 
-    live.chat({ author: "Asha", text: "!points" });
-    live.chat({ author: "Bo", text: "!points" });
+    live.chat({ author: "Asha", text: balanceCommand });
+    live.chat({ author: "Bo", text: balanceCommand });
     await vi.advanceTimersByTimeAsync(0);
 
     expect(live.seen.said()).toEqual([
@@ -377,21 +378,21 @@ describe("asking for a balance in chat", () => {
     vi.useFakeTimers();
     live = await harness({ modules: [gains], balances: { Asha: 125, Bo: 50 } });
 
-    live.chat({ author: "Asha", text: "!points" });
-    live.chat({ author: "Asha", text: "!points" });
-    live.chat({ author: "Bo", text: "!points" });
+    live.chat({ author: "Asha", text: balanceCommand });
+    live.chat({ author: "Asha", text: balanceCommand });
+    live.chat({ author: "Bo", text: balanceCommand });
     await vi.advanceTimersByTimeAsync(0);
 
     expect(live.seen.said().filter((line) => line.includes("you have"))).toEqual([
       balanceReply("Asha", 135),
       balanceReply("Bo", 60),
     ]);
-    expect(live.seen.said().some((line) => line.includes("@Asha !points is cooling down"))).toBe(
-      true,
-    );
+    expect(
+      live.seen.said().some((line) => line.includes(`@Asha ${balanceCommand} is cooling down`)),
+    ).toBe(true);
 
-    await vi.advanceTimersByTimeAsync(POINTS_QUERY_COOLDOWN_MS);
-    live.chat({ author: "Asha", text: "!points" });
+    await vi.advanceTimersByTimeAsync(BALANCE_QUERY_COOLDOWN_MS);
+    live.chat({ author: "Asha", text: balanceCommand });
     await vi.advanceTimersByTimeAsync(0);
     expect(live.seen.said().at(-1)).toBe(balanceReply("Asha", 135));
   });

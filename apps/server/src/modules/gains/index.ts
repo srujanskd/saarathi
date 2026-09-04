@@ -1,12 +1,12 @@
 import {
   ACTIVE_WINDOW_MS,
+  BALANCE_QUERY_COOLDOWN_MS,
   BOARD_SIZE,
   DEFAULT_PER_MINUTE,
   EARN_TICK_MS,
   GAINS,
   GAINS_ID,
   MAX_ROSTER,
-  POINTS_QUERY_COOLDOWN_MS,
   type GameModuleDef,
   type GainsState,
   type ModuleContext,
@@ -62,9 +62,9 @@ export const gains: GameModuleDef<GainsState> = {
 
   commands: [
     {
-      name: "points",
+      name: GAINS.plural,
       action: "balance",
-      cooldownMs: POINTS_QUERY_COOLDOWN_MS,
+      cooldownMs: BALANCE_QUERY_COOLDOWN_MS,
       allow: "everyone",
       help: `Show your ${GAINS.plural}`,
     },
@@ -80,8 +80,8 @@ export const gains: GameModuleDef<GainsState> = {
         if (!event) return ctx.refuse("Ask for your balance in chat");
         const amount = ctx.gains.balance(event.author.id);
         const name = amount === 1 ? GAINS.singular : GAINS.plural;
-        // Different from the command binding's `gains.points` key. A cooldown
-        // refusal and the balance it follows do not belong in one bot line.
+        // Different from the command binding's key. A cooldown refusal and the
+        // balance it follows do not belong in one bot line.
         ctx.say(`@${event.author.name} you have ${amount} ${name}`, `${GAINS_ID}.balance`);
       },
     },
