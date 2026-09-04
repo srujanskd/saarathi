@@ -20,7 +20,13 @@ import {
 } from "@saarathi/shared";
 import { chatCommand, type ChatAdapter } from "../chat/adapter.js";
 import { deckCommand, type DeckCommands } from "./deck.js";
-import { obsBrowserSourceName, obsCommand, type ObsAdapter, type ObsOverlay } from "./obs.js";
+import {
+  obsBrowserSourceName,
+  obsCommand,
+  type ObsAdapter,
+  type ObsCommandContext,
+  type ObsOverlay,
+} from "./obs.js";
 import type { StateStore } from "./store.js";
 import { ActionRefused } from "./triggers.js";
 
@@ -169,7 +175,7 @@ export class Registry {
       title: runtime.def.title,
       overlay: Boolean(runtime.def.overlay),
       ...(runtime.def.overlay
-        ? { browserSourceName: obsBrowserSourceName(runtime.def.title) }
+        ? { browserSourceName: obsBrowserSourceName(runtime.def.id) }
         : {}),
       enabled: runtime.enabled,
       armed: runtime.def.arming ? runtime.armed : true,
@@ -223,13 +229,17 @@ export class Registry {
     }
   }
 
-  async dispatch(actionId: string, input: ActionInput): Promise<InvokeResult> {
+  async dispatch(
+    actionId: string,
+    input: ActionInput,
+    context: ObsCommandContext = {},
+  ): Promise<InvokeResult> {
     const separator = actionId.indexOf(".");
     if (separator < 1) return { ok: false, reason: `"${actionId}" is not a module action` };
     const moduleId = actionId.slice(0, separator);
     const name = actionId.slice(separator + 1);
 
-    if (moduleId === CORE_ID) return this.dispatchCore(actionId, name, input);
+    if (moduleId === CORE_ID) return this.dispatchCore(actionId, name, input, context);
 
     const runtime = this.modules.get(moduleId);
     if (!runtime) return { ok: false, reason: `There is no "${moduleId}"` };
@@ -268,6 +278,7 @@ export class Registry {
     actionId: string,
     name: string,
     input: ActionInput,
+    context: ObsCommandContext,
   ): Promise<InvokeResult> {
     // Each of these routes itself, and each returns null for an action that is
     // not its own. What an OBS action is called, what a channel id looks like
@@ -275,7 +286,7 @@ export class Registry {
     // layer and about the deck, and this file is about modules. A fourth of
     // them is an entry in this list.
     const routers = [
-      () => obsCommand(this.deps.obs, actionId, input.args, (id) => this.obsOverlay(id)),
+      () => obsCommand(this.deps.obs, actionId, input.args, (id) => this.obsOverlay(id), context),
       () =>
         chatCommand(this.deps.chat, actionId, input.args)?.then((result) => {
           // Explicitly, rather than leaning on the reconnect a save happens to
@@ -336,7 +347,7 @@ export class Registry {
     return {
       id: runtime.def.id,
       title: runtime.def.title,
-      sourceName: obsBrowserSourceName(runtime.def.title),
+      sourceName: obsBrowserSourceName(runtime.def.id),
     };
   }
 

@@ -72,7 +72,7 @@ describe("her surfaces drive OBS through core actions", () => {
     expect(
       await h.kernel.invoke("core.obsBrowserSource", {
         args: ["wheel", "http://192.168.1.20:4400"],
-      }),
+      }, { serverHost: "192.168.1.20:4400" }),
     ).toEqual({ ok: true });
     expect(obs.browserSourceChanges).toEqual([
       {
@@ -80,7 +80,7 @@ describe("her surfaces drive OBS through core actions", () => {
         overlay: {
           id: "wheel",
           title: "Challenge wheel",
-          sourceName: "Saarathi Challenge wheel",
+          sourceName: "Saarathi wheel",
         },
         serverUrl: "http://192.168.1.20:4400",
       },
@@ -97,8 +97,25 @@ describe("her surfaces drive OBS through core actions", () => {
     expect(
       await h.kernel.invoke("core.obsBrowserSource", {
         args: ["chatlog", "http://192.168.1.20:4400"],
-      }),
+      }, { serverHost: "192.168.1.20:4400" }),
     ).toEqual({ ok: false, reason: 'There is no overlay "chatlog"' });
+  });
+
+  it("refuses to send the overlay capability to a different host", async () => {
+    const { h, obs } = await start();
+    obs.arrive(["Workout"]);
+
+    expect(
+      await h.kernel.invoke(
+        "core.obsBrowserSource",
+        { args: ["wheel", "https://attacker.example"] },
+        { serverHost: "192.168.1.20:4400" },
+      ),
+    ).toEqual({
+      ok: false,
+      reason: "That server address does not match this Saarathi connection",
+    });
+    expect(obs.browserSourceChanges).toEqual([]);
   });
 
   it("says why, rather than nothing, when OBS is not there", async () => {

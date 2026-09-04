@@ -122,7 +122,11 @@ export function attachSync(io: SaarathiServer, kernel: Kernel, log: Logger, acce
         return;
       }
       void kernel
-        .invoke(request.action, { args: request.args ?? [], via })
+        .invoke(
+          request.action,
+          { args: request.args ?? [], via },
+          { serverHost: socket.handshake.headers.host },
+        )
         .then((result) => ack?.(result))
         .catch((err) => {
           log.error(`invoke ${request?.action} threw`, err);

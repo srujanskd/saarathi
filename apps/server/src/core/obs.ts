@@ -53,8 +53,13 @@ export interface ObsOverlay {
   sourceName: string;
 }
 
-export function obsBrowserSourceName(title: string): string {
-  return `Saarathi ${title}`;
+export function obsBrowserSourceName(moduleId: string): string {
+  return `Saarathi ${moduleId}`;
+}
+
+export interface ObsCommandContext {
+  /** Host from the HTTP/WebSocket request that carried the invoke. */
+  serverHost?: string;
 }
 
 /** Everything her surfaces can ask of OBS, and all `obsCommand` needs to route. */
@@ -100,13 +105,21 @@ export function obsCommand(
   actionId: string,
   args: string[],
   findOverlay: (id: string) => ObsOverlay | null,
+  context: ObsCommandContext = {},
 ): Promise<InvokeResult> | null {
   if (actionId === CORE_ACTIONS.obsBrowserSource) {
     const overlay = findOverlay(args[0] ?? "");
     if (!overlay) {
       return Promise.resolve({ ok: false, reason: `There is no overlay "${args[0] ?? ""}"` });
     }
-    return obs.createBrowserSource(overlay, args[1] ?? "");
+    const serverUrl = trustedOverlayOrigin(args[1] ?? "", context.serverHost);
+    if (!serverUrl) {
+      return Promise.resolve({
+        ok: false,
+        reason: "That server address does not match this Saarathi connection",
+      });
+    }
+    return obs.createBrowserSource(overlay, serverUrl);
   }
   if (actionId === CORE_ACTIONS.obsRemoveBrowserSource) {
     const overlay = findOverlay(args[0] ?? "");
@@ -117,6 +130,25 @@ export function obsCommand(
   }
   const run = OBS_COMMANDS.get(actionId);
   return run ? run(obs, args) : null;
+}
+
+/**
+ * Accepts the address the page actually connected to, without letting it aim
+ * the server-owned overlay capability at another host. The page still supplies
+ * the scheme because a reverse proxy may terminate TLS before the socket reaches
+ * us; the Host header is the transport's independently observed half.
+ */
+export function trustedOverlayOrigin(serverUrl: string, requestHost?: string): string | null {
+  if (!requestHost) return null;
+  try {
+    const candidate = new URL(serverUrl);
+    const observed = new URL(`http://${requestHost}`);
+    if (candidate.protocol !== "http:" && candidate.protocol !== "https:") return null;
+    if (candidate.username || candidate.password || candidate.host !== observed.host) return null;
+    return candidate.origin;
+  } catch {
+    return null;
+  }
 }
 
 const OBS_COMMANDS = new Map<string, (obs: ObsCommands, args: string[]) => Promise<InvokeResult>>([

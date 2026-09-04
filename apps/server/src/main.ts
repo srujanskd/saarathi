@@ -279,7 +279,11 @@ app.post("/api/invoke", async (request, reply) => {
   // Explicit, not defaulted: this is the eyeballing path, and the socket is the
   // one that knows which surface it is. Anything reaching here is a person with
   // curl, so the history calls it what her control page does.
-  return kernel.invoke(action, { args: args ?? [], via: "control" });
+  return kernel.invoke(
+    action,
+    { args: args ?? [], via: "control" },
+    { serverHost: request.headers.host },
+  );
 });
 
 const io: SaarathiServer = new Server(app.server, { cors: { origin: true } });
