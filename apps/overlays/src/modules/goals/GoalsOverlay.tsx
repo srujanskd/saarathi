@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { GOALS_ID, GOAL_ALERT_MS, type Goal, type GoalsState } from "@saarathi/shared";
 import { useModuleState, type Connection } from "../../lib/connection.js";
 import { playChime } from "./chime.js";
-import { celebrating, countText, fill, toGo } from "./progress.js";
+import { atTarget, celebrating, countText, fill, toGo } from "./progress.js";
 import "./goals.css";
 
 /** Shared, so an overlay with no goals does not hand React a new array a
@@ -78,7 +78,7 @@ export function GoalsOverlay({ connection }: { connection: Connection }) {
 
 function GoalBar({ goal, now }: { goal: Goal; now: number }) {
   const remaining = toGo(goal);
-  const landed = goal.completedAt !== null;
+  const landed = atTarget(goal);
 
   return (
     <div

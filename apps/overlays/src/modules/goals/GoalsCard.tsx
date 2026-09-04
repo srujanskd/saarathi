@@ -15,7 +15,7 @@ import { addToDeck } from "../../core/addToDeck.js";
 import { useCoreState, useModuleState } from "../../lib/connection.js";
 import { useInvoke } from "../../lib/invoke.js";
 import type { CardProps } from "../types.js";
-import { countText, toGo } from "./progress.js";
+import { atTarget, countText, toGo } from "./progress.js";
 import "./goals-card.css";
 
 interface Draft {
@@ -91,7 +91,7 @@ export function GoalsCard({ connection, deck }: CardProps) {
       ) : (
         <ul className="goal-rows" data-testid="goal-rows">
           {goals.map((goal) => (
-            <li key={goal.id} className="goal-row" data-landed={goal.completedAt !== null}>
+            <li key={goal.id} className="goal-row" data-landed={atTarget(goal)}>
               <p className="goal-row-top">
                 <span>{goal.label}</span>
                 <span className="goal-row-count">{countText(goal)}</span>
@@ -273,7 +273,7 @@ function whereFrom(goal: Goal): string {
   const source = GOAL_SOURCES[goal.source].label;
   const remaining = toGo(goal);
   const where =
-    goal.completedAt !== null
+    atTarget(goal)
       ? "done"
       : remaining === null
         ? "nothing counted yet"
