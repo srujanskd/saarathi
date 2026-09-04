@@ -1,3 +1,4 @@
+import { GAINS } from "@saarathi/shared";
 import { expect, test } from "./helpers/fixtures.js";
 
 test("the home page links every page and registered overlay", async ({ page, pages, saarathi }) => {
@@ -16,7 +17,7 @@ test("the home page links every page and registered overlay", async ({ page, pag
   const overlays = [
     ["wheel", "Challenge wheel overlay"],
     ["goals", "Goals overlay"],
-    ["gains", "Earning gains overlay"],
+    ["gains", `Earning ${GAINS.plural} overlay`],
     ["media", "Media overlay"],
   ] as const;
   for (const [id, title] of overlays) {

@@ -1,4 +1,5 @@
 import {
+  GAINS,
   MAX_BOARD_NAME,
   MAX_PER_MINUTE,
   STREAK_CAP,
@@ -169,10 +170,15 @@ export function makeRate(args: string[]): Rate {
   // Explicitly, because `Number("")` is 0 and 0 is a legal rate: a cleared box
   // and a deliberate zero are different things, and only one of them means she
   // wants earning switched off.
-  if (!typed) return { ok: false, reason: "A rate is a whole number of gains a minute" };
+  if (!typed) {
+    return { ok: false, reason: `A rate is a whole number of ${GAINS.plural} a minute` };
+  }
   const perMinute = Number(typed);
   if (!Number.isInteger(perMinute) || perMinute < 0) {
-    return { ok: false, reason: "A rate is a whole number of gains a minute, zero or more" };
+    return {
+      ok: false,
+      reason: `A rate is a whole number of ${GAINS.plural} a minute, zero or more`,
+    };
   }
   if (perMinute > MAX_PER_MINUTE) {
     return { ok: false, reason: `${MAX_PER_MINUTE} a minute is as high as this goes` };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WRITES_ID } from "@saarathi/shared";
+import { GAINS, WRITES_ID } from "@saarathi/shared";
 import { MemoryStore } from "../../src/core/store.js";
 import {
   MODERATION_RESERVE,
@@ -123,7 +123,7 @@ describe("WriteMeter", () => {
     spend(m, WRITE_CEILING - MODERATION_RESERVE - 1);
     expect(m.allows("info")).toBe(true);
 
-    m.spend("say gains");
+    m.spend(`say ${GAINS.plural}`);
     expect(m.allows("info")).toBe(false);
     expect(m.allows("refusal")).toBe(false);
     // Exactly the reserve, untouched by anything the bot said.

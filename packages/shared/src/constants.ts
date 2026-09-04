@@ -8,8 +8,8 @@ export const ACCESS_ID = "access";
  * nowhere else. No string literal anywhere may spell it out.
  */
 export const GAINS = {
-  singular: "gain",
-  plural: "gains",
+  singular: "point",
+  plural: "points",
 } as const;
 
 /**

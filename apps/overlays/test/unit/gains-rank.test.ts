@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { GAINS } from "@saarathi/shared";
 import { balanceText, place, rowSummary, streakText } from "../../src/modules/gains/rank.js";
 
 describe("place", () => {
@@ -50,7 +51,7 @@ describe("rowSummary", () => {
   const row = { id: "u1", name: "Asha", balance: 1_240, streak: 1 };
 
   it("groups the balance, since her card has room for the real number", () => {
-    expect(rowSummary(row)).toBe("1,240 gains");
+    expect(rowSummary(row)).toBe(`1,240 ${GAINS.plural}`);
   });
 
   it("mentions a run of streams and not a first one", () => {

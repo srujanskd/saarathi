@@ -1,5 +1,6 @@
 import {
   ACTIVE_WINDOW_MS,
+  BALANCE_QUERY_COOLDOWN_MS,
   BOARD_SIZE,
   DEFAULT_PER_MINUTE,
   EARN_TICK_MS,
@@ -59,7 +60,32 @@ export const gains: GameModuleDef<GainsState> = {
 
   serverOnly: ["roster", "streamKey", "priorStreamKey"],
 
+  commands: [
+    {
+      name: GAINS.plural,
+      action: "balance",
+      cooldownMs: BALANCE_QUERY_COOLDOWN_MS,
+      allow: "everyone",
+      help: `Show your ${GAINS.plural}`,
+    },
+  ],
+
   actions: {
+    balance: {
+      label: `Show my ${GAINS.plural}`,
+      // The viewer id comes from chat, so a blind deck press cannot answer it.
+      needsArgs: true,
+      run(input, ctx) {
+        const event = input.event;
+        if (!event) return ctx.refuse("Ask for your balance in chat");
+        const amount = ctx.gains.balance(event.author.id);
+        const name = amount === 1 ? GAINS.singular : GAINS.plural;
+        // Different from the command binding's key. A cooldown refusal and the
+        // balance it follows do not belong in one bot line.
+        ctx.say(`@${event.author.name} you have ${amount} ${name}`, `${GAINS_ID}.balance`);
+      },
+    },
+
     give: {
       label: `Give ${GAINS.plural}`,
       // A viewer and an amount, so no grid offers it blind. Her card knows who

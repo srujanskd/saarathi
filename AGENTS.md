@@ -47,7 +47,7 @@ hook to the core, you have found a gap in the contract instead. Fix the contract
 
 YouTube today, maybe Twitch later if she multistreams. Adapters normalize everything into
 `chat-command`, `paid-event`, and `new-member`. Nothing downstream of the adapter should ever
-mention YouTube. Free commands, gains, and off-platform tips all arrive as the same events, so
+mention YouTube. Free commands, points, and off-platform tips all arrive as the same events, so
 Super Chats slot in with no rework when she gets monetized.
 
 ## How I like to work
@@ -74,7 +74,7 @@ here. If a rule fights the task in front of you, say so out loud and get a decis
 - **control page** is the page she drives the stream from, usually on her phone.
 - **deck** is the configurable action grid, rendered three ways: touch PWA, global hotkeys,
   floating always-on-top window.
-- **gains** are the self-hosted channel currency, since YouTube has no channel points. Chat
+- **points** are the self-hosted channel currency, since YouTube has no channel points. Chat
   earns them per active minute and spends them on spins: `!spin` carries a price rather than a
   cooldown, because a paid trigger queues where a refused one is just gone. The name is not
   final, so keep it in one constant and out of a hundred string literals.
@@ -244,7 +244,7 @@ needs rather than by what it covers. Three of them live in `apps/server/test`:
   normalization. No clock, no kernel, no port.
 - **integration** a real `Kernel` over a `MemoryStore` and mock chat, in process. Fake timers are
   fine here. This is where you prove a chat command reaches an action, a paid spin queues and
-  drains, and a refusal gives back the gains it charged.
+  drains, and a refusal gives back the points it charged.
 - **e2e** the real server as a child process on a port the OS handed us, driven by a real
   `socket.io-client`. This is the only layer that proves reconnect, per-module subscription and
   restart-persistence, because those are the bugs that only show up over a socket.

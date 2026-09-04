@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ConnectionStatus, StreamEvent } from "@saarathi/shared";
+import { GAINS, type ConnectionStatus, type StreamEvent } from "@saarathi/shared";
 import type { ChatSink } from "../../src/chat/adapter.js";
 import { MockChatAdapter } from "../../src/chat/mock.js";
 import { normalize, parseAmount } from "../../src/chat/youtube.js";
@@ -158,13 +158,14 @@ describe("MockChatAdapter writes", () => {
     const { sink, events } = testSink();
     const adapter = new MockChatAdapter();
     await adapter.start(sink);
-    await adapter.writes.say("@TestViewer 12 gains");
+    const reply = `@TestViewer 12 ${GAINS.plural}`;
+    await adapter.writes.say(reply);
 
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       type: "chat-message",
       source: "mock",
-      text: "@TestViewer 12 gains",
+      text: reply,
       // As her, because that is who the grant belongs to on the real path --
       // and it is what keeps the bot out of her own moderation queue.
       author: { id: "mock:Saarathi", name: "Saarathi", isStreamer: true },
