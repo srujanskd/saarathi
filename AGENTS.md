@@ -402,6 +402,26 @@ Do not open a browser or use computer use to verify unless I ask for it.
   `wheel.ts` is the shape I want.
 - Overlays run inside OBS at 60fps while she is streaming. Animate `transform` and `opacity`
   and nothing else. No continuously repainting animation, ever.
+- An overlay bundle runs in whatever CEF the installed OBS shipped with, which trails desktop
+  Chrome by years, and a browser source has no console anyone is watching mid-stream -- so it
+  fails silently. `build.target` in `apps/overlays/vite.config.ts` is pinned below that floor
+  rather than left on Vite's default, and `cssTarget` follows it. Alpha through
+  `rgb(var(--token-rgb) / 0.4)` is safe there; `color-mix()`, relative colour syntax and
+  `oklch()` are not. Raising the target is a decision about which OBS versions still work.
+- Elevation on a near-black page is a lit top edge, not a drop shadow. A 12%-black blur over
+  `--bg` lands within four values of it -- invisible, and still a blur skirt to rasterise
+  behind every card in the list she scrolls.
+- One typeface family, named once in `tokens.css`. A display face has to be a font file we
+  ship: naming a Windows face styles the OBS overlays and silently falls back on the control
+  page, which is the surface she actually holds, taking any tracking tuned against it with it.
+  The palette lives in the same file, as channel triples with the solid forms derived from
+  them, because base.css, overlay.css and home.css are three bundles and a rebrand that misses
+  one of them shows up as a card that is the wrong navy.
+- Colour in an overlay carries information only if it survives the encoder. YouTube's 4:2:0
+  subsampling keeps brightness detail at edges and throws away colour detail, so two
+  neighbouring wedges, bars or rows need a *lightness* step, not just a different hue. The
+  wheel palette is built on rungs 1.35x apart in relative luminance and `geometry.test.ts`
+  holds the floor.
 - Socket payloads are small. She may be on phone data in IRL mode.
 - Every socket and every non-health API route is capability-gated. A control
   capability may invoke; the capability copied into an OBS URL is read-only

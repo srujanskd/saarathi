@@ -73,13 +73,13 @@
 
 /* Every wedge meets in the middle, and that point is always a mess. */
 .hub {
-  fill: #14151a;
+  fill: var(--bg);
   stroke: #f5f3ef;
   stroke-width: 1.4;
 }
 
 .wedge-label {
-  font-family: system-ui, sans-serif;
+  font-family: var(--font);
   transition: opacity 400ms ease;
   font-weight: 600;
   fill: #fdfdfb;
@@ -111,7 +111,7 @@
   text-align: center;
   padding: 1.2vh 3vh 1.6vh;
   border-radius: 1.6vh;
-  background: rgb(14 15 20 / 0.72);
+  background: rgb(var(--bg-rgb) / 0.78);
   box-shadow: 0 0.6vh 2vh rgb(0 0 0 / 0.45);
   opacity: 0;
   transition: opacity 350ms ease;
@@ -123,14 +123,14 @@
 
 .result-label {
   margin: 0;
-  font: 700 clamp(28px, 6vh, 72px)/1.1 system-ui, sans-serif;
+  font: 700 clamp(28px, 6vh, 72px)/1.1 var(--font);
   color: #fdfdfb;
   letter-spacing: -0.01em;
 }
 
 .result-by {
   margin: 0.4em 0 0;
-  font: 500 clamp(16px, 2.6vh, 32px)/1.2 system-ui, sans-serif;
+  font: 500 clamp(16px, 2.6vh, 32px)/1.2 var(--font);
   color: rgb(253 253 251 / 0.72);
 }
 
@@ -145,7 +145,7 @@
   left: 2.4vh;
   padding: 0.9vh 2vh 1.1vh;
   border-radius: 1.2vh;
-  background: rgb(14 15 20 / 0.72);
+  background: rgb(var(--bg-rgb) / 0.78);
   box-shadow: 0 0.4vh 1.4vh rgb(0 0 0 / 0.45);
   opacity: 0;
   transition: opacity 350ms ease;
@@ -158,12 +158,12 @@
 
 .queue-title {
   margin: 0;
-  font: 700 clamp(15px, 2.4vh, 30px)/1.15 system-ui, sans-serif;
+  font: 700 clamp(15px, 2.4vh, 30px)/1.15 var(--font);
   color: #fdfdfb;
 }
 
 .queue-detail {
   margin: 0.25em 0 0;
-  font: 500 clamp(12px, 1.8vh, 22px)/1.2 system-ui, sans-serif;
+  font: 500 clamp(12px, 1.8vh, 22px)/1.2 var(--font);
   color: rgb(253 253 251 / 0.72);
 }

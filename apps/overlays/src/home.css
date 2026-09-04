@@ -1,8 +1,9 @@
+@import "./tokens.css";
+
 :root {
-  color-scheme: dark;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #14151a;
-  color: #f2f3f7;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -14,42 +15,78 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  /* Zero-alpha coral rather than `transparent`, which interpolates through
+     transparent black and puts a grey band across the ramp. */
   background:
-    radial-gradient(circle at 80% 0%, rgb(95 71 255 / 0.14), transparent 34rem),
-    #14151a;
+    linear-gradient(115deg, rgb(var(--accent-rgb) / 0.1), rgb(var(--accent-rgb) / 0) 30rem),
+    var(--bg);
 }
 
 .home {
-  width: min(780px, 100%);
+  width: min(920px, 100%);
   margin: 0 auto;
-  padding: clamp(32px, 7vw, 72px) 20px 64px;
+  padding: clamp(32px, 7vw, 80px) max(20px, env(safe-area-inset-left)) calc(64px + env(safe-area-inset-bottom));
+  padding-right: max(20px, env(safe-area-inset-right));
+}
+
+.home header {
+  position: relative;
+  max-width: 42rem;
+}
+
+.home-mark {
+  position: absolute;
+  top: -0.15rem;
+  right: clamp(0rem, 5vw, 3rem);
+  width: clamp(4.5rem, 13vw, 7.5rem);
+  aspect-ratio: 1;
+  border: 1px solid rgb(var(--accent-rgb) / 0.5);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 clamp(0.8rem, 2vw, 1.4rem) var(--bg);
+}
+
+.home-mark span {
+  position: absolute;
+  top: 50%;
+  left: -12%;
+  width: 124%;
+  height: clamp(0.35rem, 1vw, 0.6rem);
+  border-radius: 999px;
+  background: var(--accent);
+  transform: translateY(-50%) rotate(-18deg);
 }
 
 .eyebrow {
   margin: 0 0 8px;
-  color: #9c92ff;
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  color: var(--ok);
+  font-size: 0.9rem;
+  font-weight: 700;
 }
 
+/* No hard <br> in the markup and no tracking tuned to one face: the break
+   position and the -0.07em that made it fit were both measured against a font
+   only Windows has, and this page opens on her phone too. `balance` picks the
+   break from the width it actually got, and 1.02 leaves room for a fallback
+   with deeper descenders. */
 h1 {
+  max-width: 18ch;
   margin: 0;
-  font-size: clamp(2.5rem, 8vw, 4.5rem);
-  line-height: 1;
-  letter-spacing: -0.055em;
+  font-size: clamp(2.75rem, 8.5vw, 5.25rem);
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
 }
 
 .intro,
 .section-note {
-  color: #a8acb8;
+  color: var(--muted);
 }
 
 .intro {
-  max-width: 34rem;
-  margin: 18px 0 0;
-  font-size: 1.05rem;
+  max-width: 36rem;
+  margin: 24px 0 0;
+  font-size: clamp(1rem, 2.4vw, 1.15rem);
 }
 
 .primary-links,
@@ -60,48 +97,61 @@ h1 {
 
 .primary-links {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 36px 0 48px;
+  margin: clamp(36px, 7vw, 64px) 0 clamp(48px, 8vw, 72px);
 }
 
 .home-link,
 .overlay-link {
   display: flex;
   flex-direction: column;
-  min-height: 104px;
-  padding: 20px;
-  border: 1px solid #30323c;
-  border-radius: 14px;
-  background: rgb(34 35 43 / 0.82);
+  min-height: 124px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
   color: inherit;
   text-decoration: none;
   transition: border-color 140ms ease, transform 140ms ease, background 140ms ease;
+}
+
+/* The control page is where she goes; the deck is where she goes next. One of
+   the two is tinted so the pair is not a coin toss every time she lands here. */
+.home-link:first-child {
+  border-color: rgb(var(--accent-rgb) / 0.54);
+  background:
+    linear-gradient(145deg, rgb(var(--accent-rgb) / 0.13), rgb(var(--accent-rgb) / 0) 65%),
+    var(--card);
 }
 
 .home-link:hover,
 .overlay-link:hover,
 .home-link:focus-visible,
 .overlay-link:focus-visible {
-  border-color: #7568ff;
-  background: #292a35;
+  border-color: var(--accent);
+  background: var(--card-2);
   outline: none;
   transform: translateY(-2px);
 }
 
 .home-link strong,
 .overlay-link strong {
-  font-size: 1.05rem;
+  font-size: 1.12rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .home-link span,
 .overlay-link span {
   margin-top: 6px;
-  color: #a8acb8;
+  color: var(--muted);
   font-size: 0.88rem;
 }
 
 h2 {
   margin: 0;
   font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
 }
 
 .section-note {
@@ -113,13 +163,26 @@ h2 {
 }
 
 .overlay-link {
-  min-height: 88px;
+  min-height: 96px;
 }
 
 @media (max-width: 560px) {
   .primary-links,
   .overlay-links {
     grid-template-columns: 1fr;
+  }
+
+  .home-mark {
+    position: relative;
+    top: auto;
+    right: auto;
+    width: 3.5rem;
+    margin-bottom: 1.15rem;
+  }
+
+  .home-link,
+  .overlay-link {
+    min-height: 106px;
   }
 }
 

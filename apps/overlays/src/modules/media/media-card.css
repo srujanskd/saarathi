@@ -10,9 +10,9 @@
   justify-content: space-between;
   margin-bottom: 0.8rem;
   padding: 0.65rem 0.75rem;
-  border: 1px solid rgb(74 222 128 / 0.3);
+  border: 1px solid rgb(var(--ok-rgb) / 0.34);
   border-radius: 12px;
-  color: var(--accent);
+  color: var(--ok);
 }
 
 .media-rows {

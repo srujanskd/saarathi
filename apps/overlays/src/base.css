@@ -1,7 +1,7 @@
 /*
- * The shell every page she touches is built out of: the palette, the card, the
- * button, the fold, and the one status line that says whether any of it is
- * live.
+ * The shell every page she touches is built out of: the card, the button, the
+ * fold, and the one status line that says whether any of it is live. The
+ * palette and the type stack are in tokens.css, shared with the overlays.
  *
  * It is its own file because there are two of these pages now -- the control
  * page and the deck -- and they have to look like one product. A button that
@@ -9,17 +9,14 @@
  * mid-workout, and that is exactly the kind of drift a copied stylesheet gets.
  */
 
+@import "./tokens.css";
+
 :root {
-  --bg: #0f1117;
-  --card: #171a23;
-  --card-2: #1f2330;
-  --line: #2a2f3e;
-  --text: #f4f5f8;
-  --muted: #9aa1b2;
-  --accent: #4ade80;
-  --accent-ink: #06210f;
-  --warn: #ffd9a0;
   --pad: max(1rem, env(safe-area-inset-left));
+}
+
+* {
+  box-sizing: border-box;
 }
 
 html {
@@ -35,9 +32,15 @@ body,
 }
 
 body {
-  font: 17px/1.4 system-ui, sans-serif;
+  min-width: 320px;
+  font: 17px/1.45 var(--font);
   color: var(--text);
-  background: var(--bg);
+  /* Fading to `transparent` fades to transparent *black*, which puts a grey
+     band through the middle of the ramp. The end stop is the same coral at
+     zero alpha. */
+  background:
+    linear-gradient(115deg, rgb(var(--accent-rgb) / 0.055), rgb(var(--accent-rgb) / 0) 28rem),
+    var(--bg);
 }
 
 button,
@@ -54,10 +57,9 @@ button {
 }
 
 .page {
-  box-sizing: border-box;
-  max-width: 26.5rem;
+  width: min(100%, 29rem);
   margin: 0 auto;
-  padding: 1.1rem var(--pad) calc(2.2rem + env(safe-area-inset-bottom));
+  padding: 1.15rem var(--pad) calc(2.5rem + env(safe-area-inset-bottom));
   padding-right: max(1rem, env(safe-area-inset-right));
 }
 
@@ -72,29 +74,51 @@ button {
 }
 
 .mark {
+  position: relative;
   flex: 0 0 auto;
-  width: 2.4rem;
-  height: 2.4rem;
-  border-radius: 0.7rem;
+  /* The needle below sticks out 0.28rem past the circle on each side. Paying
+     for it here keeps it off the safe-area padding on the left and out of the
+     gap before her stream name on the right. */
+  margin: 0 0.3rem;
+  width: 2.6rem;
+  height: 2.6rem;
+  border: 1px solid rgb(var(--accent-rgb) / 0.48);
+  border-radius: 50%;
   background: var(--card);
-  border: 1.5px solid var(--accent);
-  box-shadow: inset 0 0 0 5px var(--bg), inset 0 0 0 8px var(--accent);
+  box-shadow: inset 0 0 0 0.42rem var(--bg);
+}
+
+.mark::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -0.28rem;
+  width: 3.15rem;
+  height: 0.24rem;
+  border-radius: 999px;
+  background: var(--accent);
+  transform: translateY(-50%) rotate(-18deg);
 }
 
 h1 {
   margin: 0;
-  font-size: 1.35rem;
-  letter-spacing: -0.03em;
+  font-size: 1.45rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   line-height: 1.15;
 }
 
+/* A card title, not a section banner. It used to be a tracked uppercase micro
+   label, which is chrome; it then became 1.12rem at weight 750, which on the
+   eight-card control page is close enough to the h1 that neither reads as the
+   top of anything. Weight and colour carry it instead of size, and 750 is a
+   variable-font value that snaps to 700 or 800 unpredictably on a fallback. */
 h2 {
-  margin: 0 0 0.85rem;
-  font-size: 0.72rem;
+  margin: 0 0 0.7rem;
+  font-size: 1.1rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+  letter-spacing: -0.01em;
+  color: var(--text);
 }
 
 .status {
@@ -111,12 +135,13 @@ h2 {
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 50%;
-  background: #5b6273;
+  background: #657189;
   flex: 0 0 auto;
 }
 
 .status[data-connected="true"]::before {
-  background: var(--accent);
+  background: var(--ok);
+  box-shadow: 0 0 0 0.22rem rgb(var(--ok-rgb) / 0.12);
 }
 
 .status[data-complain="true"] {
@@ -146,13 +171,13 @@ h2 {
 }
 
 .connections [data-state="connected"] {
-  border-color: rgb(74 222 128 / 0.35);
-  color: var(--accent);
+  border-color: rgb(var(--ok-rgb) / 0.38);
+  color: var(--ok);
 }
 
 .connections [data-state="error"],
 .connections [data-state="disconnected"] {
-  border-color: rgb(255 217 160 / 0.4);
+  border-color: rgb(var(--warn-rgb) / 0.42);
   color: var(--warn);
 }
 
@@ -165,8 +190,13 @@ h2 {
 .card {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 18px;
-  padding: 1rem 1rem 1.1rem;
+  border-radius: 16px;
+  padding: 1.05rem 1.05rem 1.15rem;
+  /* On a near-black page a black shadow does nothing -- 12% black over the
+     background lands within four values of it -- while still costing a blur
+     the compositor has to rasterise behind every card. What reads as lift on
+     dark is a lit top edge, and that is one row of pixels. */
+  box-shadow: inset 0 1px 0 rgb(var(--text-rgb) / 0.045);
 }
 
 .notice,
@@ -179,7 +209,7 @@ h2 {
    browser's default blue is the one colour in the app that came from nowhere. */
 a {
   color: var(--accent);
-  text-decoration-color: rgb(74 222 128 / 0.4);
+  text-decoration-color: rgb(var(--accent-rgb) / 0.42);
   text-underline-offset: 0.2em;
 }
 
@@ -189,15 +219,15 @@ a {
   gap: 0.6rem;
   padding: 0.65rem 0.4rem 0.65rem 0.8rem;
   border-radius: 10px;
-  background: rgb(255 217 160 / 0.08);
-  border: 1px solid rgb(255 217 160 / 0.28);
+  background: rgb(var(--warn-rgb) / 0.08);
+  border: 1px solid rgb(var(--warn-rgb) / 0.3);
   color: var(--warn);
 }
 
 .notice[data-ok="true"] {
-  background: rgb(74 222 128 / 0.08);
-  border-color: rgb(74 222 128 / 0.25);
-  color: var(--accent);
+  background: rgb(var(--ok-rgb) / 0.08);
+  border-color: rgb(var(--ok-rgb) / 0.3);
+  color: var(--ok);
 }
 
 .notice span {
@@ -221,7 +251,7 @@ a {
 }
 
 .dismiss:active {
-  background: rgb(255 217 160 / 0.14);
+  background: rgb(var(--warn-rgb) / 0.14);
 }
 
 .dismiss:focus-visible {
@@ -236,7 +266,7 @@ a {
   margin: 0 0 0.55rem;
   padding: 0.75rem 1rem;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--card-2);
   color: var(--text);
   font-weight: 650;
@@ -249,6 +279,13 @@ a {
 
 .btn:active:not(:disabled) {
   transform: scale(0.98);
+}
+
+@media (hover: hover) {
+  .btn:hover:not(:disabled),
+  .tool:hover:not(:disabled) {
+    border-color: rgb(var(--accent-rgb) / 0.72);
+  }
 }
 
 .btn:focus-visible {
@@ -266,6 +303,7 @@ a {
   border-color: var(--accent);
   color: var(--accent-ink);
   font-size: 1.08rem;
+  box-shadow: 0 0.5rem 1.4rem rgb(var(--accent-rgb) / 0.16);
 }
 
 .fold {
@@ -288,7 +326,7 @@ a {
   margin-left: 0.5rem;
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
-  background: rgb(255 217 160 / 0.14);
+  background: rgb(var(--warn-rgb) / 0.14);
   color: var(--warn);
   font-size: 0.8rem;
 }
@@ -358,4 +396,39 @@ a {
   padding: 0.9rem 0.2rem 0.2rem;
   color: var(--muted);
   text-align: center;
+}
+
+@media (min-width: 800px) {
+  .page[data-surface="control"] {
+    display: grid;
+    grid-template-columns: minmax(12rem, 16rem) minmax(0, 32rem);
+    align-items: start;
+    justify-content: center;
+    gap: clamp(2rem, 5vw, 5rem);
+    width: min(100%, 68rem);
+    padding-top: clamp(2rem, 5vw, 4.5rem);
+  }
+
+  .page[data-surface="control"] .top {
+    position: sticky;
+    top: 2rem;
+    margin: 0;
+  }
+}
+
+/* Last in the file on purpose, and only covering what this file declares. A
+   media query does not raise specificity, so a same-specificity rule further
+   down the cascade beats it -- and base.css is imported at the *top* of
+   control.css and deck.css, which means anything they re-declare wins. Each
+   of those files carries its own copy of this block for its own presses. */
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .tool {
+    transition: none;
+  }
+
+  .btn:active:not(:disabled),
+  .tool:active:not(:disabled) {
+    transform: none;
+  }
 }

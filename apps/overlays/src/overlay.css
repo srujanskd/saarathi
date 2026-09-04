@@ -1,5 +1,16 @@
 /* OBS composites the browser source over her camera, so the page itself has
-   to be transparent. Do not give html or body a background. */
+   to be transparent. Do not give html or body a background.
+ *
+ * The single entry point for every overlay route, so this is where the shared
+ * tokens come in for the whole overlay bundle -- the module overlays below it
+ * read them and none of them imports the file twice.
+ *
+ * One constraint the control page does not have: this bundle runs inside
+ * whatever CEF the installed OBS shipped with, which trails desktop Chrome by
+ * years. Alpha via `rgb(r g b / a)` is fine there. `color-mix()`, relative
+ * colour syntax and `oklch()` are not -- keep them on her phone's side. */
+@import "./tokens.css";
+
 html,
 body,
 #root {
@@ -20,9 +31,9 @@ body,
   max-width: 44ch;
   padding: 6px 10px;
   border-radius: 6px;
-  background: rgb(20 21 26 / 0.72);
-  color: #ffd9a0;
-  font: 500 13px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: rgb(var(--bg-rgb) / 0.78);
+  color: var(--warn);
+  font: 500 13px/1.35 var(--font-mono);
   opacity: 0;
   transition: opacity 300ms ease;
   pointer-events: none;
