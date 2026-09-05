@@ -126,17 +126,30 @@ function truncate(label: string, limit: number): string {
 
 /**
  * Wedge colours. Sequential, not random, so the wheel looks the same every
- * spin -- and ordered so no two neighbours share a hue family, which is the
- * whole job. A palette of light/dark pairs fails this: it puts two greens side
- * by side and the wedge boundary disappears.
+ * spin -- and separated by *lightness*, not only by hue, which is the whole
+ * job. Chat sees this through YouTube's encoder, and 4:2:0 chroma subsampling
+ * throws away colour detail at edges while keeping brightness detail: two
+ * neighbours of the same lightness in different hues have a boundary that is
+ * pure chroma, and it is the first thing to smear when the wheel is moving.
+ * The previous palette had a coral and an indigo at identical lightness.
+ *
+ * So the six sit on rungs 1.35x apart in relative luminance, and every pair
+ * that can end up side by side clears that. Which pairs those are is not just
+ * `i` and `i + 1`: on a wheel of fewer than six challenges the last wedge
+ * wraps onto the first, so slot 0 neighbours every other slot, and the
+ * `wraps` branch below puts slot 5 next to slot 1. The floor across all of
+ * them is 1.35:1, and white labels clear 5:1 on every wedge.
+ *
+ * If you change one of these, re-check the whole set rather than the one you
+ * touched: they are a system, and the constraint is between them.
  */
 const PALETTE = [
-  "#1f3a5f", // navy
-  "#2c7a68", // teal
-  "#6d3f6e", // plum
-  "#3f5185", // indigo
-  "#2f6f4e", // forest
-  "#8a4f6d", // mauve
+  "#a05968", // coral
+  "#145048", // aqua
+  "#7c5123", // amber
+  "#593b6c", // violet
+  "#475793", // indigo
+  "#1b3554", // blue
 ];
 
 export function wedgeColour(index: number, count: number): string {

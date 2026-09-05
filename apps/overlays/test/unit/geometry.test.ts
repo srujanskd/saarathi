@@ -17,6 +17,22 @@ import {
 /** Every wheel size anyone would plausibly build, and several nobody would. */
 const COUNTS = Array.from({ length: 40 }, (_, index) => index + 1);
 
+/* WCAG relative luminance and contrast, so the palette's separation is a
+   number this suite can hold rather than a claim in a comment. */
+const luminance = (hex: string) => {
+  const channels = [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16) / 255);
+  const [r, g, b] = channels.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+};
+
+const contrast = (a: string, b: string) => {
+  const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (high! + 0.05) / (low! + 0.05);
+};
+
+/** What wheel.css fills `.wedge-label` with. */
+const LABEL_INK = "#fdfdfb";
+
 const wheelOf = (count: number) =>
   segments(Array.from({ length: count }, (_, index) => `challenge ${index}`));
 
@@ -65,6 +81,44 @@ describe("wedge colours", () => {
 
   it("is the same colour on every spin, so the wheel does not reshuffle itself", () => {
     expect(wedgeColour(3, 10)).toBe(wedgeColour(3, 10));
+  });
+
+  // Two different colours are not enough. Chat watches this through an encoder
+  // that keeps brightness detail and throws away colour detail at edges, so a
+  // seam between two hues of the same lightness is the one that smears while
+  // the wheel is turning. The palette is built on rungs 1.35x apart and comes
+  // out at 1.3466 once the rungs are rounded to 8-bit hex; 1.3 is the floor it
+  // may not drop through.
+  it("keeps a lightness step across every seam, at any wheel size", () => {
+    for (const count of COUNTS.filter((n) => n > 1)) {
+      for (let index = 0; index < count; index++) {
+        const next = (index + 1) % count;
+        const [here, there] = [wedgeColour(index, count), wedgeColour(next, count)];
+        expect(
+          contrast(here, there),
+          `count ${count}: wedge ${index} (${here}) and ${next} (${there}) are the same lightness`,
+        ).toBeGreaterThan(1.3);
+      }
+    }
+  });
+
+  // The label sits on top of the wedge, over her camera, at whatever bitrate
+  // YouTube gave her. 5:1 is the floor for every wedge, not an average -- and
+  // the brightest wedge is *placed* by this floor, so it sits within a
+  // rounding step of 5.00 rather than comfortably above it. That is the
+  // constraint, not a near miss: the rungs above use up the whole range
+  // between here and the darkest wedge, and buying headroom on this end costs
+  // it on the seam between the top two rungs.
+  it("stays dark enough for a white label on every wedge", () => {
+    for (const count of COUNTS) {
+      for (let index = 0; index < count; index++) {
+        const wedge = wedgeColour(index, count);
+        expect(
+          contrast(LABEL_INK, wedge),
+          `count ${count}: wedge ${index} (${wedge}) is too light for the label`,
+        ).toBeGreaterThanOrEqual(5);
+      }
+    }
   });
 });
 
