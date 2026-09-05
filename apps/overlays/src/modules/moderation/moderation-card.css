@@ -67,8 +67,8 @@
 /* On and off have to be told apart at arm's length, which two words in the
    same colour do not manage. */
 .rule-top .tool[data-on="yes"] {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--ok);
+  color: var(--ok);
 }
 
 .rule-top .tool[data-on="no"] {

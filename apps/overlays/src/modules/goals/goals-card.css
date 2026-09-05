@@ -25,7 +25,7 @@
 }
 
 .goal-row[data-landed="true"] .goal-row-count {
-  color: var(--accent);
+  color: var(--ok);
 }
 
 .goal-row-count {

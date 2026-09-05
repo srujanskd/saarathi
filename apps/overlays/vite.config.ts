@@ -15,6 +15,17 @@ export default defineConfig({
   base: "./",
   plugins: [react()],
   build: {
+    /* Not Vite's default, which tracks what current browsers support. Three of
+       these four pages open in a browser she chose; the fourth opens inside
+       whatever CEF the installed OBS shipped with, and OBS 30 shipped a
+       Chromium 103-era one. A default that assumes newer emits CSS and JS the
+       overlay silently fails to parse -- silently, because a browser source
+       has no console anyone is watching mid-stream. `cssTarget` follows this,
+       so the one line covers both.
+
+       Raising it is a decision about which OBS versions still work, not a
+       housekeeping bump. */
+    target: "chrome103",
     rollupOptions: {
       input: {
         index: resolve(import.meta.dirname, "index.html"),

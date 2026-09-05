@@ -30,7 +30,7 @@ function Control({ url, connection }: { url: string; connection: Connection }) {
   const deck = useDeckDraft(core?.deck.slots ?? EMPTY_GRID);
 
   return (
-    <div className="page">
+    <div className="page" data-surface="control">
       <header className="top">
         <div className="brand">
           <span className="mark" aria-hidden="true" />

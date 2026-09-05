@@ -13,29 +13,40 @@
      is the tablet propped next to her monitor, and the cheap touchscreen after
      that. `auto-fit` rather than a media query, because the sizes she will use
      this on are not a list anyone can write down. */
+  /* A fixed maximum here makes auto-fit count columns at that width, leaving
+     phones with only one. Count from the minimum and cap the keys instead. */
   grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
-  gap: 0.7rem;
+  gap: clamp(0.65rem, 1.6vw, 1rem);
 }
 
 .key {
+  width: 100%;
+  max-width: 12rem;
+  justify-self: center;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.35rem;
-  /* Square-ish and large: a miss here is a scene change that did not happen
-     while she is on camera. */
-  min-height: 6.5rem;
+  /* Keep keys square as columns grow, with a touch-target floor on phones
+     and a width ceiling when only a few actions occupy a wide screen. */
+  aspect-ratio: 1;
+  min-height: clamp(6.5rem, 16vw, 8.5rem);
   padding: 0.8rem 0.6rem;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 14px;
   background: var(--card);
   color: var(--text);
   font-weight: 650;
   cursor: pointer;
+  /* Same reason as the card in base.css: a black shadow is invisible on this
+     background, and twenty of them are twenty blur skirts to rasterise behind
+     a grid she taps. */
+  box-shadow: inset 0 1px 0 rgb(var(--text-rgb) / 0.045);
 }
 
 .key:active:not(:disabled) {
+  border-color: var(--accent);
   background: var(--card-2);
   transform: scale(0.97);
 }
@@ -71,7 +82,23 @@
 /* The deck is a full-screen thing, so it gets more of the screen than the
    control page's column does. */
 .page[data-surface="deck"] {
-  max-width: 40rem;
+  width: min(100%, 68rem);
+}
+
+@media (min-width: 720px) {
+  .page[data-surface="deck"] {
+    padding-top: 2rem;
+  }
+
+  .page[data-surface="deck"] .top {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+  }
+
+  .key-label {
+    font-size: 1rem;
+  }
 }
 
 /* Small and out of the way: it is the way back, not somewhere she is going
@@ -84,4 +111,13 @@
 
 .away a {
   color: var(--muted);
+}
+
+/* The press on a key is declared in this file, so the guard against it has to
+   live here too: base.css comes in at the top, and its copy loses the cascade
+   to anything below it. */
+@media (prefers-reduced-motion: reduce) {
+  .key:active:not(:disabled) {
+    transform: none;
+  }
 }

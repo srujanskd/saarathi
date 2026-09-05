@@ -10,14 +10,14 @@
    exact next fixes. */
 .readiness {
   padding: 1rem;
-  border: 1px solid rgb(255 217 160 / 0.4);
-  border-radius: 18px;
-  background: rgb(255 217 160 / 0.06);
+  border: 1px solid rgb(var(--warn-rgb) / 0.42);
+  border-radius: 16px;
+  background: rgb(var(--warn-rgb) / 0.07);
 }
 
 .readiness[data-ready="true"] {
-  border-color: rgb(74 222 128 / 0.45);
-  background: rgb(74 222 128 / 0.06);
+  border-color: rgb(var(--ok-rgb) / 0.48);
+  background: rgb(var(--ok-rgb) / 0.07);
 }
 
 .readiness-head {
@@ -56,7 +56,8 @@
 }
 
 .readiness[data-ready="true"] .readiness-mark {
-  background: var(--accent);
+  background: var(--ok);
+  color: var(--ok-ink);
 }
 
 .readiness-list {
@@ -95,7 +96,7 @@
 }
 
 .readiness-list [data-state="ready"] .readiness-dot {
-  background: var(--accent);
+  background: var(--ok);
 }
 
 .readiness-list [data-state="waiting"] .readiness-dot {
@@ -235,9 +236,9 @@
   margin: 0 0 0.85rem;
   padding: 0.65rem 0.8rem;
   border-radius: 10px;
-  background: rgb(74 222 128 / 0.08);
-  border: 1px solid rgb(74 222 128 / 0.25);
-  color: var(--accent);
+  background: rgb(var(--ok-rgb) / 0.08);
+  border: 1px solid rgb(var(--ok-rgb) / 0.28);
+  color: var(--ok);
 }
 
 .mock {
@@ -255,7 +256,7 @@
 
 .seg {
   flex: 1;
-  min-height: 2.6rem;
+  min-height: 2.75rem;
   border: 0;
   border-radius: 9px;
   background: transparent;
@@ -287,8 +288,8 @@
   margin: 0.2rem 0 0.75rem;
   padding: 0.7rem 0.85rem;
   list-style: none;
-  background: rgb(255 217 160 / 0.08);
-  border: 1px solid rgb(255 217 160 / 0.28);
+  background: rgb(var(--warn-rgb) / 0.08);
+  border: 1px solid rgb(var(--warn-rgb) / 0.3);
   border-radius: 12px;
   color: var(--warn);
 }
@@ -338,7 +339,7 @@
 /* OBS */
 
 .hint[data-state="connected"] {
-  color: var(--accent);
+  color: var(--ok);
 }
 
 .hint[data-state="error"],
@@ -354,7 +355,7 @@
   margin: 0 0 0.35rem;
   font-size: 1.35rem;
   font-variant-numeric: tabular-nums;
-  color: var(--accent);
+  color: var(--ok);
 }
 
 .scenes {
@@ -531,7 +532,7 @@
 }
 
 .signin[data-granted="yes"] {
-  border-color: var(--accent);
+  border-color: var(--ok);
 }
 
 .signin .hint:first-child {
@@ -562,4 +563,12 @@
 
 .client-fields .hint:first-child {
   margin-top: 0;
+}
+
+/* Same reason as the deck's copy: this file's own `.tool` press is below the
+   base.css guard in the cascade, so it needs the guard restated after it. */
+@media (prefers-reduced-motion: reduce) {
+  .tool:active:not(:disabled) {
+    transform: none;
+  }
 }

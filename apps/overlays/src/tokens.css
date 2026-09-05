@@ -1,0 +1,56 @@
+/*
+ * The palette and the two type stacks, in one place because three separate
+ * bundles need them: the control page and the deck through base.css, the OBS
+ * overlays through overlay.css, and the landing page through home.css. The
+ * background colour used to be written out five times across those files, and
+ * a rebrand that misses one of them shows up as a card that is the wrong navy.
+ *
+ * Custom properties only. Nothing here may set a background or a font on an
+ * element: the overlay pages composite over her camera and have to stay
+ * transparent.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Each colour is stored as an unprefixed channel triple and the solid form
+     is derived from it, so a hue lives at exactly one number. The triples are
+     what the alpha variants need -- `rgb(var(--accent-rgb) / 0.4)` -- and
+     `color-mix()` is not an option for the overlays, which run in whatever
+     CEF the installed OBS shipped with. */
+  --bg-rgb: 11 18 32;
+  --card-rgb: 19 31 51;
+  --card-2-rgb: 26 42 67;
+  --line-rgb: 44 60 86;
+  --text-rgb: 247 244 236;
+  --muted-rgb: 174 185 202;
+
+  --bg: rgb(var(--bg-rgb));
+  --card: rgb(var(--card-rgb));
+  --card-2: rgb(var(--card-2-rgb));
+  --line: rgb(var(--line-rgb));
+  --text: rgb(var(--text-rgb));
+  --muted: rgb(var(--muted-rgb));
+
+  /* Brand and state are deliberately different hues. The old palette used one
+     green for both, so "this is our accent" and "this is connected" were the
+     same colour and a disconnected overlay looked like a styling choice.
+     Coral is identity; teal only ever means something is working. */
+  --accent-rgb: 255 118 87;
+  --accent: rgb(var(--accent-rgb));
+  --accent-ink: #2a0d07;
+  --ok-rgb: 82 214 200;
+  --ok: rgb(var(--ok-rgb));
+  --ok-ink: #06211f;
+  --warn-rgb: 255 202 106;
+  --warn: rgb(var(--warn-rgb));
+
+  /* One family, everywhere. A display face has to be a font file we ship,
+     because the pages she actually holds are on a phone: naming a Windows
+     face like Segoe UI Variable or Trebuchet MS styles the OBS overlays and
+     silently falls back to Roboto or SF on the control page, taking any
+     tracking and line-height tuned against it along with the identity. If we
+     ever do ship a woff2, it becomes a second stack here and nowhere else. */
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
