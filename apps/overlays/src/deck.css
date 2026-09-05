@@ -13,25 +13,23 @@
      is the tablet propped next to her monitor, and the cheap touchscreen after
      that. `auto-fit` rather than a media query, because the sizes she will use
      this on are not a list anyone can write down. */
-  /* The column has a ceiling as well as a floor. Without one, the 68rem page
-     below stretches seven columns across a desktop monitor and the keys come
-     out as wide letterbox strips -- which loses exactly the aim tolerance the
-     min-height is there to buy. */
-  grid-template-columns: repeat(auto-fit, minmax(8.75rem, 12rem));
-  justify-content: center;
+  /* A fixed maximum here makes auto-fit count columns at that width, leaving
+     phones with only one. Count from the minimum and cap the keys instead. */
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
   gap: clamp(0.65rem, 1.6vw, 1rem);
 }
 
 .key {
+  width: 100%;
+  max-width: 12rem;
+  justify-self: center;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 0.35rem;
-  /* Square and large: a miss here is a scene change that did not happen while
-     she is on camera. The aspect ratio is what keeps it square as the column
-     grows; the min-height is the floor on a narrow phone, where two columns
-     of a 320px screen are shorter than a thumb is wide. */
+  /* Keep keys square as columns grow, with a touch-target floor on phones
+     and a width ceiling when only a few actions occupy a wide screen. */
   aspect-ratio: 1;
   min-height: clamp(6.5rem, 16vw, 8.5rem);
   padding: 0.8rem 0.6rem;
