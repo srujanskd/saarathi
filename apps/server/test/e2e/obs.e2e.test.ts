@@ -165,8 +165,12 @@ describe("OBS control, end to end", () => {
       },
     );
     const untilAt = coreOf(control)!.obs.microphones[0]!.coughMutedUntil!;
-    expect(untilAt).toBeGreaterThan(Date.now());
-    expect(untilAt).toBeLessThanOrEqual(Date.now() + COUGH_MUTE_MS);
+    // The deadline comes from the child process. Allow clock jitter between
+    // processes; Windows CI has observed a deadline 1 ms beyond the upper bound.
+    const clockToleranceMs = 100;
+    const remainingMs = untilAt - Date.now();
+    expect(remainingMs).toBeGreaterThan(-clockToleranceMs);
+    expect(remainingMs).toBeLessThanOrEqual(COUGH_MUTE_MS + clockToleranceMs);
 
     await control.waitFor(
       "cough mute restores the microphone",
