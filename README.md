@@ -61,7 +61,12 @@ The media pack stores up to 24 clips beside her state file. A clip can be previe
 deck, played through one server-timed lane and stopped explicitly. The library survives a restart;
 active playback does not. An overlay that reconnects during a clip seeks to the server's elapsed
 time instead of starting the clip again. OBS needs the tray's Media overlay URL once; a wheel
-browser source deliberately subscribes only to wheel state.
+browser source deliberately subscribes only to wheel state. Add or Refresh in the OBS card
+routes browser-source audio through the OBS mixer, without requiring desktop-audio capture.
+For an existing manual source, enable "Control audio via OBS" in its properties. Check that
+"Saarathi media" is unmuted in the mixer and included on the stream's audio track. To hear it
+locally too, choose "Monitor and Output" in Advanced Audio Properties and use headphones to
+avoid feedback. Preview plays on the control device; Play live sends the clip to the OBS overlay.
 
 The OBS card can mute, unmute or cough-mute each named Mic/Aux input. All three can be saved to the
 same deck grid and therefore also work from a global hotkey or the floating deck.

@@ -424,6 +424,8 @@ export class ObsWebSocketAdapter implements ObsAdapter {
       height: 1080,
       shutdown: false,
       restart_when_active: true,
+      // Overlay sound must reach the stream without depending on desktop capture.
+      reroute_audio: true,
     };
     const exists = this.browserSources.includes(overlay.sourceName);
     const ok = await this.request(

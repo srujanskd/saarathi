@@ -473,6 +473,26 @@ describe("OBS control, end to end", () => {
     ]);
   });
 
+  it("routes new and refreshed media sources through the OBS audio mixer", async () => {
+    obs = await startFakeObs({ password: "", scenes: ["Workout"] });
+    server = await startServer();
+    const control = await server.connect({ surface: "control" });
+    await point(control, obs.port, "");
+    await until(control, "connected");
+
+    for (const operation of ["create", "update"]) {
+      expect(await control.invoke({
+        action: "core.obsBrowserSource",
+        args: ["media", server.origin],
+      })).toEqual({ ok: true });
+      expect(obs.browserSourceChanges.at(-1)).toMatchObject({
+        operation,
+        name: "Saarathi media",
+        settings: { reroute_audio: true },
+      });
+    }
+  });
+
   it("creates, repairs, and removes a read-only browser source in the current scene", async () => {
     obs = await startFakeObs({ password: "s3cret", scenes: ["Workout", "BRB"] });
     server = await startServer();
