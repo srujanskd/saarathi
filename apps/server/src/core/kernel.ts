@@ -13,6 +13,7 @@ import {
   type Snapshot,
   type StreamEvent,
 } from "@saarathi/shared";
+import { mention } from "./mention.js";
 import { chatViews, type ChatAdapter, type ChatSink } from "../chat/adapter.js";
 import { MockChatAdapter } from "../chat/mock.js";
 import { Deck } from "./deck.js";
@@ -259,7 +260,7 @@ export class Kernel {
     const gate = this.gate.consume(key, found.spec, event.author, event.at);
     if (!gate.ok) {
       this.deps.log.info(`!${event.command} from ${event.author.name} refused: ${gate.reason}`);
-      this.say(`@${event.author.name} ${gate.reason}`, "refusal", key);
+      this.say(`${mention(event.author.name)} ${gate.reason}`, "refusal", key);
       return;
     }
 
@@ -281,7 +282,7 @@ export class Kernel {
       // The trigger did not happen, so it costs nothing: the cooldown it
       // stamped and the gains it debited both go back.
       gate.release();
-      this.say(`@${event.author.name} ${result.reason}`, "refusal", key);
+      this.say(`${mention(event.author.name)} ${result.reason}`, "refusal", key);
     }
   }
 

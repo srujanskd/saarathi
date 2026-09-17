@@ -102,12 +102,33 @@ describe("earning gains for turning up", () => {
     expect(balance("Asha")).toBe(gone + DEFAULT_PER_MINUTE);
   });
 
-  it("pays a viewer who only ever types commands", async () => {
+  it.each(["!points", "!spin", "!unknown", "  !POINTS  "])(
+    "does not award attendance or active-minute points for %s",
+    async (text) => {
+      vi.useFakeTimers();
+      await withGains("s1");
+      live!.chat({ author: "Asha", text });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(balance("Asha")).toBe(0);
+      await vi.advanceTimersByTimeAsync(EARN_TICK_MS);
+      expect(balance("Asha")).toBe(0);
+      expect(board()).toEqual([]);
+    },
+  );
+
+  it("does not refresh earning activity when a viewer switches to commands", async () => {
     vi.useFakeTimers();
     await withGains("s1");
-    live!.chat({ author: "Asha", text: "!spin" });
+    live!.chat({ author: "Asha", text: "hello" });
+    await vi.advanceTimersByTimeAsync(ACTIVE_WINDOW_MS - 1);
+    const earned = balance("Asha");
+    live!.chat({ author: "Asha", text: "!points" });
+    await vi.advanceTimersByTimeAsync(1 + EARN_TICK_MS);
+    expect(balance("Asha")).toBe(earned);
+
+    live!.chat({ author: "Asha", text: "back to chatting" });
     await vi.advanceTimersByTimeAsync(EARN_TICK_MS);
-    expect(balance("Asha")).toBeGreaterThan(0);
+    expect(balance("Asha")).toBe(earned + DEFAULT_PER_MINUTE);
   });
 
   it("pays nobody once she turns the rate down to zero", async () => {
@@ -362,16 +383,16 @@ describe("asking for a balance in chat", () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(live.seen.said()).toEqual([
-      balanceReply("Asha", 135),
-      balanceReply("Bo", 60),
+      balanceReply("Asha", 125),
+      balanceReply("Bo", 50),
     ]);
     await vi.advanceTimersByTimeAsync(REPLY_WINDOW_MS);
 
     const log = live.kernel.snapshot().modules.chatlog as ChatLogState;
     const replies = log.events.filter((event) => event.author.name === "Saarathi");
     expect(replies).toHaveLength(1);
-    expect(replies[0]!.text).toContain(balanceReply("Asha", 135));
-    expect(replies[0]!.text).toContain(balanceReply("Bo", 60));
+    expect(replies[0]!.text).toContain(balanceReply("Asha", 125));
+    expect(replies[0]!.text).toContain(balanceReply("Bo", 50));
   });
 
   it("limits one viewer without locking another viewer out", async () => {
@@ -384,8 +405,8 @@ describe("asking for a balance in chat", () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(live.seen.said().filter((line) => line.includes("you have"))).toEqual([
-      balanceReply("Asha", 135),
-      balanceReply("Bo", 60),
+      balanceReply("Asha", 125),
+      balanceReply("Bo", 50),
     ]);
     expect(
       live.seen.said().some((line) => line.includes(`@Asha ${balanceCommand} is cooling down`)),
@@ -394,6 +415,6 @@ describe("asking for a balance in chat", () => {
     await vi.advanceTimersByTimeAsync(BALANCE_QUERY_COOLDOWN_MS);
     live.chat({ author: "Asha", text: balanceCommand });
     await vi.advanceTimersByTimeAsync(0);
-    expect(live.seen.said().at(-1)).toBe(balanceReply("Asha", 135));
+    expect(live.seen.said().at(-1)).toBe(balanceReply("Asha", 125));
   });
 });
