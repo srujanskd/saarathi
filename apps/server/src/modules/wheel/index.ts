@@ -36,6 +36,15 @@ type WheelContext = ModuleContext<WheelState>;
  */
 const pendingDrains = new WeakMap<WheelContext, Cancel>();
 
+// Like the spin itself, an announcement is transient. A stopped module must
+// never announce an interrupted spin after it starts again.
+const pendingResults = new WeakMap<WheelContext, Cancel>();
+
+function cancelResult(ctx: WheelContext): void {
+  pendingResults.get(ctx)?.();
+  pendingResults.delete(ctx);
+}
+
 /**
  * Give back what a queue entry was holding.
  *
@@ -161,6 +170,16 @@ export const wheel: GameModuleDef<WheelState> = {
           ].slice(0, MAX_HISTORY),
         }));
 
+        cancelResult(ctx);
+        const spin = outcome.spin;
+        pendingResults.set(
+          ctx,
+          ctx.after(Math.max(0, spin.startedAt + spin.durationMs - Date.now()), () => {
+            cancelResult(ctx);
+            ctx.say(`Wheel result for ${spin.by}: ${spin.label}`, `${WHEEL_ID}.result`);
+          }),
+        );
+
         ctx.effect({ name: "spin-started", payload: { label: outcome.spin.label } });
         ctx.log.info(`wheel: ${outcome.spin.label} for ${input.by} (${input.via})`);
         drain(ctx);
@@ -171,6 +190,7 @@ export const wheel: GameModuleDef<WheelState> = {
       label: "Clear the wheel",
       run(_input, ctx) {
         if (!ctx.state.spin) return ctx.refuse("Nothing is on the wheel right now");
+        cancelResult(ctx);
         ctx.setState({ spin: null });
         drain(ctx);
       },
@@ -227,6 +247,7 @@ export const wheel: GameModuleDef<WheelState> = {
   },
 
   teardown(ctx) {
+    cancelResult(ctx);
     pendingDrains.get(ctx)?.();
     pendingDrains.delete(ctx);
   },

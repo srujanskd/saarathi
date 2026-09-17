@@ -11,6 +11,7 @@ import {
   type GainsState,
   type ModuleContext,
 } from "@saarathi/shared";
+import { mention } from "../../core/mention.js";
 import {
   buildBoard,
   earners,
@@ -82,7 +83,7 @@ export const gains: GameModuleDef<GainsState> = {
         const name = amount === 1 ? GAINS.singular : GAINS.plural;
         // Different from the command binding's key. A cooldown refusal and the
         // balance it follows do not belong in one bot line.
-        ctx.say(`@${event.author.name} you have ${amount} ${name}`, `${GAINS_ID}.balance`);
+        ctx.say(`${mention(event.author.name)} you have ${amount} ${name}`, `${GAINS_ID}.balance`);
       },
     },
 
@@ -156,12 +157,11 @@ export const gains: GameModuleDef<GainsState> = {
     ctx.stats.onChange(() => noteStream(ctx));
     noteStream(ctx);
 
-    // Both, because a command is a message: someone who only ever types !spin
-    // is watching, and paying only the people who make small talk is a rule
-    // nobody would choose on purpose.
-    for (const type of ["chat-message", "chat-command"] as const) {
-      ctx.on(type, (event) => noteMessage(ctx, event.author.id, event.author.name, event.at));
-    }
+    // Commands query or spend points; they must not award attendance bonuses
+    // or keep earning activity alive. The kernel separates them from chat.
+    ctx.on("chat-message", (event) =>
+      noteMessage(ctx, event.author.id, event.author.name, event.at),
+    );
 
     ctx.every(EARN_TICK_MS, () => pay(ctx));
   },
