@@ -1,11 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CORE_ACTIONS, CORE_ID } from "@saarathi/shared";
+import { CORE_ACTIONS, CORE_ID, SPIN_COST } from "@saarathi/shared";
 import type { FormPost, FormResponse } from "../../src/chat/youtube-oauth.js";
 import type { JsonRequest } from "../../src/chat/youtube-writes.js";
 import { YouTubeAdapter } from "../../src/chat/youtube.js";
 import { MemoryStore, type StateStore } from "../../src/core/store.js";
-import { harness, type Harness } from "../helpers/kernel.js";
+import { harness, wheelState, type Harness } from "../helpers/kernel.js";
 import { testLogger } from "../helpers/logger.js";
+import { MockChatAdapter } from "../../src/chat/mock.js";
+import { gains } from "../../src/modules/gains/index.js";
+import { wheel } from "../../src/modules/wheel/index.js";
+import { chatlog } from "../../src/modules/chatlog/index.js";
+
+vi.mock("youtube-chat-next", () => ({
+  LiveChat: class {
+    private handlers = new Map<string, (arg?: string) => void>();
+    on(name: string, handler: (arg?: string) => void) { this.handlers.set(name, handler); }
+    async start() { this.handlers.get("start")?.("test-video"); return true; }
+    stop() {}
+  },
+}));
 
 /**
  * Her Google sign-in as it reaches a running kernel.
@@ -58,20 +71,26 @@ const api: JsonRequest = async (input) =>
 
 let live: Harness | null = null;
 
-async function boot(options: { post: FormPost; store?: StateStore }): Promise<Harness> {
+async function boot(options: { post: FormPost; store?: StateStore; mockChat?: boolean; request?: JsonRequest }): Promise<Harness> {
   const store = options.store ?? new MemoryStore();
   const youtube = new YouTubeAdapter({
     store,
     log: testLogger(),
     client: CLIENT,
     post: options.post,
-    request: api,
+    request: options.request ?? api,
+    seed: options.mockChat ? { liveId: "test-video" } : undefined,
     // No channel, deliberately: an adapter with one opens a real reader
     // against YouTube, and nothing here needs chat to be connected -- signing
     // in is a thing she does before she goes live. It is also the state she is
     // actually in while she sets this up.
   });
-  live = await harness({ chat: [youtube], store });
+  live = await harness({
+    chat: options.mockChat ? [new MockChatAdapter(), youtube] : [youtube],
+    modules: [wheel, gains, chatlog],
+    balances: options.mockChat ? { Viewer: SPIN_COST } : undefined,
+    store,
+  });
   await vi.advanceTimersByTimeAsync(0);
   return live;
 }
@@ -90,6 +109,92 @@ afterEach(async () => {
 });
 
 describe("signing the bot in, from her control page", () => {
+  it("keeps mock-chat spins working with an expired grant and restores points replies after reconnecting", async () => {
+    const store = new MemoryStore();
+    store.write("youtube", { refreshToken: "expired-token", channelId: "", apiKey: "" });
+    const request = vi.fn(api);
+    const h = await boot({
+      store, request, mockChat: true,
+      post: google([{ status: 400, body: { error: "invalid_grant" } }, CODE_ANSWER, GRANTED, REFRESHED]),
+    });
+    h.chat({ author: "Viewer", text: "!spin" });
+    h.chat({ author: "Viewer", text: "!points" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(wheelState(h.kernel).spin).toMatchObject({ by: "Viewer", via: "gains" });
+    expect(h.balance("Viewer")).toBe(0);
+    expect(h.seen.said().join(" ")).toContain("@Viewer you have 0 points");
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(request).not.toHaveBeenCalled();
+
+    await h.kernel.invoke(CORE_ACTIONS.chatSignIn, { args: ["youtube"] });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(signIn(h).status).toBe("connected");
+    h.chat({ author: "Viewer", text: "!points" });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(request.mock.calls.map(([input]) => input.body)).toContainEqual({
+      snippet: { liveChatId: "chat-1", type: "textMessageEvent", textMessageDetails: { messageText: "@Viewer you have 0 points" } },
+    });
+  });
+
+  it("detects an expired saved sign-in before anyone asks for a reply", async () => {
+    const store = new MemoryStore();
+    store.write("youtube", { refreshToken: "expired-token", channelId: "", apiKey: "" });
+    const h = await boot({ store, post: google([{ status: 400, body: { error: "invalid_grant" } }]) });
+
+    expect(signIn(h)).toMatchObject({ granted: false, status: "disconnected" });
+    expect(signIn(h).detail).toContain("Reconnect chat replies");
+    expect(store.read("youtube")!.refreshToken).toBe("");
+    expect(h.kernel.snapshot().core.chat.youtube!.signIn).toEqual(signIn(h));
+    expect(corePatches(h).length).toBeGreaterThan(0);
+  });
+
+  it("recovers from a temporary sign-in check failure without asking her to reconnect", async () => {
+    const store = new MemoryStore();
+    store.write("youtube", { refreshToken: "saved-token", channelId: "", apiKey: "" });
+    const h = await boot({ store, post: google([{ status: 503, body: {} }, REFRESHED]) });
+
+    expect(signIn(h)).toMatchObject({ granted: true, status: "error" });
+    expect(store.read("youtube")!.refreshToken).toBe("saved-token");
+    h.seen.clear();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(signIn(h)).toMatchObject({ granted: true, status: "connected" });
+    expect(corePatches(h).length).toBeGreaterThan(0);
+  });
+
+  it("renews automatically while idle without posting messages or spending the reply budget", async () => {
+    const store = new MemoryStore();
+    store.write("youtube", { refreshToken: "saved-token", channelId: "", apiKey: "" });
+    const post = vi.fn(google([REFRESHED]));
+    const h = await boot({ store, post });
+    expect(post).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(58 * 60_000);
+    expect(post).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(signIn(h).status).toBe("connected");
+    expect(h.kernel.coreState().writes.used).toBe(0);
+    await h.stop();
+    await vi.advanceTimersByTimeAsync(2 * 3_600_000);
+    expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["sign out", "stop"])("ignores a delayed refresh after %s", async (operation) => {
+    const store = new MemoryStore();
+    store.write("youtube", { refreshToken: "saved-token", channelId: "", apiKey: "" });
+    let release = (_response: FormResponse) => {};
+    const held = new Promise<FormResponse>((resolve) => { release = resolve; });
+    const h = await boot({ store, post: () => held });
+    expect(signIn(h).status).toBe("checking");
+    if (operation === "sign out") await h.kernel.invoke(CORE_ACTIONS.chatSignOut, { args: ["youtube"] });
+    else await h.stop();
+    h.seen.clear();
+    release(REFRESHED);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(signIn(h).status).not.toBe("connected");
+    expect(corePatches(h)).toEqual([]);
+    expect(store.read("youtube")!.refreshToken).toBe(operation === "sign out" ? "" : "saved-token");
+  });
+
   it("puts the code she has to type in the slice, not in the answer", async () => {
     // Which is what makes it survivable: she reads it on her phone, unlocks a
     // laptop, and the page she left open is looking at the same sign-in. A

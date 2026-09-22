@@ -348,7 +348,7 @@ describe("signing in", () => {
       code: "ABCD-EFGH",
       url: "https://www.google.com/device",
     });
-    expect(view.detail).toContain("Waiting for her to type the code");
+    expect(view.detail).toContain("Open the sign-in page and enter this code");
     // The code is in the slice, so a page that reconnects rejoins this sign-in
     // instead of starting a rival one.
     expect(kit.changes).toBe(1);
@@ -370,7 +370,7 @@ describe("signing in", () => {
     const view = signInView(kit);
     expect(view.granted).toBe(true);
     expect(view.pending).toBeUndefined();
-    expect(view.detail).toContain("The bot can reply in chat and take messages down");
+    expect(view.detail).toContain("Chat sign-in is connected");
     // The capability appeared with nothing restarted, which is the whole shape
     // of this feature.
     expect(kit.adapter.writes).toBeDefined();
@@ -669,7 +669,8 @@ describe("the writes themselves", () => {
   });
 
   it("loses the grant on a revoked token, and nothing queues behind it", async () => {
-    const kit = await signedIn({ post: google([REVOKED]).post });
+    const kit = await signedIn({ post: google([REFRESHED, REVOKED]).post });
+    vi.setSystemTime(Date.now() + 3_600_000);
 
     await expect(kit.adapter.writes!.deleteMessage("a")).rejects.toThrow(
       "Her Google sign-in is no longer valid. Sign in again to let the bot write.",

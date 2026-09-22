@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OBS_ID, type CoreState } from "@saarathi/shared";
+import { OBS_ID, type ChatSignInView, type CoreState } from "@saarathi/shared";
 import { streamReadiness } from "../../src/core/readiness.js";
 
 const core = (overrides: Partial<CoreState> = {}): CoreState => ({
@@ -42,6 +42,49 @@ const core = (overrides: Partial<CoreState> = {}): CoreState => ({
 });
 
 describe("stream readiness", () => {
+  const connected: ChatSignInView = {
+    granted: true, status: "connected", detail: "Chat sign-in is connected.",
+    clientId: "saved", hasClientSecret: true, builtIn: false, clientHint: "",
+  };
+  function withSignIn(signIn: ChatSignInView) {
+    const state = core();
+    state.chat.youtube!.signIn = signIn;
+    return state;
+  }
+
+  it("does not call working incoming chat ready when replies are disconnected", () => {
+    const state = withSignIn({ ...connected, granted: false, status: "disconnected", detail: "Reconnect chat replies." });
+    state.connections.youtube = { state: "connected", detail: "Reading chat" };
+    const result = streamReadiness(state);
+    expect(result.ready).toBe(false);
+    expect(result.checks.find((check) => check.id === "chat")?.state).toBe("ready");
+    expect(result.checks.find((check) => check.id === "replies")).toMatchObject({
+      state: "fix", detail: "Reconnect chat replies.", fixAt: "#chat-replies-youtube",
+    });
+  });
+
+  it("waits for verification instead of treating a saved token as a working sign-in", () => {
+    const result = streamReadiness(withSignIn({ ...connected, status: "checking" }));
+    expect(result.ready).toBe(false);
+    expect(result.headline).toBe("Checking stream readiness");
+    expect(result.checks.find((check) => check.id === "replies")?.state).toBe("waiting");
+  });
+
+  it("becomes ready when the sign-in check succeeds", () => {
+    expect(streamReadiness(withSignIn(connected)).ready).toBe(true);
+  });
+
+  it.each([{ used: 180, outOfQuota: false }, { used: 2, outOfQuota: true }])(
+    "shows the reply allowance problem independently of a working sign-in: %s", (limits) => {
+      const state = withSignIn(connected);
+      state.writes = { ...state.writes, adapter: "youtube", ...limits };
+      const result = streamReadiness(state);
+      expect(result.ready).toBe(false);
+      expect(result.checks.find((check) => check.id === "replies")?.detail)
+        .toContain(limits.outOfQuota ? "quota is spent" : "only moderation can write");
+    },
+  );
+
   it("is ready before the live stream exists when the channel is saved", () => {
     const result = streamReadiness(core());
     expect(result.ready).toBe(true);

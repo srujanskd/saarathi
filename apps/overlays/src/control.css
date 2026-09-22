@@ -531,8 +531,16 @@
   background: var(--card-2);
 }
 
-.signin[data-granted="yes"] {
+.signin[data-state="ready"] {
   border-color: var(--ok);
+}
+
+.signin[data-state="fix"] {
+  border-color: var(--warn);
+}
+
+.signin h3 {
+  margin: 0 0 0.5rem;
 }
 
 .signin .hint:first-child {

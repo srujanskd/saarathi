@@ -18,6 +18,7 @@ import {
  * that has been valid for two minutes with nothing happening.
  */
 const SLOW_DOWN_MS = 5_000;
+const CHECK_MS = 60_000;
 
 export interface GrantOptions {
   /**
@@ -78,6 +79,10 @@ export class YouTubeGrant {
   private refreshing: Promise<string> | null = null;
   /** Why the last sign-in ended without one, for her card to say so. */
   private failure = "";
+  private checkFailure = "";
+  private verified = false;
+  private checkTimer: NodeJS.Timeout | null = null;
+  private generation = 0;
   private readonly now: () => number;
 
   constructor(
@@ -101,9 +106,12 @@ export class YouTubeGrant {
    * know whether it was hers or the build's, which is exactly the ignorance
    * that lets `options.client` change underneath it.
    */
-  view(): Pick<ChatSignInView, "granted" | "detail" | "pending"> {
+  view(): Pick<ChatSignInView, "granted" | "status" | "detail" | "pending"> {
     return {
       granted: this.granted,
+      status: !this.granted || !this.options.client() ? "disconnected"
+        : this.checkFailure ? "error"
+          : this.verified ? "connected" : "checking",
       ...(this.pending
         ? {
             pending: {
@@ -163,6 +171,9 @@ export class YouTubeGrant {
     this.refreshToken = "";
     this.access = null;
     this.refreshing = null;
+    this.generation += 1;
+    this.verified = false;
+    this.checkFailure = "";
     this.options.save("");
     if (had) this.options.log.info("youtube: signed out, so the bot can no longer write");
     this.options.onChange();
@@ -187,23 +198,50 @@ export class YouTubeGrant {
 
     // Refreshed early rather than on expiry, so a token cannot die between
     // being handed out and being used.
-    this.refreshing ??= this.renew(client).finally(() => {
-      this.refreshing = null;
-    });
+    if (!this.refreshing) {
+      const generation = this.generation;
+      this.refreshing = this.renew(client, generation).finally(() => {
+        if (generation === this.generation) this.refreshing = null;
+      });
+    }
     return this.refreshing;
+  }
+
+  /** Check before chat needs a reply. Cached access makes most ticks local. */
+  start(): void {
+    if (this.checkTimer) return;
+    const check = () => {
+      // renew publishes failures. A background check has no caller to reject to.
+      if (this.granted && this.options.client()) void this.token().catch(() => {});
+    };
+    check();
+    this.checkTimer = setInterval(check, CHECK_MS);
+    this.checkTimer.unref?.();
   }
 
   /** Drops the poll. Nothing waiting on a code may keep the tray alive. */
   stop(): void {
     this.clearPending();
+    if (this.checkTimer) clearInterval(this.checkTimer);
+    this.checkTimer = null;
+    this.generation += 1;
+    this.refreshing = null;
+    this.access = null;
+    this.verified = false;
   }
 
   // --- plumbing -------------------------------------------------------------
 
-  private async renew(client: OAuthClient): Promise<string> {
+  private async renew(client: OAuthClient, generation: number): Promise<string> {
     const got = await refreshAccess(client, this.refreshToken, this.options.post, this.now());
+    // A delayed check must not sign her back in, or clear a replacement grant.
+    if (generation !== this.generation) throw new Error("The sign-in changed. Try again.");
     if (got.ok) {
       this.access = got.value;
+      const changed = !this.verified || this.checkFailure !== "";
+      this.verified = true;
+      this.checkFailure = "";
+      if (changed) this.options.onChange();
       return got.value.token;
     }
 
@@ -213,10 +251,14 @@ export class YouTubeGrant {
     if (got.lost) {
       this.refreshToken = "";
       this.access = null;
+      this.verified = false;
+      this.checkFailure = "Chat replies need reconnecting. Choose Reconnect chat replies to continue. Your channel and settings are saved.";
       this.options.save("");
       this.options.log.warn("youtube: the grant is gone, so the bot has stopped writing");
-      this.options.onChange();
+    } else {
+      this.checkFailure = `Could not check chat sign-in. ${got.reason} Saarathi will retry automatically.`;
     }
+    this.options.onChange();
     throw new Error(got.reason);
   }
 
@@ -248,8 +290,12 @@ export class YouTubeGrant {
     switch (answer.state) {
       case "done":
         this.clearPending();
+        this.generation += 1;
+        this.refreshing = null;
         this.refreshToken = answer.refreshToken;
         this.access = null;
+        this.verified = true;
+        this.checkFailure = "";
         this.options.save(answer.refreshToken);
         this.options.log.info("youtube: signed in, so the bot can write to her chat");
         this.options.onChange();
@@ -296,9 +342,11 @@ export class YouTubeGrant {
     if (!this.options.client()) {
       return "No Google client ID yet, so the bot can read chat but cannot reply or moderate.";
     }
-    if (this.pending) return "Waiting for her to type the code.";
+    if (this.pending) return "Open the sign-in page and enter this code. Saarathi will reconnect automatically when you finish.";
     if (this.failure) return this.failure;
-    if (this.granted) return "Signed in. The bot can reply in chat and take messages down.";
-    return "Not signed in. The bot can read chat but cannot reply or moderate.";
+    if (this.checkFailure) return this.checkFailure;
+    if (this.granted && !this.verified) return "Checking chat sign-in automatically...";
+    if (this.granted) return "Chat sign-in is connected. Replies also need a live chat and available reply allowance.";
+    return "Chat replies are off. Connect chat replies to let viewers receive answers. Reading chat and the wheel still work.";
   }
 }

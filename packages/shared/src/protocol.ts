@@ -147,6 +147,8 @@ export interface ChatView {
 export interface ChatSignInView {
   /** True when a grant of hers is stored. Never the token. */
   granted: boolean;
+  /** Sign-in health, checked by the adapter independently of incoming chat. */
+  status: "checking" | "connected" | "disconnected" | "error";
   /** One line about what the bot can and cannot do, in the adapter's words. */
   detail: string;
   /**
@@ -163,9 +165,8 @@ export interface ChatSignInView {
   /**
    * True when this build carries a credential of its own.
    *
-   * The one thing that decides how loudly her card asks for one: with a
-   * built-in credential hers is an override that belongs behind a fold, and
-   * without one it is the only way in and belongs in front of her.
+   * A built-in credential or a complete saved credential keeps setup behind
+   * the advanced settings fold. Without either, setup is shown immediately.
    */
   builtIn: boolean;
   /** Where she gets a credential of her own, in the adapter's words. */
