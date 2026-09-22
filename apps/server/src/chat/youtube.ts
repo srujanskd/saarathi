@@ -266,6 +266,7 @@ export class YouTubeAdapter implements ChatAdapter {
   async start(sink: ChatSink): Promise<void> {
     this.sink = sink;
     this.stopped = false;
+    this.grant.start();
     await this.open();
   }
 

@@ -13,6 +13,7 @@ import { Notice } from "./Notice.js";
 import { countsLine } from "./counts.js";
 import { codeExpiry } from "./signIn.js";
 import { writesLine } from "./writes.js";
+import { replyCheck } from "./readiness.js";
 
 /**
  * Where she tells Saarathi which channel to read.
@@ -77,6 +78,10 @@ export function ChatSourceCard({
 
       {invoke.notice ? (
         <Notice notice={invoke.notice} testId="chat-notice" onDismiss={invoke.dismiss} />
+      ) : null}
+
+      {view.signIn ? (
+        <SignIn connection={connection} name={name} signIn={view.signIn} writes={writes} invoke={invoke} />
       ) : null}
 
       {counts ? (
@@ -167,15 +172,6 @@ export function ChatSourceCard({
           Forget key
         </button>
       </details>
-
-      {/* Under the channel and not above it, because that is the order she does
-          them in: chat works with a channel and no sign-in, and the sign-in is
-          what the bot needs to write back. Absent altogether for a platform
-          that needs none, rather than present and saying so -- the same rule
-          that keeps mock chat off this page. */}
-      {view.signIn ? (
-        <SignIn connection={connection} name={name} signIn={view.signIn} invoke={invoke} />
-      ) : null}
     </section>
   );
 }
@@ -197,17 +193,20 @@ function SignIn({
   connection,
   name,
   signIn,
+  writes,
   invoke,
 }: {
   connection: Connection;
   name: string;
   signIn: ChatSignInView;
+  writes: ChatWritesView;
   invoke: Invoker;
 }) {
   const pending = signIn.pending;
   const [now, setNow] = useState(() => connection.serverNow());
   // Either she has pasted a complete credential, or the build carries one.
   const ready = signIn.builtIn || (signIn.clientId !== "" && signIn.hasClientSecret);
+  const replies = replyCheck(name, signIn, writes);
 
   // A clock only while a code is waiting, and it stops itself when the code
   // runs out: an interval still ticking is her phone re-rendering forever for
@@ -225,27 +224,11 @@ function SignIn({
   const { run, working } = invoke;
 
   return (
-    <div className="signin" data-granted={signIn.granted ? "yes" : "no"} data-testid="chat-signin">
-      <p className="hint" data-testid="chat-signin-detail">
-        {signIn.detail}
+    <div className="signin" id={`chat-replies-${name}`} data-state={replies.state} data-testid="chat-signin">
+      <h3>Chat replies</h3>
+      <p className="hint" role="status" data-testid="chat-signin-detail">
+        {replies.detail}
       </p>
-
-      {/* Where the credential goes. In front of her on a build that carries
-          none -- there it is the only way in -- and behind a fold on one that
-          does, where it is an override for somebody who would rather not share
-          a quota. One control, two levels of insistence. */}
-      {signIn.builtIn ? (
-        <details className="fold">
-          <summary>
-            <span>
-              {signIn.clientId ? "Using her own Google project" : "Use her own Google project"}
-            </span>
-          </summary>
-          <ClientFields name={name} signIn={signIn} invoke={invoke} />
-        </details>
-      ) : (
-        <ClientFields name={name} signIn={signIn} invoke={invoke} />
-      )}
 
       {pending ? (
         <>
@@ -255,7 +238,10 @@ function SignIn({
             {pending.code}
           </p>
           <p className="hint" data-testid="chat-signin-where">
-            Type that in at {pending.url}
+            <a className="btn btn-primary" href={pending.url} target="_blank" rel="noreferrer">
+              Open sign-in page
+            </a>
+            Enter the code above, then return here.
           </p>
           <p className="hint" data-testid="chat-signin-expiry">
             {codeExpiry(pending, now)}
@@ -267,15 +253,15 @@ function SignIn({
           the reason to press it is a grant that has stopped working -- and
           that is a state the server cannot always tell her about in advance. */}
       {/* Nothing to sign in with is a button that can only refuse, so it is
-          not offered -- the fields above are the thing to do instead. */}
+          disabled until the connection settings below are complete. */}
       <button
         type="button"
-        className="btn"
+        className={`btn${!signIn.granted && !pending ? " btn-primary" : ""}`}
         disabled={working || !ready}
         data-testid="chat-signin-start"
         onClick={() => void run(CORE_ACTIONS.chatSignIn, [name])}
       >
-        {pending ? "Start again with a new code" : signIn.granted ? "Sign in again" : "Sign in"}
+        {pending ? "Get a new code" : "Reconnect chat replies"}
       </button>
       {/* The way out exists exactly when there is something to get out of.
           Elsewhere on this card a button that has nothing to do is disabled
@@ -293,6 +279,10 @@ function SignIn({
           {pending ? "Cancel" : "Sign out"}
         </button>
       ) : null}
+      <details className="fold" open={!ready}>
+        <summary>{ready ? "Advanced connection settings" : "Set up chat replies"}</summary>
+        <ClientFields name={name} signIn={signIn} invoke={invoke} />
+      </details>
     </div>
   );
 }

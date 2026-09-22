@@ -1,9 +1,10 @@
-import { OBS_ID, type CoreState } from "@saarathi/shared";
+import { OBS_ID, type ChatSignInView, type ChatWritesView, type CoreState } from "@saarathi/shared";
+import { writesLine } from "./writes.js";
 
 export type ReadinessState = "ready" | "fix" | "waiting";
 
 export interface ReadinessCheck {
-  id: "obs" | "chat" | "microphone" | "overlays" | "deck";
+  id: "obs" | "chat" | "replies" | "microphone" | "overlays" | "deck";
   title: string;
   state: ReadinessState;
   detail: string;
@@ -37,6 +38,8 @@ export function streamReadiness(core: CoreState): StreamReadiness {
       fixAt: obsConnected ? undefined : "#obs-setup",
     },
     chatCheck(chatEntry, core),
+    ...(chatEntry?.[1].signIn
+      ? [replyCheck(chatEntry[0], chatEntry[1].signIn, core.writes)] : []),
     microphoneCheck(core, obsConnected),
     overlayCheck(core, obsConnected),
     {
@@ -57,8 +60,22 @@ export function streamReadiness(core: CoreState): StreamReadiness {
     ready,
     headline: ready
       ? "Ready to stream"
-      : `${fixes} ${fixes === 1 ? "thing" : "things"} to fix`,
+      : fixes > 0 ? `${fixes} ${fixes === 1 ? "thing" : "things"} to fix` : "Checking stream readiness",
     checks,
+  };
+}
+
+/** Receiving chat says nothing about permission or allowance to send replies. */
+export function replyCheck(name: string, signIn: ChatSignInView, writes: ChatWritesView): ReadinessCheck {
+  const limited = writes.adapter === name && (writes.outOfQuota || writes.ceiling - writes.used <= writes.reserve);
+  const state = signIn.pending || signIn.status === "checking" ? "waiting"
+    : signIn.status === "connected" && !limited ? "ready" : "fix";
+  return {
+    id: "replies",
+    title: "Chat replies",
+    state,
+    detail: limited ? writesLine(writes, name) : signIn.detail,
+    fixAt: state === "ready" ? undefined : `#chat-replies-${name}`,
   };
 }
 
