@@ -12,7 +12,7 @@ export const GAINS_ID = "gains";
  * One viewer, as the module remembers them.
  *
  * Server-only, every field of it. It is her chat's names and their habits, it
- * grows with her channel, and no page draws it -- pages draw the board below.
+ * grows with her channel. Pages draw the board or request matching users.
  */
 export interface GainsAccount {
   /** Display name as chat last showed it, so the board is not a wall of ids. */

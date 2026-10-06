@@ -295,6 +295,8 @@ export interface GameModuleDef<S = any> {
   arming?: boolean;
   commands?: CommandSpec[];
   actions: Record<string, ActionSpec<S>>;
+  /** On-demand reads for a control page. Results go only to the caller. */
+  queries?: Record<string, (args: string[], ctx: { state: Readonly<S>; gains: Pick<GainsLedger, "balance"> }) => unknown>;
   setup?(ctx: ModuleContext<S>): void | Promise<void>;
   teardown?(ctx: ModuleContext<S>): void | Promise<void>;
 }

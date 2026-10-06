@@ -38,7 +38,7 @@ type GainsContext = ModuleContext<GainsState>;
  * shares.
  *
  * The roster is server-only. It is her chat's names and it grows with the
- * channel, and no page needs it: pages draw the board, which is ten rows.
+ * channel. Pages draw the ten-row board or request a bounded user search.
  */
 export const gains: GameModuleDef<GainsState> = {
   id: GAINS_ID,
@@ -71,6 +71,18 @@ export const gains: GameModuleDef<GainsState> = {
     },
   ],
 
+  queries: {
+    users(args, ctx) {
+      const text = (args[0] ?? "").trim().toLowerCase();
+      if (!text) return [];
+      return Object.entries(ctx.state.roster)
+        .filter(([id, account]) => account.name.toLowerCase().includes(text) || id.toLowerCase().includes(text))
+        .sort(([, a], [, b]) => b.lastSeenAt - a.lastSeenAt)
+        .slice(0, 20)
+        .map(([id, account]) => ({ id, name: account.name, balance: ctx.gains.balance(id), streak: account.streak }));
+    },
+  },
+
   actions: {
     balance: {
       label: `Show my ${GAINS.plural}`,
@@ -90,7 +102,7 @@ export const gains: GameModuleDef<GainsState> = {
     give: {
       label: `Give ${GAINS.plural}`,
       // A viewer and an amount, so no grid offers it blind. Her card knows who
-      // is on the board, which is the only place the viewer id comes from.
+      // is on the board or in her search results.
       needsArgs: true,
       run(input, ctx) {
         const gift = makeGift(input.args);

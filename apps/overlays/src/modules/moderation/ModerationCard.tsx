@@ -3,11 +3,13 @@ import {
   MODERATION_ID,
   MOD_RULES,
   type ModFlag,
+  type ModUser,
   type ModRule,
   type ModRuleInput,
   type ModRuleKind,
   type ModerationState,
 } from "@saarathi/shared";
+import { UserSearch } from "../../core/UserSearch.js";
 import { Notice } from "../../core/Notice.js";
 import { addToDeck } from "../../core/addToDeck.js";
 import type { DeckDraft } from "../../core/useDeckDraft.js";
@@ -147,6 +149,35 @@ export function ModerationCard({ connection, deck, status }: CardProps) {
           {swept}
         </p>
       ) : null}
+
+      <UserSearch<ModUser> connection={connection} module={MODERATION_ID}>
+        {(users, refresh) => users === null ? null : (
+          <ul className="flag-rows" data-testid="moderation-users">
+            {users.map((user) => (
+              <li className="flag-row" key={user.author.id}>
+                <p className="flag-who">{user.author.name}</p>
+                <p className="hint user-search-id">{user.author.id}</p>
+                <p className="flag-text">{user.text}</p>
+                {user.author.isMod || user.author.isStreamer ? (
+                  <p className="hint">Moderators and the streamer are protected</p>
+                ) : canAct ? (
+                  <div className="flag-tools">
+                    {user.messageId ? <button type="button" className="tool" disabled={busy}
+                      onClick={async () => {
+                        if (await run(`${MODERATION_ID}.removeUser`, [user.author.id, user.messageId!])) refresh();
+                      }}>Take it down</button> : <span className="hint">No message id to take down</span>}
+                    <button type="button" className="tool tool-danger" disabled={busy}
+                      onClick={async () => {
+                        if (await run(`${MODERATION_ID}.banUser`, [user.author.id])) refresh();
+                      }}>Ban them</button>
+                  </div>
+                ) : <p className="hint">Remove anything bad from the live dashboard.</p>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </UserSearch>
+      <p className="hint">Search covers the last 100 chatters this run. The flagged queue is below.</p>
 
       {flags.length === 0 ? (
         <p className="empty" data-testid="moderation-empty">

@@ -1,3 +1,5 @@
+import type { Author } from "../events.js";
+
 export const MODERATION_ID = "moderation";
 
 /**
@@ -194,7 +196,18 @@ export interface PurgeReport {
   stopped: number;
 }
 
+export interface ModUser {
+  author: Author;
+  at: number;
+  text: string;
+  messageId: string | null;
+}
+
+export const MAX_MOD_USERS = 100;
+
 export interface ModerationState {
+  /** Latest message per recent chatter. Server-only and transient. */
+  users: Record<string, ModUser>;
   rules: ModRule[];
   /** Newest first, capped at `MAX_FLAGS`. */
   flags: ModFlag[];

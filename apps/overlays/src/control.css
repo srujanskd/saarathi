@@ -580,3 +580,7 @@
     transform: none;
   }
 }
+
+.user-search-id {
+  overflow-wrap: anywhere;
+}

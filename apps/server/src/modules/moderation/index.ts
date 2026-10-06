@@ -3,6 +3,7 @@ import {
   FLOOD_WINDOW_MS,
   LOCKDOWN_MS,
   MAX_FLAGS,
+  MAX_MOD_USERS,
   MOD_RULES,
   MODERATION_ID,
   NO_WRITER,
@@ -55,6 +56,7 @@ export const moderation: GameModuleDef<ModerationState> = {
   title: "Moderation",
 
   initialState: {
+    users: {},
     rules: defaultRules(),
     flags: [],
     seen: 0,
@@ -75,9 +77,49 @@ export const moderation: GameModuleDef<ModerationState> = {
   // The flood history is her chat's names, keyed by viewer and growing with the
   // channel, and no page draws it: pages draw the queue. Same call as the gains
   // roster, and the same reason.
-  serverOnly: ["floods"],
+  serverOnly: ["floods", "users"],
+
+  queries: {
+    users(args, ctx) {
+      const text = (args[0] ?? "").trim().toLowerCase();
+      if (!text) return [];
+      return Object.values(ctx.state.users)
+        .filter((user) => user.author.name.toLowerCase().includes(text) || user.author.id.toLowerCase().includes(text))
+        .sort((a, b) => b.at - a.at)
+        .slice(0, 20);
+    },
+  },
 
   actions: {
+    removeUser: {
+      label: "Take their latest message down",
+      needsArgs: true,
+      async run(input, ctx) {
+        const user = ctx.state.users[input.args[0] ?? ""];
+        if (!user) return ctx.refuse("That user is no longer in recent chat");
+        if (exempt(user.author)) return ctx.refuse("Moderators and the streamer are protected");
+        if (!user.messageId) return ctx.refuse("This message has no id to take down");
+        if (user.messageId !== input.args[1]) return ctx.refuse("They sent a newer message. Search again");
+        const done = await ctx.writes.removeMessage(user.messageId);
+        if (!done.ok) return ctx.refuse(done.reason);
+        keepOnly(ctx, (flag) => flag.messageId !== user.messageId);
+        forgetUser(ctx, user.author.id, user.messageId);
+        ctx.setState({ removed: ctx.state.removed + 1 });
+      },
+    },
+    banUser: {
+      label: "Ban a recent chatter",
+      needsArgs: true,
+      async run(input, ctx) {
+        const user = ctx.state.users[input.args[0] ?? ""];
+        if (!user) return ctx.refuse("That user is no longer in recent chat");
+        if (exempt(user.author)) return ctx.refuse("Moderators and the streamer are protected");
+        const done = await ctx.writes.banAuthor(user.author.id);
+        if (!done.ok) return ctx.refuse(done.reason);
+        keepOnly(ctx, (flag) => flag.authorId !== user.author.id);
+        forgetUser(ctx, user.author.id);
+      },
+    },
     setRule: {
       label: "Change a rule",
       // A kind, a switch and a value, so no grid offers it as a button: her
@@ -138,6 +180,7 @@ export const moderation: GameModuleDef<ModerationState> = {
         // answers: she can read why on the card and press it again.
         if (!done.ok) return ctx.refuse(done.reason);
         keepOnly(ctx, (other) => other.id !== flag.id);
+        forgetUser(ctx, flag.authorId, flag.messageId);
         ctx.setState((state) => ({ removed: state.removed + 1 }));
       },
     },
@@ -153,6 +196,7 @@ export const moderation: GameModuleDef<ModerationState> = {
         // account's other four messages are not four more decisions, and
         // leaving them there is the queue asking her the same question again.
         keepOnly(ctx, (other) => other.authorId !== flag.authorId);
+        forgetUser(ctx, flag.authorId);
       },
     },
 
@@ -306,6 +350,12 @@ function watch(ctx: ModContext, event: StreamEvent, rules: CompiledRules): void 
   // because "is this thing even running" is answered by the total.
   const counted = noteMessage(ctx.state.floods, event.author.id, event.at);
   const patch: Partial<ModerationState> = {
+    users: Object.fromEntries(
+      Object.entries({ [event.author.id]: {
+        author: event.author, at: event.at, text: trimText(event.text), messageId: event.messageId ?? null,
+      }, ...Object.fromEntries(Object.entries(ctx.state.users).filter(([id]) => id !== event.author.id)) })
+        .sort(([, a], [, b]) => b.at - a.at).slice(0, MAX_MOD_USERS),
+    ),
     seen: ctx.state.seen + 1,
     floods: counted.history,
   };
@@ -414,4 +464,11 @@ function sameRules(a: ModerationState["rules"], b: ModerationState["rules"]): bo
     const right = b[index]!;
     return left.kind === right.kind && left.enabled === right.enabled && left.value === right.value;
   });
+}
+
+function forgetUser(ctx: ModContext, authorId: string, messageId?: string): void {
+  if (messageId && ctx.state.users[authorId]?.messageId !== messageId) return;
+  const users = { ...ctx.state.users };
+  delete users[authorId];
+  ctx.setState({ users });
 }

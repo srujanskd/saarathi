@@ -48,6 +48,44 @@ describe("HTTP access", () => {
     });
   });
 
+  it("keeps user searches control-only and validates search input", async () => {
+    const body = JSON.stringify({ query: "gains.users", args: ["Asha"] });
+    for (const token of [null, server.overlayToken]) {
+      const response = await server.raw("/api/query", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body,
+      });
+      expect(response.status).toBe(401);
+    }
+    const headers = { "content-type": "application/json", authorization: `Bearer ${server.controlToken}` };
+    for (const input of [null, {}, { query: "gains.users", args: ["x".repeat(121)] }, { query: "gains.users", args: [4] }]) {
+      expect((await server.raw("/api/query", { method: "POST", headers, body: JSON.stringify(input) })).status).toBe(400);
+    }
+    await server.invoke({ action: "gains.rate", args: ["0"] });
+    await server.mockChat({ author: "Search viewer", text: "hello" });
+    const search = async (query: string) => {
+      const response = await server.raw("/api/query", {
+        method: "POST", headers, body: JSON.stringify({ query, args: ["search viewer"] }),
+      });
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    expect(await search("gains.users")).toEqual([
+      { id: "mock:Search viewer", name: "Search viewer", balance: 0, streak: expect.any(Number) },
+    ]);
+    expect(await search("moderation.users")).toEqual([
+      expect.objectContaining({ author: expect.objectContaining({ name: "Search viewer" }), text: "hello" }),
+    ]);
+    const phone = await server.connect({ surface: "control" });
+    expect(phone.snapshots.at(-1)!.modules.gains).not.toHaveProperty("roster");
+    expect(phone.snapshots.at(-1)!.modules.moderation).not.toHaveProperty("users");
+    await phone.close();
+    const returning = await server.connect({ surface: "control" });
+    expect(await search("moderation.users")).toHaveLength(1);
+    await returning.close();
+  });
+
   it("exchanges the tray code for control access", async () => {
     const response = await server.raw("/api/access/pair", {
       method: "POST",
