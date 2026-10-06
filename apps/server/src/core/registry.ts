@@ -202,6 +202,17 @@ export class Registry {
     return out;
   }
 
+  query(queryId: string, args: string[]): { ok: true; value: unknown } | { ok: false; reason: string } {
+    const separator = queryId.indexOf(".");
+    const runtime = this.modules.get(queryId.slice(0, separator));
+    if (!runtime?.enabled) return { ok: false, reason: "That tool is unavailable" };
+    const name = queryId.slice(separator + 1);
+    const queries = runtime.def.queries;
+    const query = queries && Object.hasOwn(queries, name) ? queries[name] : undefined;
+    if (!query) return { ok: false, reason: "That search is unavailable" };
+    return { ok: true, value: query(args, { state: runtime.state, gains: this.deps.gains }) };
+  }
+
   /** The command index, built from enabled modules only. */
   findCommand(name: string) {
     const wanted = name.toLowerCase();

@@ -271,6 +271,20 @@ app.post("/api/mock-chat", async (request, reply) => {
   return { ok: true };
 });
 
+app.post("/api/query", async (request, reply) => {
+  if (!allows(request.headers.authorization, "control")) {
+    return reply.code(401).send({ reason: "Pair this device with Saarathi" });
+  }
+  const body = request.body as { query?: unknown; args?: unknown } | null;
+  if (typeof body?.query !== "string" || body.query.length > 120 || !Array.isArray(body.args) ||
+      body.args.length > 4 || body.args.some((arg) => typeof arg !== "string" || arg.length > 120)) {
+    return reply.code(400).send({ reason: "Enter a shorter search" });
+  }
+  const result = kernel.registry.query(body.query, body.args as string[]);
+  if (!result.ok) return reply.code(400).send({ reason: result.reason });
+  return result.value;
+});
+
 app.post("/api/invoke", async (request, reply) => {
   if (!allows(request.headers.authorization, "control")) {
     return reply.code(401).send({ reason: "Pair this device with Saarathi" });

@@ -6,6 +6,7 @@ import {
   type BoardRow,
   type GainsState,
 } from "@saarathi/shared";
+import { UserSearch } from "../../core/UserSearch.js";
 import { Notice } from "../../core/Notice.js";
 import { addToDeck } from "../../core/addToDeck.js";
 import { useModuleState } from "../../lib/connection.js";
@@ -59,64 +60,73 @@ export function GainsCard({ connection, deck, status }: CardProps) {
           : `${perMinute} ${GAINS.plural} a minute to everyone who has chatted recently`}
       </p>
 
-      {board.length === 0 ? (
-        <p className="empty" data-testid="gains-empty">
-          Nobody has earned anything yet. It fills up as chat talks.
-        </p>
-      ) : (
-        <ol className="board-rows-card" data-testid="gains-rows">
-          {board.map((row, index) => (
-            <li key={row.id} className="board-row-card">
-              <p className="board-row-card-top">
-                <span>
-                  <span className="board-row-card-place">{index + 1}</span>
-                  {row.name}
-                </span>
-              </p>
-              <p className="hint">{rowSummary(row)}</p>
+      <UserSearch<BoardRow> connection={connection} module={GAINS_ID}>
+        {(matches, refresh) => {
+          const rows = matches ?? board;
+          async function give(id: string, amount: number) {
+            if (await run(`${GAINS_ID}.give`, [id, String(amount)])) refresh();
+          }
+          return rows.length === 0 ? (
+            <p className="empty" data-testid="gains-empty">
+              {matches ? "Try another name or user ID." : "Nobody has earned anything yet. It fills up as chat talks."}
+            </p>
+          ) : (
+            <ol className="board-rows-card" data-testid="gains-rows">
+              {rows.map((row, index) => (
+                <li key={row.id} className="board-row-card">
+                  <p className="board-row-card-top">
+                    <span>
+                      {matches ? null : <span className="board-row-card-place">{index + 1}</span>}
+                      {row.name}
+                    </span>
+                  </p>
+                  <p className="hint">{rowSummary(row)}</p>
+                  {matches ? <p className="hint user-search-id">{row.id}</p> : null}
 
-              <div className="board-row-card-tools">
-                {HANDOUTS.map((amount) => (
-                  <button
-                    key={`give-${amount}`}
-                    type="button"
-                    className="tool"
-                    disabled={busy}
-                    data-testid="gains-give"
-                    onClick={() => void run(`${GAINS_ID}.give`, [row.id, String(amount)])}
-                  >
-                    +{amount}
-                  </button>
-                ))}
-                {/* One hand-back per hand-out, not one for the smaller of
-                    them: a double-tapped +250 that only comes off 50 at a time
-                    is five taps to undo one mistake, and with a thumb between
-                    sets the tap that lands twice is the normal case. */}
-                {HANDOUTS.map((amount) => (
-                  <button
-                    key={`take-${amount}`}
-                    type="button"
-                    className="tool"
-                    disabled={busy || row.balance < amount}
-                    data-testid="gains-take"
-                    onClick={() => void run(`${GAINS_ID}.give`, [row.id, String(-amount)])}
-                  >
-                    −{amount}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  className="tool"
-                  disabled={busy}
-                  onClick={() => void addGiveToDeck(row)}
-                >
-                  On the deck
-                </button>
-              </div>
-            </li>
-          ))}
-        </ol>
-      )}
+                  <div className="board-row-card-tools">
+                    {HANDOUTS.map((amount) => (
+                      <button
+                        key={`give-${amount}`}
+                        type="button"
+                        className="tool"
+                        disabled={busy}
+                        data-testid="gains-give"
+                        onClick={() => void give(row.id, amount)}
+                      >
+                        +{amount}
+                      </button>
+                    ))}
+                    {/* One hand-back per hand-out, not one for the smaller of
+                        them: a double-tapped +250 that only comes off 50 at a time
+                        is five taps to undo one mistake, and with a thumb between
+                        sets the tap that lands twice is the normal case. */}
+                    {HANDOUTS.map((amount) => (
+                      <button
+                        key={`take-${amount}`}
+                        type="button"
+                        className="tool"
+                        disabled={busy || row.balance < amount}
+                        data-testid="gains-take"
+                        onClick={() => void give(row.id, -amount)}
+                      >
+                        −{amount}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="tool"
+                      disabled={busy}
+                      onClick={() => void addGiveToDeck(row)}
+                    >
+                      On the deck
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          );
+        }}
+      </UserSearch>
 
       <details className="fold">
         <summary>
