@@ -705,6 +705,7 @@ describe("the writes themselves", () => {
 
     expect(kit.store.read("youtube")).toEqual({
       channelId: "UCbbbbbbbbbbbbbbbbbbbbbb",
+      liveId: "",
       apiKey: "k",
       refreshToken: "rt-1",
       clientId: "",

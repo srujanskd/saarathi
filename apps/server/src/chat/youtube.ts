@@ -41,6 +41,7 @@ import {
 /** What she has set up, and all of what this adapter persists. */
 interface Saved {
   channelId: string;
+  liveId: string;
   /**
    * A YouTube Data API key, for the counts only -- chat is read over InnerTube
    * and costs no quota. Public-data path: no OAuth, no consent screen, no
@@ -102,9 +103,8 @@ interface Saved {
 export interface YouTubeSeed {
   channelId?: string;
   /**
-   * One video, pinned by hand. The testing path and deliberately not on her
-   * page: it names a single stream, so it outlives chat ending, where a video
-   * learned from chat does not.
+   * Development override for one broadcast. Her saved stream selection wins.
+   * Like that selection, it outlives chat ending.
    */
   liveId?: string;
   apiKey?: string;
@@ -146,6 +146,26 @@ const CHAT_TYPE: ChatType = "live";
 const CHANNEL_ID = /^UC[A-Za-z0-9_-]{22}$/;
 const CHANNEL_URL = /\/channel\/(UC[A-Za-z0-9_-]{22})/;
 const HANDLE = /(^|\/)@[A-Za-z0-9._-]+/;
+
+/** Extract only an id: the reader builds its own URL and never fetches a pasted host. */
+export function streamIdFrom(input: string): { id: string } | { reason: string } {
+  const text = input.trim();
+  if (!text || /^[A-Za-z0-9_-]{11}$/.test(text)) return { id: text };
+  try {
+    const url = new URL(text);
+    const host = url.hostname.toLowerCase();
+    const parts = url.pathname.split("/").filter(Boolean);
+    let id: string | null | undefined;
+    if (host === "youtu.be" && parts.length === 1) id = parts[0];
+    if (["youtube.com", "www.youtube.com", "m.youtube.com"].includes(host)) {
+      if (url.pathname === "/watch") id = url.searchParams.get("v");
+      if (parts.length === 2 && parts[0] === "live") id = parts[1];
+    }
+    if (["http:", "https:"].includes(url.protocol) && !url.username && !url.password &&
+        id && /^[A-Za-z0-9_-]{11}$/.test(id)) return { id };
+  } catch { /* A malformed link gets the same useful refusal as a wrong host. */ }
+  return { reason: "Paste a YouTube video link or its 11-character video ID. Clear it to use your channel." };
+}
 
 /**
  * The one sentence that answers "where do I get this". It is here rather than
@@ -236,7 +256,7 @@ export class YouTubeAdapter implements ChatAdapter {
     this.get = options.get ?? httpGet;
     this.request = options.request ?? httpJson;
     this.saved = this.load();
-    this.videoId = this.seed.liveId ?? null;
+    this.videoId = this.pinnedVideo();
     this.builtIn = options.client ?? null;
     this.grant = new YouTubeGrant(
       {
@@ -349,11 +369,17 @@ export class YouTubeAdapter implements ChatAdapter {
       // The key never travels. This is what the field and Forget key render on,
       // and it is everything a page needs to know about either.
       hasKey: this.saved.apiKey !== "",
+      stream: {
+        url: this.saved.liveId ? `https://www.youtube.com/watch?v=${this.saved.liveId}` : "",
+        hint: "For an unlisted test stream, paste its video link. Clear this field to find public streams automatically. Private streams cannot be read, even after signing in for replies.",
+      },
       hint: WHERE,
       signIn: this.signInView(),
     }),
 
-    save: async ({ channelId, apiKey }): Promise<InvokeResult> => {
+    save: async ({ channelId, apiKey, streamUrl }): Promise<InvokeResult> => {
+      const video = streamUrl === undefined ? { id: this.saved.liveId } : streamIdFrom(streamUrl);
+      if ("reason" in video) return { ok: false, reason: video.reason };
       let id = "";
       if (channelId !== "") {
         const parsed = channelIdFrom(channelId);
@@ -366,6 +392,7 @@ export class YouTubeAdapter implements ChatAdapter {
       this.write({
         ...this.saved,
         channelId: id,
+        liveId: video.id,
         // Blank means "leave it alone", because it is never sent to a client to
         // prefill the field with. Forgetting it is its own button.
         apiKey: apiKey || this.saved.apiKey,
@@ -500,13 +527,19 @@ export class YouTubeAdapter implements ChatAdapter {
 
   // --- connecting -----------------------------------------------------------
 
-  /** One reader, if there is a channel to point it at. */
+  /** A selected broadcast outlives chat ending; a discovered one does not. */
+  private pinnedVideo(): string | null {
+    return this.saved.liveId || this.seed.liveId || null;
+  }
+
+  /** One reader, pointed at a selected stream or the channel. */
   private async open(): Promise<void> {
     if (this.stopped || !this.sink) return;
 
     const sink = this.sink;
-    const source = this.seed.liveId
-      ? { liveId: this.seed.liveId }
+    const pinned = this.pinnedVideo();
+    const source = pinned
+      ? { liveId: pinned }
       : this.saved.channelId
         ? { channelId: this.saved.channelId }
         : null;
@@ -535,7 +568,7 @@ export class YouTubeAdapter implements ChatAdapter {
       // She went offline. The likes belonged to that video and the next stream
       // starts its own count, so holding on to this id would render one stream's
       // likes on the next one's goal.
-      this.videoId = this.seed.liveId ?? null;
+      this.videoId = this.pinnedVideo();
       this.forgetChat();
       sink.status({
         state: "disconnected",
@@ -564,7 +597,7 @@ export class YouTubeAdapter implements ChatAdapter {
     }
     this.chat?.stop?.();
     this.chat = null;
-    this.videoId = this.seed.liveId ?? null;
+    this.videoId = this.pinnedVideo();
     this.forgetChat();
   }
 
@@ -614,6 +647,7 @@ export class YouTubeAdapter implements ChatAdapter {
       // testing story it unlocks -- signing in is two taps.
       return {
         channelId: this.seed.channelId ?? "",
+        liveId: "",
         apiKey: this.seed.apiKey ?? "",
         refreshToken: "",
         clientId: "",
@@ -622,6 +656,7 @@ export class YouTubeAdapter implements ChatAdapter {
     }
     return {
       channelId: typeof saved.channelId === "string" ? saved.channelId : "",
+      liveId: typeof saved.liveId === "string" && /^[A-Za-z0-9_-]{11}$/.test(saved.liveId) ? saved.liveId : "",
       apiKey: typeof saved.apiKey === "string" ? saved.apiKey : "",
       refreshToken: typeof saved.refreshToken === "string" ? saved.refreshToken : "",
       clientId: typeof saved.clientId === "string" ? saved.clientId : "",

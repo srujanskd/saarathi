@@ -25,6 +25,7 @@ import { gains } from "./modules/gains/index.js";
 import { goals } from "./modules/goals/index.js";
 import { moderation } from "./modules/moderation/index.js";
 import { createMedia } from "./modules/media/index.js";
+import { systemVoice } from "./modules/media/speech.js";
 import { DiskMediaFiles } from "./modules/media/files.js";
 import { wheel } from "./modules/wheel/index.js";
 
@@ -51,7 +52,7 @@ const log: Logger = {
 const stateFile = process.env.STATE_FILE ?? defaultStorePath();
 const store = new JsonStore(stateFile, log);
 const access = new Access({ store });
-const media = createMedia({ files: new DiskMediaFiles(join(dirname(stateFile), "media")) });
+const media = createMedia({ files: new DiskMediaFiles(join(dirname(stateFile), "media")), voice: systemVoice(process.platform) });
 
 // Mock chat is always on. Every chat-driven feature has to be drivable without
 // a live stream, or nobody can test it.

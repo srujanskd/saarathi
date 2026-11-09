@@ -9,7 +9,7 @@ import {
 import { Notice } from "../../core/Notice.js";
 import { addToDeck } from "../../core/addToDeck.js";
 import { useModuleState } from "../../lib/connection.js";
-import { useInvoke } from "../../lib/invoke.js";
+import { useInvoke, type Invoker } from "../../lib/invoke.js";
 import type { CardProps } from "../types.js";
 import { inspectMedia } from "./file.js";
 import "./media-card.css";
@@ -86,9 +86,24 @@ export function MediaCard({ connection, deck }: CardProps) {
       <p className="hint">Images and clips appear in OBS through the Media overlay from the Saarathi tray.</p>
       {invoke.notice ? <Notice notice={invoke.notice} testId="media-notice" onDismiss={invoke.dismiss} /> : null}
 
+      <div className="field">
+        <span>Read paid messages aloud</span>
+        <p className="hint">Reads the sender, amount and message for Super Chats and tips. Add the Media overlay in OBS to hear it on stream.</p>
+        <button className="btn" type="button" aria-pressed={state?.ttsEnabled ?? false} disabled={invoke.working || !state}
+          onClick={() => void invoke.run(`${MEDIA_ID}.tts`, [state?.ttsEnabled ? "off" : "on"])}>
+          Speech {state?.ttsEnabled ? "on" : "off"}
+        </button>
+        <button className="btn" type="button" disabled={invoke.working || !state?.ttsEnabled}
+          onClick={() => void invoke.run(`${MEDIA_ID}.testVoice`)}>Test voice</button>
+        <button className="btn" type="button" disabled={invoke.working}
+          onClick={() => void invoke.run(`${MEDIA_ID}.stop`)}>Stop speech and media</button>
+        <p className="hint" role="status">{state?.ttsStatus}</p>
+        {state ? <SpeechSettings state={state} invoke={invoke} /> : null}
+      </div>
+
       {state?.active ? (
         <div className="media-live" data-testid="media-active">
-          <span>Playing {items.find((item) => item.id === state.active?.itemId)?.label ?? "a clip"}</span>
+          <span>Playing {state.speech?.label ?? items.find((item) => item.id === state.active?.itemId)?.label ?? "a clip"}</span>
           <button className="tool" type="button" onClick={() => void invoke.run(`${MEDIA_ID}.stop`)}>
             Stop all
           </button>
@@ -173,4 +188,51 @@ function assetPath(item: MediaItem): string {
 
 function formatBytes(bytes: number): string {
   return bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function SpeechSettings({ state, invoke }: { state: MediaState; invoke: Invoker }) {
+  const [draft, setDraft] = useState<{ provider: MediaState["speechProvider"]; region: string } | null>(null);
+  const [key, setKey] = useState("");
+  const fields = draft ?? { provider: state.speechProvider, region: state.speechRegion };
+  const microsoft = fields.provider === "microsoft";
+  async function save() {
+    if (await invoke.run(`${MEDIA_ID}.speechSettings`, [fields.provider, fields.region, key])) {
+      setDraft(null);
+      setKey("");
+      invoke.say("Speech voice saved. Use Test voice to hear it in OBS.");
+    }
+  }
+  return (
+    <details className="fold">
+      <summary>Voice: {state.speechProvider === "microsoft" ? "Kannada announcer" : "Built-in"}</summary>
+      <label className="field">
+        <span>Voice</span>
+        <select className="select" value={fields.provider} disabled={invoke.working}
+          onChange={(event) => setDraft({ ...fields, provider: event.target.value as MediaState["speechProvider"] })}>
+          <option value="system">Built-in voice, offline</option>
+          <option value="microsoft">Microsoft Kannada announcer, online</option>
+        </select>
+      </label>
+      {microsoft ? <>
+        <p className="hint">Gagan, with a lower pitch and slower delivery. Kannada messages work best; text is read as written, without translation. This is an announcer preset, not the Bigg Boss actor's voice.</p>
+        <p className="hint">Requires an Azure Speech resource. Microsoft receives the sender, amount and message for speech generation; usage may incur Azure charges. Copy the key and region from its Keys and Endpoint page. <a href="https://learn.microsoft.com/en-us/azure/ai-services/speech-service/get-started-text-to-speech" target="_blank" rel="noreferrer">Microsoft setup guide</a></p>
+        <label className="field">
+          <span>Azure region code</span>
+          <input className="input" value={fields.region} maxLength={40} autoCapitalize="none" autoCorrect="off" spellCheck={false}
+            placeholder="centralindia" disabled={invoke.working}
+            onChange={(event) => setDraft({ ...fields, region: event.target.value })} />
+        </label>
+        <label className="field">
+          <span>Azure Speech key{state.hasSpeechKey ? " saved; leave blank to keep it" : ""}</span>
+          <input className="input" type="password" autoComplete="new-password" value={key} maxLength={256} disabled={invoke.working}
+            placeholder={state.hasSpeechKey ? "Key saved on server" : "Paste your Speech resource key"}
+            onChange={(event) => setKey(event.target.value)} />
+        </label>
+      </> : null}
+      <button className="btn" type="button" disabled={invoke.working} onClick={() => void save()}>Save voice</button>
+      <button className="btn" type="button" disabled={invoke.working} onClick={() => { setDraft(null); setKey(""); }}>Discard changes</button>
+      {state.hasSpeechKey ? <button className="btn" type="button" disabled={invoke.working}
+        onClick={async () => { if (await invoke.run(`${MEDIA_ID}.forgetSpeechKey`)) setKey(""); }}>Forget Microsoft key</button> : null}
+    </details>
+  );
 }

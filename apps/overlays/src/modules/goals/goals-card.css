@@ -1,4 +1,4 @@
-/* Her goals on her phone. The overlay's own bar lives in goals.css: this page
+/* Her goals on her phone. The overlay's counter lives in goals.css: this page
    is a list she taps, not something OBS composites over her camera. */
 
 .goal-rows {
@@ -24,11 +24,11 @@
   font-weight: 650;
 }
 
-.goal-row[data-landed="true"] .goal-row-count {
+.goal-row[data-landed="true"] .goal-count {
   color: var(--ok);
 }
 
-.goal-row-count {
+.goal-count {
   flex: none;
   font-variant-numeric: tabular-nums;
 }

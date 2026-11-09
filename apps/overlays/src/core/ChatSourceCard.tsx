@@ -50,14 +50,14 @@ export function ChatSourceCard({
   writes: ChatWritesView;
 }) {
   const invoke = useInvoke(connection);
-  const [draft, setDraft] = useState<{ channelId: string; apiKey: string } | null>(null);
+  const [draft, setDraft] = useState<{ channelId: string; apiKey: string; streamUrl: string } | null>(null);
 
   const busy = invoke.working;
   // Same discipline as the OBS card and the challenge editor: a draft shadows
   // the server only while it exists, so one keystroke cannot freeze the field
   // against the next snapshot, and a refused save leaves her text where she can
   // fix it.
-  const fields = draft ?? { channelId: view.channelId, apiKey: "" };
+  const fields = draft ?? { channelId: view.channelId, apiKey: "", streamUrl: view.stream?.url ?? "" };
   const dirty = draft !== null;
   const counts = countsLine(stats);
   const written = writesLine(writes, name);
@@ -66,6 +66,7 @@ export function ChatSourceCard({
 
   async function save(): Promise<void> {
     const args = [name, fields.channelId, fields.apiKey];
+    if (view.stream) args.push(fields.streamUrl);
     if (await run(CORE_ACTIONS.chatSettings, args)) setDraft(null);
   }
 
@@ -102,10 +103,10 @@ export function ChatSourceCard({
 
       {/* Open until she has set a channel, because until then this is the only
           thing on the page worth doing. It folds itself away once she has. */}
-      <details className="fold" open={!view.channelId}>
+      <details className="fold" open={!view.channelId && !view.stream?.url}>
         <summary>
           <span data-testid="chat-where">
-            {view.channelId ? `Reading ${view.channelId}` : "Not set up yet"}
+            {view.stream?.url ? "Reading a selected stream" : view.channelId ? `Reading ${view.channelId}` : "Not set up yet"}
           </span>
           {dirty ? (
             <span className="dirty" data-testid="chat-unsaved">
@@ -129,6 +130,33 @@ export function ChatSourceCard({
             onChange={(event) => setDraft({ ...fields, channelId: event.target.value })}
           />
         </label>
+        {view.stream ? (
+          <>
+            <label className="field">
+              <span>Stream URL (optional)</span>
+              <input
+                className="input"
+                data-testid="chat-stream"
+                value={fields.streamUrl}
+                inputMode="url"
+                autoComplete="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                placeholder="Paste a stream link"
+                onChange={(event) => setDraft({ ...fields, streamUrl: event.target.value })}
+              />
+            </label>
+            <p className="hint">{view.stream.hint}</p>
+            <button
+              type="button"
+              className="btn"
+              disabled={busy || !fields.streamUrl}
+              onClick={() => setDraft({ ...fields, streamUrl: "" })}
+            >
+              Use channel automatically
+            </button>
+          </>
+        ) : null}
         <label className="field">
           <span>{view.hasKey ? "API key (saved — leave blank to keep it)" : "API key"}</span>
           <input
