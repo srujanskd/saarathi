@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { MEDIA_TYPES, type MediaItem, type MediaMime } from "@saarathi/shared";
 
@@ -11,7 +11,16 @@ export interface MediaFiles {
 
 /** Files beside state.json, under the same app-data directory Electron owns. */
 export class DiskMediaFiles implements MediaFiles {
-  constructor(private readonly directory: string) {}
+  constructor(private readonly directory: string) {
+    // Speech is never durable. A crash can leave a WAV behind, so remove only
+    // our generated speech filenames on the next boot, never library clips.
+    if (!existsSync(directory)) return;
+    for (const name of readdirSync(directory)) {
+      if (/^speech-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.wav$/.test(name)) {
+        rmSync(join(directory, name), { force: true });
+      }
+    }
+  }
 
   put(id: string, mime: MediaMime, data: Buffer): void {
     mkdirSync(this.directory, { recursive: true });

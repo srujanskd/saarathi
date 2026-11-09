@@ -94,7 +94,7 @@ function chatCheck(
 
   const [name, view] = entry;
   const status = core.connections[name];
-  const configured = view.channelId.trim().length > 0;
+  const configured = view.channelId.trim().length > 0 || Boolean(view.stream?.url);
   const failed = status?.state === "error";
   return {
     id: "chat",
@@ -106,7 +106,9 @@ function chatCheck(
         ? status.detail
         : status?.state === "connected"
           ? status.detail
-          : `Channel saved. Saarathi will join when your next live stream starts.`,
+          : view.stream?.url
+            ? (status?.detail ?? "Waiting for the selected stream to start.")
+            : `Channel saved. Saarathi will join when your next live stream starts.`,
     fixAt: configured && !failed ? undefined : `#chat-${name}`,
   };
 }

@@ -42,4 +42,11 @@ export interface MediaCue {
 export interface MediaState {
   items: MediaItem[];
   active: MediaCue | null;
+  /** Only the preference survives a restart. Speech audio and status do not. */
+  ttsEnabled: boolean;
+  ttsStatus: string;
+  speech: MediaItem | null;
+  speechProvider: "system" | "microsoft";
+  speechRegion: string;
+  hasSpeechKey: boolean;
 }

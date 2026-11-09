@@ -6,7 +6,7 @@ import {
   type ChatAdapter,
   type ChatClientInput,
 } from "../../src/chat/adapter.js";
-import { channelIdFrom } from "../../src/chat/youtube.js";
+import { channelIdFrom, streamIdFrom } from "../../src/chat/youtube.js";
 import { MockChatAdapter } from "../../src/chat/mock.js";
 
 const CHANNEL = "UCaaaaaaaaaaaaaaaaaaaaaa";
@@ -256,5 +256,42 @@ describe("chatViews", () => {
   it("leaves out the adapters with nothing to set up", () => {
     const views = chatViews([new MockChatAdapter(), settable()]);
     expect(Object.keys(views)).toEqual(["youtube"]);
+  });
+});
+
+
+describe("a direct stream link", () => {
+  it.each([
+    "abcdefghijk",
+    " https://www.youtube.com/watch?v=abcdefghijk&feature=share ",
+    "https://youtube.com/live/abcdefghijk?si=tracking",
+    "https://m.youtube.com/watch?v=abcdefghijk",
+    "https://youtu.be/abcdefghijk?t=12",
+  ])("extracts the video from %s", (input) => {
+    expect(streamIdFrom(input)).toEqual({ id: "abcdefghijk" });
+  });
+  it.each([
+    "https://youtube.com.evil.test/watch?v=abcdefghijk",
+    "https://example.com/watch?v=abcdefghijk",
+    "https://youtube.com/channel/abcdefghijk",
+    "https://youtube.com/watch?v=short",
+    "https://youtube.com/live/abcdefghijk/extra",
+    "https://user:password@youtube.com/watch?v=abcdefghijk",
+    "file:///watch?v=abcdefghijk",
+  ])("refuses %s", (input) => {
+    expect(streamIdFrom(input)).toHaveProperty("reason");
+  });
+  it("clears the selection on blank", () => {
+    expect(streamIdFrom("  ")).toEqual({ id: "" });
+  });
+  it("routes a pasted link and an explicit clear, preserving omission for older pages", async () => {
+    const adapter = settable();
+    await chatCommand([adapter], CORE_ACTIONS.chatSettings,
+      ["youtube", CHANNEL, "", " https://youtu.be/abcdefghijk "]);
+    await chatCommand([adapter], CORE_ACTIONS.chatSettings, ["youtube", CHANNEL, "", ""]);
+    expect(adapter.saves).toEqual([
+      { channelId: CHANNEL, apiKey: "", streamUrl: "https://youtu.be/abcdefghijk" },
+      { channelId: CHANNEL, apiKey: "", streamUrl: "" },
+    ]);
   });
 });

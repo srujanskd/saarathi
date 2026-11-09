@@ -1,0 +1,39 @@
+.goal-count {
+  display: inline-flex;
+  align-items: baseline;
+  flex: none;
+  white-space: pre;
+  font-variant-numeric: tabular-nums;
+}
+
+.goal-digits {
+  display: inline-grid;
+  overflow: hidden;
+  --count-enter: 100%;
+  --count-exit: -100%;
+}
+
+.goal-digits[data-direction="down"] {
+  --count-enter: -100%;
+  --count-exit: 100%;
+}
+
+.goal-digits > span { grid-area: 1 / 1; text-align: right; }
+.goal-new { animation: count-in 450ms ease-out both; }
+.goal-old { animation: count-out 450ms ease-out both; }
+.goal-target { opacity: 0.65; font-size: 0.8em; }
+
+@keyframes count-in {
+  from { transform: translateY(var(--count-enter)); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes count-out {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(var(--count-exit)); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .goal-new, .goal-old { animation-duration: 1ms; }
+  .goal { transition: none; }
+}

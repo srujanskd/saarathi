@@ -57,6 +57,28 @@ that cannot press buttons or read the moderation queue. The
 tray, floating deck and hotkeys bootstrap through a loopback-only route. "Disconnect all devices"
 rotates both capabilities when a phone or copied URL should stop working.
 
+Goals show current / target numbers for likes, subscribers and custom counts. Reported changes
+slide up or down on the overlay and control page; unknown counts show a dash until a poll answers.
+
+Paid-message speech is on by default. In the Media card, use **Test voice**, toggle speech on or
+off, or stop speech and queued messages. Add the **Media overlay** to OBS and enable its audio
+in the OBS mixer to hear Super Chats and tips on stream. Speech reads the sender, amount and
+up to 180 message characters. It uses the server's built-in Windows or macOS voice without an
+account or API key. The setting survives a restart, while
+queued messages and speech audio do not. Generated WAV audio follows the existing media playback
+path, using [System.Speech on Windows](https://learn.microsoft.com/en-us/dotnet/api/system.speech.synthesis.speechsynthesizer.setoutputtowavefile?view=netframework-4.8).
+
+For a Kannada announcer sound, open **Media → Voice**, choose **Microsoft Kannada announcer**,
+and save your Azure Speech resource's key and region code, such as `centralindia`. Use **Test voice**
+to audition the Kannada sample in OBS. This uses Microsoft's Gagan voice with pitch lowered 12%
+and delivery slowed 15%, not a clone of the Bigg Boss actor. Messages are read as written, without
+translation; Kannada script works best. The voice and region survive restarts. A blank key keeps
+the saved key; **Forget Microsoft key** removes it, and choosing **Built-in voice** switches back.
+The key stays server-side beside the existing credentials and never enters snapshots or logs.
+Microsoft receives the sender, amount and message; this option needs internet access and may incur
+Azure charges. It works on Linux servers as well as Windows and macOS. See the
+[Azure Speech setup guide](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/get-started-text-to-speech).
+
 The media pack stores up to 24 clips beside her state file. A clip can be previewed, added to the
 deck, played through one server-timed lane and stopped explicitly. The library survives a restart;
 active playback does not. An overlay that reconnects during a clip seeks to the server's elapsed
@@ -144,6 +166,10 @@ asked -- otherwise a goal bar on her stream renders invented numbers that look e
 plausible.
 
 She points it at her channel from her phone, because she cannot set an environment variable.
+For an unlisted test stream, paste its watch link into **Stream URL** on the same card and save.
+The selected video is remembered across restarts. Clear it and save to return to automatic
+channel discovery. Private streams are not supported by the reader; signing in enables replies
+and does not grant the reader access to private videos.
 These three are seeds, used only while she has saved nothing, and only worth setting when you
 are specifically testing the adapter:
 

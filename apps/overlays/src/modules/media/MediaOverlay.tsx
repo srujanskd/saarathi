@@ -7,7 +7,7 @@ export function MediaOverlay({ connection }: { connection: Connection }) {
   const state = useModuleState<MediaState>(connection, MEDIA_ID);
   const [, redraw] = useState(0);
   const cue = state?.active ?? null;
-  const item = cue ? state?.items.find((candidate) => candidate.id === cue.itemId) : null;
+  const item = cue ? (state?.speech?.id === cue.itemId ? state.speech : state?.items.find((candidate) => candidate.id === cue.itemId)) : null;
   const remaining = cue ? cue.endsAt - connection.serverNow() : 0;
 
   useEffect(() => {

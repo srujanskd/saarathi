@@ -87,6 +87,29 @@ describe("the media pack", () => {
     await late.close();
   });
 
+  it("keeps the Microsoft speech key server-side across patches and a reconnect", async () => {
+    const key = "abcdef0123456789abcdef0123456789";
+    const control = await server.connect({ surface: "control", modules: [MEDIA_ID] });
+    const overlay = await server.connect({ surface: "overlay", modules: [MEDIA_ID] }, "read");
+    try {
+      expect(await overlay.invoke({ action: "media.speechSettings", args: ["microsoft", "eastus", key] })).toMatchObject({ ok: false });
+      expect(await control.invoke({ action: "media.speechSettings", args: ["microsoft", "centralindia", key] })).toEqual({ ok: true });
+      await overlay.waitFor("speech configuration", (client) => (client.latest(MEDIA_ID) as MediaState).hasSpeechKey);
+      const late = await server.connect({ surface: "overlay", modules: [MEDIA_ID] }, "read");
+      try {
+        expect(late.latest(MEDIA_ID)).toMatchObject({ speechProvider: "microsoft", speechRegion: "centralindia", hasSpeechKey: true });
+        expect(JSON.stringify([control.snapshots, control.patches, overlay.patches, late.snapshots])).not.toContain(key);
+        expect(JSON.stringify(await server.get("/api/state"))).not.toContain(key);
+        expect(server.output()).not.toContain(key);
+      } finally { await late.close(); }
+    } finally {
+      await control.invoke({ action: "media.forgetSpeechKey" });
+      await control.invoke({ action: "media.speechSettings", args: ["system", "", ""] });
+      await control.close();
+      await overlay.close();
+    }
+  });
+
   it("keeps the library and its file across a real restart, but stops playback", async () => {
     const first = await startServer();
     const directory = first.stateDir;

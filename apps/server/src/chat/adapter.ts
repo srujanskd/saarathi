@@ -146,6 +146,8 @@ export function outOfQuota(err: unknown): boolean {
 }
 
 export interface ChatSettingsInput {
+  /** Blank restores discovery; omitted preserves the saved selection for older clients. */
+  streamUrl?: string;
   /**
    * Blank clears it, which is her way out: an adapter with no channel goes idle
    * rather than retrying against nothing. Unlike the key, this one *is* sent
@@ -264,6 +266,7 @@ export function chatCommand(
       return settings.save({
         channelId: (args[1] ?? "").trim(),
         apiKey: (args[2] ?? "").trim(),
+        ...(args[3] !== undefined ? { streamUrl: args[3].trim() } : {}),
       });
   }
 }

@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { GOALS_ID, GOAL_ALERT_MS, type Goal, type GoalsState } from "@saarathi/shared";
 import { useModuleState, type Connection } from "../../lib/connection.js";
 import { playChime } from "./chime.js";
-import { atTarget, celebrating, countText, fill, toGo } from "./progress.js";
+import { atTarget, celebrating, toGo } from "./progress.js";
+import { GoalCount } from "./GoalCount.js";
 import "./goals.css";
 
 /** Shared, so an overlay with no goals does not hand React a new array a
@@ -70,13 +71,13 @@ export function GoalsOverlay({ connection }: { connection: Connection }) {
   return (
     <div className="goals" data-testid="goals">
       {goals.map((goal) => (
-        <GoalBar key={goal.id} goal={goal} now={now} />
+        <GoalNumber key={goal.id} goal={goal} now={now} />
       ))}
     </div>
   );
 }
 
-function GoalBar({ goal, now }: { goal: Goal; now: number }) {
+function GoalNumber({ goal, now }: { goal: Goal; now: number }) {
   const remaining = toGo(goal);
   const landed = atTarget(goal);
 
@@ -89,13 +90,8 @@ function GoalBar({ goal, now }: { goal: Goal; now: number }) {
     >
       <p className="goal-top">
         <span className="goal-label">{goal.label}</span>
-        <span className="goal-count">{countText(goal)}</span>
+        <GoalCount goal={goal} />
       </p>
-      <div className="goal-track">
-        {/* scaleX rather than width: a width transition repaints the whole
-            browser source every frame, and she is streaming at 60fps. */}
-        <div className="goal-fill" style={{ transform: `scaleX(${fill(goal)})` }} />
-      </div>
       <p className="goal-foot">
         {landed ? "Done" : remaining === null ? "Counting" : `${remaining.toLocaleString()} to go`}
       </p>

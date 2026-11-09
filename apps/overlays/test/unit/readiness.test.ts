@@ -92,6 +92,19 @@ describe("stream readiness", () => {
     expect(result.checks.find((check) => check.id === "chat")?.detail).toContain("next live stream");
   });
 
+  it("accepts a direct stream without a channel and shows its connection status", () => {
+    const result = streamReadiness(core({
+      chat: { youtube: {
+        title: "YouTube", channelId: "", hasKey: false, hint: "Find it",
+        stream: { url: "https://youtu.be/abcdefghijk", hint: "Clear to use the channel" },
+      } },
+      connections: { ...core().connections, youtube: { state: "connecting", detail: "Looking for a live stream..." } },
+    }));
+    expect(result.checks.find((check) => check.id === "chat")).toMatchObject({
+      state: "ready", detail: "Looking for a live stream...",
+    });
+  });
+
   it("names each independent thing she can fix", () => {
     const result = streamReadiness(
       core({

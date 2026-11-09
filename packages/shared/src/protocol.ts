@@ -117,6 +117,8 @@ export interface ChatView {
   channelId: string;
   /** True when a key of hers is stored. Never the key itself. */
   hasKey: boolean;
+  /** Optional direct-stream selection offered by this adapter. Blank uses the channel. */
+  stream?: { url: string; hint: string };
   /** Where to find the channel id, in her words. */
   hint: string;
   /**
