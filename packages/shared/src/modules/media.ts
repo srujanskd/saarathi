@@ -9,6 +9,11 @@ export const DEFAULT_IMAGE_DURATION_MS = 5_000;
  * who paid: a burst past this is skipped with a status line, never silently.
  */
 export const MAX_PAID_QUEUE = 50;
+/**
+ * How long a paid message stays on screen at the least. Speech is usually
+ * shorter than reading it is, and a silent one has nothing else to time it by.
+ */
+export const PAID_ALERT_MS = 6_000;
 
 export const MEDIA_TYPES = {
   "audio/mpeg": { kind: "audio", extension: "mp3" },
@@ -40,7 +45,10 @@ export interface MediaItem {
 
 export interface MediaCue {
   id: string;
-  itemId: string;
+  /** Null for a paid message shown without a voice. */
+  itemId: string | null;
+  /** The paid message on screen, when this cue is one. */
+  paidId?: string;
   startedAt: number;
   endsAt: number;
 }

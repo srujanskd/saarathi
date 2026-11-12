@@ -123,6 +123,34 @@ test.describe("audio in OBS", () => {
   }
 });
 
+test("a paid message shows in the Media OBS source, survives a reload and stops", async ({
+  page: overlay, pages, saarathi,
+}) => {
+  // Silent, so the spec does not depend on whether this machine has a voice:
+  // the card is the thing under test, and it shows either way.
+  expect(await saarathi.invoke({ action: `${MEDIA_ID}.tts`, args: ["off"] })).toEqual({ ok: true });
+  await overlay.goto(overlayUrl(pages, saarathi, MEDIA_ID));
+  await saarathi.mockChat({ type: "superchat", author: "Ana", amount: "₹100.00", text: "One more set!" });
+
+  const alert = overlay.getByTestId("paid-alert");
+  await expect(alert).toContainText("Ana");
+  await expect(alert).toContainText("₹100.00");
+  await expect(alert).toContainText("One more set!");
+  // Transform and opacity only, on the card and anything else on the page.
+  const animated = await overlay.evaluate(() => document.getAnimations().flatMap((animation) =>
+    (animation.effect as KeyframeEffect).getKeyframes().flatMap((frame) =>
+      Object.keys(frame).filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key)))));
+  expect(new Set(animated)).toEqual(new Set(["opacity", "transform"]));
+
+  // OBS reloads a browser source mid-stream; the card it comes back to is the
+  // server's, not one this page remembered.
+  await overlay.reload();
+  await expect(overlay.getByTestId("paid-alert")).toContainText("One more set!");
+
+  expect(await saarathi.invoke({ action: `${MEDIA_ID}.stop`, args: [] })).toEqual({ ok: true });
+  await expect(overlay.getByTestId("paid-alert")).toHaveCount(0);
+});
+
 function tone(): Buffer {
   const rate = 8_000;
   const samples = rate * 10;

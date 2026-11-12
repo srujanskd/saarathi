@@ -5,8 +5,10 @@ import {
   MAX_MEDIA_ITEMS,
   MAX_PAID_QUEUE,
   MEDIA_ID,
+  PAID_ALERT_MS,
   MEDIA_TYPES,
   type GameModuleDef,
+  type MediaCue,
   type MediaItem,
   type MediaState,
   type ModuleContext,
@@ -84,7 +86,7 @@ export function createMedia(options: MediaOptions): MediaController {
     clearSpeech(ctx);
   };
 
-  /** Her Stop and her Speech off: the two ways the queue is meant to empty. */
+  /** Her Stop: the one way the queue is meant to empty. */
   const cancelSpeech = (ctx: ModuleContext<MediaModuleState>) => {
     interrupt(ctx);
     testWaiting = false;
@@ -108,12 +110,37 @@ export function createMedia(options: MediaOptions): MediaController {
     if (paidId) ctx.setState((state) => ({ paid: state.paid.filter((message) => message.id !== paidId) }));
   };
 
-  /** Read the next thing, if the lane is free. Every path that frees it calls this. */
+  /** The one way anything gets on the lane, and the one way it comes off. */
+  const startCue = (ctx: ModuleContext<MediaModuleState>, itemId: string | null, durationMs: number, paidId: string | null) => {
+    const startedAt = now();
+    const cue: MediaCue = { id: id(), itemId, startedAt, endsAt: startedAt + durationMs, ...(paidId ? { paidId } : {}) };
+    // Replacing is the v1 queue policy. The old timer may still wake up,
+    // but the cue id stops it from clearing the replacement.
+    ctx.setState({ active: cue });
+    ctx.after(durationMs, () => {
+      if (ctx.state.active?.id !== cue.id) return;
+      ctx.setState({ active: null });
+      clearSpeech(ctx);
+      finished(ctx, paidId);
+      ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
+      void advance(ctx);
+    });
+  };
+
+  /**
+   * Put the next thing on the lane, if it is free. Every path that frees it
+   * calls this. A paid message is shown whether or not it can be heard: speech
+   * off, no voice on this machine and a voice that failed all still put the
+   * name and the amount on her stream.
+   */
   const advance = async (ctx: ModuleContext<MediaModuleState>) => {
-    if (generation || ctx.state.speech || ctx.state.active || !ctx.state.ttsEnabled || !ready(ctx)) return;
+    if (generation || ctx.state.speech || ctx.state.active) return;
+    const voiced = ctx.state.ttsEnabled && ready(ctx);
+    if (!voiced) testWaiting = false;
     const head = testWaiting ? null : ctx.state.paid[0];
     if (!testWaiting && !head) return;
     testWaiting = false;
+    if (head && !voiced) return startCue(ctx, null, PAID_ALERT_MS, head.id);
     const microsoft = ctx.state.speechProvider === "microsoft";
     const text = head ? paidSpeech(head, microsoft ? "kn" : "en")
       : microsoft ? "ಮನೆಯ ಸದಸ್ಯರೇ, ನಿಮ್ಮ ಬೆಂಬಲಕ್ಕೆ ಧನ್ಯವಾದಗಳು. ಮುಂದಿನ ಸವಾಲಿಗೆ ಸಿದ್ಧರಾಗಿ!"
@@ -143,11 +170,11 @@ export function createMedia(options: MediaOptions): MediaController {
       if (started !== epoch) return;
       generation = null;
       clearSpeech(ctx);
-      // Only this one goes. A voice that failed once may work for the next,
-      // and a voice that is broken says so here on every message.
-      finished(ctx, paidId);
       ctx.setState({ ttsStatus: error instanceof SpeechError ? error.message : "Could not read that message. Try Test voice again." });
-      void advance(ctx);
+      // Shown without a voice rather than dropped: the voice failed, the
+      // message did not.
+      if (paidId) startCue(ctx, null, PAID_ALERT_MS, paidId);
+      else void advance(ctx);
     }
   };
 
@@ -196,8 +223,11 @@ export function createMedia(options: MediaOptions): MediaController {
         run(input, ctx) {
           const enabled = input.args[0];
           if (enabled !== "on" && enabled !== "off") return ctx.refuse("Choose on or off");
-          cancelSpeech(ctx);
+          // Off means quiet, not gone: the queue carries on, on screen only.
+          interrupt(ctx);
           ctx.setState({ ttsEnabled: enabled === "on" });
+          ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
+          void advance(ctx);
         },
       },
       testVoice: {
@@ -220,24 +250,7 @@ export function createMedia(options: MediaOptions): MediaController {
           if (!item) return ctx.refuse("That clip is gone");
           if (item.id !== ctx.state.speech?.id) interrupt(ctx);
           const paidId = item.id === ctx.state.speech?.id ? speaking : null;
-          const startedAt = now();
-          const cue = {
-            id: id(),
-            itemId: item.id,
-            startedAt,
-            endsAt: startedAt + item.durationMs,
-          };
-          // Replacing is the v1 queue policy. The old timer may still wake up,
-          // but the cue id stops it from clearing the replacement.
-          ctx.setState({ active: cue });
-          ctx.after(item.durationMs, () => {
-            if (ctx.state.active?.id !== cue.id) return;
-            ctx.setState({ active: null });
-            clearSpeech(ctx);
-            finished(ctx, paidId);
-            ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
-            void advance(ctx);
-          });
+          startCue(ctx, item.id, paidId ? Math.max(item.durationMs, PAID_ALERT_MS) : item.durationMs, paidId);
         },
       },
       stop: {
@@ -253,9 +266,8 @@ export function createMedia(options: MediaOptions): MediaController {
     setup(ctx) {
       ctx.setState({ hasSpeechKey: Boolean(ctx.state.speechKey), ttsStatus: voiceStatus(ctx.state) });
       ctx.on("paid-event", (event) => {
-        if (!ctx.state.ttsEnabled || !ready(ctx)) return;
         if (ctx.state.paid.length >= MAX_PAID_QUEUE) {
-          ctx.setState({ ttsStatus: "Speech queue is full. New messages are being skipped." });
+          ctx.setState({ ttsStatus: "Paid message queue is full. New messages are being skipped." });
           return;
         }
         ctx.setState((state) => ({ paid: [...state.paid, paidMessage(event, id())] }));

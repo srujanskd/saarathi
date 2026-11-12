@@ -87,8 +87,8 @@ export function MediaCard({ connection, deck }: CardProps) {
       {invoke.notice ? <Notice notice={invoke.notice} testId="media-notice" onDismiss={invoke.dismiss} /> : null}
 
       <div className="field">
-        <span>Read paid messages aloud</span>
-        <p className="hint">Reads the sender, amount and message for Super Chats and tips. Add the Media overlay in OBS to hear it on stream.</p>
+        <span>Paid messages</span>
+        <p className="hint">Super Chats and tips show on the Media overlay in OBS with the sender, amount and message. With speech on, they are read aloud too; enable the overlay's audio in the OBS mixer.</p>
         <button className="btn" type="button" aria-pressed={state?.ttsEnabled ?? false} disabled={invoke.working || !state}
           onClick={() => void invoke.run(`${MEDIA_ID}.tts`, [state?.ttsEnabled ? "off" : "on"])}>
           Speech {state?.ttsEnabled ? "on" : "off"}
@@ -106,7 +106,7 @@ export function MediaCard({ connection, deck }: CardProps) {
 
       {state?.active ? (
         <div className="media-live" data-testid="media-active">
-          <span>Playing {state.speech?.label ?? items.find((item) => item.id === state.active?.itemId)?.label ?? "a clip"}</span>
+          <span>{nowPlaying(state)}</span>
           <button className="tool" type="button" onClick={() => void invoke.run(`${MEDIA_ID}.stop`)}>
             Stop all
           </button>
@@ -187,6 +187,13 @@ function Preview({ item, src }: { item: MediaItem; src: string }) {
 
 function assetPath(item: MediaItem): string {
   return `/api/media/${encodeURIComponent(item.id)}/${encodeURIComponent(item.assetKey)}`;
+}
+
+function nowPlaying(state: MediaState): string {
+  const message = state.active?.paidId ? state.paid.find((candidate) => candidate.id === state.active?.paidId) : undefined;
+  if (message) return `Showing ${message.name}'s ${message.amount}${state.speech ? ", reading it aloud" : ""}`;
+  if (state.speech) return "Playing the test voice";
+  return `Playing ${state.items.find((item) => item.id === state.active?.itemId)?.label ?? "a clip"}`;
 }
 
 function formatBytes(bytes: number): string {

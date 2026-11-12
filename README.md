@@ -60,13 +60,15 @@ rotates both capabilities when a phone or copied URL should stop working.
 Goals show current / target numbers for likes, subscribers and custom counts. Reported changes
 slide up or down on the overlay and control page; unknown counts show a dash until a poll answers.
 
-Paid-message speech is on by default. In the Media card, use **Test voice**, toggle speech on or
-off, or stop speech and queued messages. Add the **Media overlay** to OBS and enable its audio
-in the OBS mixer to hear Super Chats and tips on stream. Speech reads the sender, amount and
-up to 180 message characters. It uses the server's built-in Windows or macOS voice without an
-account or API key. The setting and up to 50 waiting messages survive a restart; a message
-cut off by a restart, a clip she plays or a voice change is read again in full. Stop and turning
-speech off are the two ways the queue empties. Generated WAV audio follows the existing media playback
+Super Chats and tips show on the **Media overlay** in OBS: the sender, the amount and up to 180
+message characters on a card at the top of the screen, for at least six seconds each, one at a
+time. Speech is on by default and reads the same thing aloud; enable the overlay's audio in the
+OBS mixer to hear it. Turning speech off keeps the cards and drops the voice, and a message whose
+voice fails is shown without one. In the Media card, use **Test voice**, toggle speech, or stop
+what is showing and everything waiting. Speech uses the server's built-in Windows or macOS voice
+without an account or API key. The setting and up to 50 waiting messages survive a restart; a
+message cut off by a restart, a clip she plays or a voice change is shown again in full. Stop is
+the way the queue empties. Generated WAV audio follows the existing media playback
 path, using [System.Speech on Windows](https://learn.microsoft.com/en-us/dotnet/api/system.speech.synthesis.speechsynthesizer.setoutputtowavefile?view=netframework-4.8).
 
 For a Kannada announcer sound, open **Media → Voice**, choose **Microsoft Kannada announcer**,
