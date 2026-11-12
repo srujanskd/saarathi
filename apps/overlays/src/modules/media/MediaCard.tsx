@@ -98,6 +98,9 @@ export function MediaCard({ connection, deck }: CardProps) {
         <button className="btn" type="button" disabled={invoke.working}
           onClick={() => void invoke.run(`${MEDIA_ID}.stop`)}>Stop speech and media</button>
         <p className="hint" role="status">{state?.ttsStatus}</p>
+        {state?.paid.length ? <p className="hint" data-testid="media-paid-waiting">
+          {state.paid.length === 1 ? "1 paid message" : `${state.paid.length} paid messages`} in line. Stop clears them.
+        </p> : null}
         {state ? <SpeechSettings state={state} invoke={invoke} /> : null}
       </div>
 

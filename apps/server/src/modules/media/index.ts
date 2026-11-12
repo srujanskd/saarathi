@@ -3,6 +3,7 @@ import {
   MAX_MEDIA_BYTES,
   MAX_MEDIA_DURATION_MS,
   MAX_MEDIA_ITEMS,
+  MAX_PAID_QUEUE,
   MEDIA_ID,
   MEDIA_TYPES,
   type GameModuleDef,
@@ -11,7 +12,7 @@ import {
   type ModuleContext,
 } from "@saarathi/shared";
 import type { MediaFiles } from "./files.js";
-import { paidSpeech, type SpeechVoice } from "./speech.js";
+import { paidMessage, paidSpeech, type SpeechVoice } from "./speech.js";
 import { microsoftVoice, SpeechError, validSpeechRegion, type MicrosoftVoice } from "./microsoft-speech.js";
 import { inspectMedia } from "./inspect.js";
 
@@ -54,9 +55,12 @@ export function createMedia(options: MediaOptions): MediaController {
   let context: ModuleContext<MediaModuleState> | null = null;
 
   const cloudVoice = options.microsoftVoice ?? microsoftVoice();
-  let pending: string[] = [];
   let generation: AbortController | null = null;
   let epoch = 0;
+  // The paid message whose audio is `state.speech`, null for a test phrase.
+  let speaking: string | null = null;
+  // Test voice jumps the queue and is never persisted: it is not anybody's money.
+  let testWaiting = false;
 
   const clearSpeech = (ctx: ModuleContext<MediaModuleState>) => {
     const item = ctx.state.speech;
@@ -64,15 +68,27 @@ export function createMedia(options: MediaOptions): MediaController {
       try { options.files.remove(item); } catch { ctx.log.warn("media: could not remove speech audio"); }
       ctx.setState({ speech: null });
     }
+    speaking = null;
   };
 
-  const cancelSpeech = (ctx: ModuleContext<MediaModuleState>) => {
+  /**
+   * Stop reading, and keep the queue. A clip she pressed, a voice she changed or
+   * a restart all end up here: none of them is a decision about anybody's
+   * message, so the one being read stays at the head and is read again in full.
+   */
+  const interrupt = (ctx: ModuleContext<MediaModuleState>) => {
     epoch++;
-    pending = [];
     generation?.abort();
     generation = null;
-    if (ctx.state.active?.itemId === ctx.state.speech?.id) ctx.setState({ active: null });
+    if (ctx.state.speech && ctx.state.active?.itemId === ctx.state.speech.id) ctx.setState({ active: null });
     clearSpeech(ctx);
+  };
+
+  /** Her Stop and her Speech off: the two ways the queue is meant to empty. */
+  const cancelSpeech = (ctx: ModuleContext<MediaModuleState>) => {
+    interrupt(ctx);
+    testWaiting = false;
+    if (ctx.state.paid.length > 0) ctx.setState({ paid: [] });
     ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
   };
 
@@ -88,16 +104,27 @@ export function createMedia(options: MediaOptions): MediaController {
   const ready = (ctx: ModuleContext<MediaModuleState>) => ctx.state.speechProvider === "microsoft"
     ? Boolean(ctx.state.speechKey) : Boolean(options.voice);
 
-  const nextSpeech = async (ctx: ModuleContext<MediaModuleState>) => {
-    if (generation || ctx.state.speech || !ctx.state.ttsEnabled || !ready(ctx)) return;
-    const text = pending.shift();
-    if (!text) return;
+  const finished = (ctx: ModuleContext<MediaModuleState>, paidId: string | null) => {
+    if (paidId) ctx.setState((state) => ({ paid: state.paid.filter((message) => message.id !== paidId) }));
+  };
+
+  /** Read the next thing, if the lane is free. Every path that frees it calls this. */
+  const advance = async (ctx: ModuleContext<MediaModuleState>) => {
+    if (generation || ctx.state.speech || ctx.state.active || !ctx.state.ttsEnabled || !ready(ctx)) return;
+    const head = testWaiting ? null : ctx.state.paid[0];
+    if (!testWaiting && !head) return;
+    testWaiting = false;
+    const microsoft = ctx.state.speechProvider === "microsoft";
+    const text = head ? paidSpeech(head, microsoft ? "kn" : "en")
+      : microsoft ? "ಮನೆಯ ಸದಸ್ಯರೇ, ನಿಮ್ಮ ಬೆಂಬಲಕ್ಕೆ ಧನ್ಯವಾದಗಳು. ಮುಂದಿನ ಸವಾಲಿಗೆ ಸಿದ್ಧರಾಗಿ!"
+        : "Thank you for supporting the stream!";
+    const paidId = head?.id ?? null;
     const started = epoch;
     const controller = new AbortController();
     generation = controller;
     ctx.setState({ ttsStatus: "Preparing speech…" });
     try {
-      const data = ctx.state.speechProvider === "microsoft"
+      const data = microsoft
         ? await cloudVoice(text, controller.signal, { key: ctx.state.speechKey, region: ctx.state.speechRegion })
         : await options.voice!(text, controller.signal);
       if (started !== epoch) return;
@@ -106,6 +133,7 @@ export function createMedia(options: MediaOptions): MediaController {
       if (!made.ok) throw new Error("Invalid speech audio");
       options.files.put(made.value.id, made.value.mime, data);
       ctx.setState({ speech: made.value });
+      speaking = paidId;
       generation = null;
       const result = await ctx.invoke("play", { args: [made.value.id] });
       if (started !== epoch) return;
@@ -114,9 +142,12 @@ export function createMedia(options: MediaOptions): MediaController {
     } catch (error) {
       if (started !== epoch) return;
       generation = null;
-      pending = [];
       clearSpeech(ctx);
+      // Only this one goes. A voice that failed once may work for the next,
+      // and a voice that is broken says so here on every message.
+      finished(ctx, paidId);
       ctx.setState({ ttsStatus: error instanceof SpeechError ? error.message : "Could not read that message. Try Test voice again." });
+      void advance(ctx);
     }
   };
 
@@ -124,11 +155,12 @@ export function createMedia(options: MediaOptions): MediaController {
     id: MEDIA_ID,
     title: "Media",
     overlay: true,
-    initialState: { items: [], active: null, speech: null, ttsEnabled: true, ttsStatus: voiceStatus(),
+    initialState: { items: [], active: null, speech: null, ttsEnabled: true, paid: [], ttsStatus: voiceStatus(),
       speechProvider: "system", speechRegion: "centralindia", speechKey: "", hasSpeechKey: false },
     // Her library survives. Playback does not: a server restart stops the lane
-    // rather than claiming a clip is still audible after the process died.
-    persist: ["items", "ttsEnabled", "speechProvider", "speechRegion", "speechKey"],
+    // rather than claiming a clip is still audible after the process died. The
+    // paid queue survives too, and its head is read again from the start.
+    persist: ["items", "ttsEnabled", "paid", "speechProvider", "speechRegion", "speechKey"],
     serverOnly: ["speechKey"],
 
     actions: {
@@ -142,18 +174,20 @@ export function createMedia(options: MediaOptions): MediaController {
           const key = rawKey.trim();
           if (provider === "microsoft" && !validSpeechRegion(region)) return ctx.refuse("Enter the region code from Azure, such as centralindia");
           if (key && !/^[a-zA-Z0-9]{16,256}$/.test(key)) return ctx.refuse("Paste a valid Azure Speech key");
-          cancelSpeech(ctx);
+          interrupt(ctx);
           ctx.setState({ speechProvider: provider, speechRegion: region || ctx.state.speechRegion,
             speechKey: key || ctx.state.speechKey, hasSpeechKey: Boolean(key || ctx.state.speechKey) });
           ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
+          void advance(ctx);
         },
       },
       forgetSpeechKey: {
         label: "Forget Microsoft speech key",
         run(_input, ctx) {
-          cancelSpeech(ctx);
+          interrupt(ctx);
           ctx.setState({ speechKey: "", hasSpeechKey: false });
           ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
+          void advance(ctx);
         },
       },
       tts: {
@@ -171,11 +205,9 @@ export function createMedia(options: MediaOptions): MediaController {
         run(_input, ctx) {
           if (!ready(ctx)) return ctx.refuse(voiceStatus(ctx.state));
           if (!ctx.state.ttsEnabled) return ctx.refuse("Turn paid-message speech on first");
-          if (pending.length >= 10) return ctx.refuse("Speech queue is full");
-          pending.push(ctx.state.speechProvider === "microsoft"
-            ? "ಮನೆಯ ಸದಸ್ಯರೇ, ನಿಮ್ಮ ಬೆಂಬಲಕ್ಕೆ ಧನ್ಯವಾದಗಳು. ಮುಂದಿನ ಸವಾಲಿಗೆ ಸಿದ್ಧರಾಗಿ!"
-            : "Thank you for supporting the stream!");
-          void nextSpeech(ctx);
+          if (testWaiting) return ctx.refuse("Test voice is already waiting");
+          testWaiting = true;
+          void advance(ctx);
         },
       },
       play: {
@@ -186,7 +218,8 @@ export function createMedia(options: MediaOptions): MediaController {
             ? ctx.state.speech
             : ctx.state.items.find((candidate) => candidate.id === input.args[0]);
           if (!item) return ctx.refuse("That clip is gone");
-          if (item.id !== ctx.state.speech?.id) cancelSpeech(ctx);
+          if (item.id !== ctx.state.speech?.id) interrupt(ctx);
+          const paidId = item.id === ctx.state.speech?.id ? speaking : null;
           const startedAt = now();
           const cue = {
             id: id(),
@@ -201,15 +234,16 @@ export function createMedia(options: MediaOptions): MediaController {
             if (ctx.state.active?.id !== cue.id) return;
             ctx.setState({ active: null });
             clearSpeech(ctx);
+            finished(ctx, paidId);
             ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
-            void nextSpeech(ctx);
+            void advance(ctx);
           });
         },
       },
       stop: {
         label: "Stop all media",
         run(_input, ctx) {
-          if (!ctx.state.active && !generation && pending.length === 0) return ctx.refuse("Nothing is playing");
+          if (!ctx.state.active && !generation && ctx.state.paid.length === 0 && !testWaiting) return ctx.refuse("Nothing is playing");
           cancelSpeech(ctx);
           ctx.setState({ active: null });
         },
@@ -220,20 +254,22 @@ export function createMedia(options: MediaOptions): MediaController {
       ctx.setState({ hasSpeechKey: Boolean(ctx.state.speechKey), ttsStatus: voiceStatus(ctx.state) });
       ctx.on("paid-event", (event) => {
         if (!ctx.state.ttsEnabled || !ready(ctx)) return;
-        if (pending.length >= 10) {
+        if (ctx.state.paid.length >= MAX_PAID_QUEUE) {
           ctx.setState({ ttsStatus: "Speech queue is full. New messages are being skipped." });
           return;
         }
-        pending.push(paidSpeech(event, ctx.state.speechProvider === "microsoft" ? "kn" : "en"));
-        void nextSpeech(ctx);
+        ctx.setState((state) => ({ paid: [...state.paid, paidMessage(event, id())] }));
+        void advance(ctx);
       });
       context = ctx;
       const present = ctx.state.items.filter((item) => options.files.exists(item));
       if (present.length !== ctx.state.items.length) ctx.setState({ items: present });
+      // Whatever was waiting when the server last stopped is still owed.
+      void advance(ctx);
     },
 
     teardown(ctx) {
-      cancelSpeech(ctx);
+      interrupt(ctx);
       if (ctx.state.active) ctx.setState({ active: null });
       context = null;
     },
@@ -271,6 +307,7 @@ export function createMedia(options: MediaOptions): MediaController {
         items: state.items.filter((candidate) => candidate.id !== item.id),
         active: state.active?.itemId === item.id ? null : state.active,
       }));
+      void advance(ctx);
       return { ok: true, value: undefined };
     },
     asset(itemId, key) {

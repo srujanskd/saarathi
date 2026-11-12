@@ -64,8 +64,9 @@ Paid-message speech is on by default. In the Media card, use **Test voice**, tog
 off, or stop speech and queued messages. Add the **Media overlay** to OBS and enable its audio
 in the OBS mixer to hear Super Chats and tips on stream. Speech reads the sender, amount and
 up to 180 message characters. It uses the server's built-in Windows or macOS voice without an
-account or API key. The setting survives a restart, while
-queued messages and speech audio do not. Generated WAV audio follows the existing media playback
+account or API key. The setting and up to 50 waiting messages survive a restart; a message
+cut off by a restart, a clip she plays or a voice change is read again in full. Stop and turning
+speech off are the two ways the queue empties. Generated WAV audio follows the existing media playback
 path, using [System.Speech on Windows](https://learn.microsoft.com/en-us/dotnet/api/system.speech.synthesis.speechsynthesizer.setoutputtowavefile?view=netframework-4.8).
 
 For a Kannada announcer sound, open **Media → Voice**, choose **Microsoft Kannada announcer**,

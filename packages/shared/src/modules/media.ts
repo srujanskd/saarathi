@@ -3,6 +3,12 @@ export const MAX_MEDIA_ITEMS = 24;
 export const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
 export const MAX_MEDIA_DURATION_MS = 30_000;
 export const DEFAULT_IMAGE_DURATION_MS = 5_000;
+/**
+ * Paid messages waiting to be read. Bounded because the queue rides in every
+ * snapshot and survives a restart, and generous because every row is somebody
+ * who paid: a burst past this is skipped with a status line, never silently.
+ */
+export const MAX_PAID_QUEUE = 50;
 
 export const MEDIA_TYPES = {
   "audio/mpeg": { kind: "audio", extension: "mp3" },
@@ -39,11 +45,27 @@ export interface MediaCue {
   endsAt: number;
 }
 
+/** One paid message, as it will be read: every field already bounded and cleaned. */
+export interface PaidMessage {
+  id: string;
+  /** Server time it arrived. */
+  at: number;
+  name: string;
+  amount: string;
+  text: string;
+}
+
 export interface MediaState {
   items: MediaItem[];
   active: MediaCue | null;
   /** Only the preference survives a restart. Speech audio and status do not. */
   ttsEnabled: boolean;
+  /**
+   * Paid messages not yet read in full, oldest first; the head is the one being
+   * read. Durable, because each is somebody who paid: a restart or a clip she
+   * pressed mid-sentence reads it again rather than losing it.
+   */
+  paid: PaidMessage[];
   ttsStatus: string;
   speech: MediaItem | null;
   speechProvider: "system" | "microsoft";
