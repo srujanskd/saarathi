@@ -22,7 +22,9 @@ export interface Author {
 /** Money as the platform displayed it, plus a parsed value when we can get one. */
 export interface Money {
   display: string;
+  /** Present only beside `currency`: a number nobody can compare is not one. */
   value?: number;
+  /** ISO 4217, e.g. "INR". Super Chats arrive in the sender's currency, not hers. */
   currency?: string;
 }
 

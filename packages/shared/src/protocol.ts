@@ -393,7 +393,7 @@ export interface MockChatInput {
   author?: string;
   text: string;
   type?: "chat" | "superchat" | "member";
-  /** Display amount for superchats, e.g. "$5.00". */
+  /** Display amount for superchats, e.g. "$5.00", parsed exactly as a real one is. A superchat may have empty `text`. */
   amount?: string;
   /**
    * Who mock chat should say sent it.
