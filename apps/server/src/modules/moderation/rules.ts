@@ -10,6 +10,7 @@ import {
   type ModRule,
   type ModRuleKind,
 } from "@saarathi/shared";
+import { hostsIn, scamIn } from "../../core/screen.js";
 
 /**
  * The moderation rules: what counts as worth her attention, and what does not.
@@ -150,58 +151,6 @@ export function splitList(value: string): string[] {
     .filter(Boolean);
 }
 
-/**
- * The shapes a scam arrives in, and the words to describe each one to her.
- *
- * Bundled rather than left to her word list, because the whole point of this
- * one is that she does not have to know what this month's giveaway bot says.
- * Two signals where one would over-fire: "invest" on its own is a fitness
- * streamer's chat talking about a gym membership, and "cash" on its own is
- * nothing at all -- so the weak ones only count next to a second signal.
- *
- * Every entry names itself, because "a scam rule caught it" is not something
- * she can check, and this queue only works if she can see why in one line.
- */
-const SCAMS: { reason: string; test: RegExp }[] = [
-  {
-    reason: "Asks people to message an account off-platform",
-    test: /\b(?:whats\W?app|telegram|t\.me|wa\.me|signal)\b/i,
-  },
-  {
-    reason: "Fake giveaway win",
-    test: /\b(?:you(?:'ve| have)? won|claim (?:your|the) (?:prize|reward)|selected winner|congratulations winner)\b/i,
-  },
-  {
-    reason: "Investment pitch",
-    test: /\b(?:forex|crypto|bitcoin|binary option|trading signal)\b.{0,60}\b(?:profit|earn|invest|double|guaranteed|dm)\b/i,
-  },
-  {
-    reason: "Pretends to be her",
-    test: /\b(?:i am the real|this is the real|my official|second channel).{0,30}\b(?:channel|account)\b/i,
-  },
-  {
-    reason: "Points at a profile instead of saying anything",
-    test: /\b(?:check|see|look at) my (?:profile|bio|about|picture|pfp)\b/i,
-  },
-];
-
-/** Where a link points, lowercased, for every link in the message. */
-export function hostsIn(text: string): string[] {
-  const hosts: string[] = [];
-  // Bare domains as well as full URLs: a scam does not write the scheme, and
-  // "bit.ly/x" is the whole message half the time.
-  const links = text.matchAll(
-    /(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)+)(?:\/\S*)?/gi,
-  );
-  for (const match of links) {
-    const host = match[1]?.toLowerCase();
-    // A sentence ending in ".so" or a decimal is not a link. Requiring a
-    // plausible public suffix costs a "localhost:4400" nobody types in chat.
-    if (host && /\.[a-z]{2,}$/.test(host) && !/^\d+(?:\.\d+)+$/.test(host)) hosts.push(host);
-  }
-  return hosts;
-}
-
 /** Whether a host is the allowed one, or something under it. */
 function allowed(host: string, allowlist: string[]): boolean {
   return allowlist.some((entry) => host === entry || host.endsWith(`.${entry}`));
@@ -338,9 +287,8 @@ export function inspect(params: {
   const lowered = text.toLowerCase();
 
   if (rules.scams) {
-    for (const scam of SCAMS) {
-      if (scam.test.test(text)) return { kind: "scams", reason: scam.reason };
-    }
+    const scam = scamIn(text);
+    if (scam) return { kind: "scams", reason: scam };
   }
 
   if (rules.links.on) {

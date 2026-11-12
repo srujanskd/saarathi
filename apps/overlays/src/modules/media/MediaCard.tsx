@@ -97,6 +97,12 @@ export function MediaCard({ connection, deck }: CardProps) {
           onClick={() => void invoke.run(`${MEDIA_ID}.testVoice`)}>Test voice</button>
         <button className="btn" type="button" disabled={invoke.working}
           onClick={() => void invoke.run(`${MEDIA_ID}.stop`)}>Stop speech and media</button>
+        <button className="btn" type="button" aria-pressed={state?.checkFirst ?? false} disabled={invoke.working || !state}
+          onClick={() => void invoke.run(`${MEDIA_ID}.checkFirst`, [state?.checkFirst ? "off" : "on"])}>
+          Check messages first: {state?.checkFirst ? "on" : "off"}
+        </button>
+        <p className="hint">Links are never shown or read, and scam-shaped messages are left out. With checking on, each message with words in it waits for you.</p>
+        {state ? <Waiting state={state} invoke={invoke} /> : null}
         <p className="hint" role="status">{state?.ttsStatus}</p>
         {state?.paid.length ? <p className="hint" data-testid="media-paid-waiting">
           {state.paid.length === 1 ? "1 paid message" : `${state.paid.length} paid messages`} in line. Stop clears them.
@@ -189,9 +195,29 @@ function assetPath(item: MediaItem): string {
   return `/api/media/${encodeURIComponent(item.id)}/${encodeURIComponent(item.assetKey)}`;
 }
 
+/** The one paid message held for her, with the two answers big enough to hit mid-set. */
+function Waiting({ state, invoke }: { state: MediaState; invoke: Invoker }) {
+  const head = state.paid[0];
+  if (!head || !state.checkFirst || !head.text || head.approved) return null;
+  return (
+    <div className="media-waiting" data-testid="media-paid-check">
+      <p><strong>{head.name}</strong> sent <strong>{head.amount}</strong></p>
+      <blockquote>{head.text}</blockquote>
+      <div className="media-waiting-actions">
+        <button className="btn btn-primary" type="button" disabled={invoke.working}
+          onClick={() => void invoke.run(`${MEDIA_ID}.approve`, [head.id])}>Show it</button>
+        <button className="btn" type="button" disabled={invoke.working}
+          onClick={() => void invoke.run(`${MEDIA_ID}.thanksOnly`, [head.id])}>Thanks only</button>
+      </div>
+    </div>
+  );
+}
+
 function nowPlaying(state: MediaState): string {
   const message = state.active?.paidId ? state.paid.find((candidate) => candidate.id === state.active?.paidId) : undefined;
-  if (message) return `Showing ${message.name}'s ${message.amount}${state.speech ? ", reading it aloud" : ""}`;
+  if (message) {
+    return `Showing ${message.name}'s ${message.amount}${state.speech ? ", reading it aloud" : ""}${message.cut ? `. Message left out: ${message.cut}` : ""}`;
+  }
   if (state.speech) return "Playing the test voice";
   return `Playing ${state.items.find((item) => item.id === state.active?.itemId)?.label ?? "a clip"}`;
 }

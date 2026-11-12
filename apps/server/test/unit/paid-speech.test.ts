@@ -19,6 +19,21 @@ describe("paid speech text", () => {
     expect(paid({ at: 42 })).toEqual({ id: "message", at: 42, name: "Ana", amount: "$5.00", text: "Keep going!" });
   });
 
+  it("never puts a link on her stream, in the message or in a name", () => {
+    expect(paid({ text: "follow me at bit.ly/abc ok", author: { id: "x", name: "visit spam.tk" } }))
+      .toMatchObject({ name: "visit (link)", text: "follow me at (link) ok" });
+  });
+
+  it("leaves a scam out entirely, says why on her card, and still thanks them", () => {
+    const message = paid({ text: "message me on whatsapp for free coaching" });
+    expect(message).toMatchObject({ text: "", cut: "Asks people to message an account off-platform" });
+    expect(paidSpeech(message)).toBe("Ana sent $5.00. Thank you!");
+  });
+
+  it("looks for a scam in the whole message, not the part that fits on screen", () => {
+    expect(paid({ text: `${"go ".repeat(70)}claim your prize` }).cut).toBe("Fake giveaway win");
+  });
+
   it("bounds every viewer-controlled field and removes control characters", () => {
     const text = paidSpeech(paid({
       author: { id: "ana", name: "a".repeat(100) },

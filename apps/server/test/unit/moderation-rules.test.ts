@@ -17,7 +17,6 @@ import {
   emojiCount,
   exempt,
   forgetIdle,
-  hostsIn,
   inspect,
   makeRule,
   noteMessage,
@@ -27,6 +26,7 @@ import {
   trimText,
   type FloodHistory,
 } from "../../src/modules/moderation/rules.js";
+import { hostsIn } from "../../src/core/screen.js";
 
 /** Her rules with one kind overridden, since most tests care about one. */
 function rules(over: Partial<Record<ModRuleKind, Partial<ModRule>>> = {}) {

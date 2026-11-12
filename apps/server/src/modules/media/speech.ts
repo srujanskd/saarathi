@@ -3,15 +3,30 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PaidEvent, PaidMessage } from "@saarathi/shared";
+import { scamIn, withoutLinks } from "../../core/screen.js";
 
 export type SpeechVoice = (text: string, signal: AbortSignal) => Promise<Buffer>;
 
 const clean = (text: string, max: number) => Array.from(text, (char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 ? " " : char)
   .join("").replace(/\s+/g, " ").trim().slice(0, max);
 
-/** Bounded at the door, so the queue holds exactly what will be read. */
+/**
+ * Bounded and screened at the door, so the queue holds exactly what may go on
+ * her stream. Paying does not buy a link on screen or in her voice: it is
+ * swapped for a word. A message shaped like a scam is left out entirely and
+ * the sender is thanked by name, which is all a real supporter loses.
+ */
 export function paidMessage(event: PaidEvent, id: string): PaidMessage {
-  return { id, at: event.at, name: clean(event.author.name, 40), amount: clean(event.amount.display, 24), text: clean(event.text, 180) };
+  const full = clean(event.text, 1_000);
+  const scam = scamIn(full);
+  return {
+    id,
+    at: event.at,
+    name: clean(withoutLinks(event.author.name, "(link)"), 40),
+    amount: clean(event.amount.display, 24),
+    text: scam ? "" : clean(withoutLinks(full, "(link)"), 180),
+    ...(scam ? { cut: scam } : {}),
+  };
 }
 
 export function paidSpeech(message: Pick<PaidMessage, "name" | "amount" | "text">, language: "en" | "kn" = "en"): string {

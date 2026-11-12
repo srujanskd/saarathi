@@ -68,7 +68,14 @@ voice fails is shown without one. In the Media card, use **Test voice**, toggle 
 what is showing and everything waiting. Speech uses the server's built-in Windows or macOS voice
 without an account or API key. The setting and up to 50 waiting messages survive a restart; a
 message cut off by a restart, a clip she plays or a voice change is shown again in full. Stop is
-the way the queue empties. Generated WAV audio follows the existing media playback
+the way the queue empties.
+
+Paying does not buy a link on her stream: links in a paid message or a sender's name are shown
+and read as "(link)", and a message shaped like a scam (the same shapes moderation flags) is left
+out, with the sender still thanked by name. No list catches abuse in every language, so **Check
+messages first** holds each paid message that has words in it until she taps **Show it** or
+**Thanks only**, on her card or from a deck button. It survives a restart, and turning it off lets
+whatever was waiting go in order. Generated WAV audio follows the existing media playback
 path, using [System.Speech on Windows](https://learn.microsoft.com/en-us/dotnet/api/system.speech.synthesis.speechsynthesizer.setoutputtowavefile?view=netframework-4.8).
 
 For a Kannada announcer sound, open **Media → Voice**, choose **Microsoft Kannada announcer**,

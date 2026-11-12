@@ -11,6 +11,7 @@ import {
   type MediaCue,
   type MediaItem,
   type MediaState,
+  type PaidMessage,
   type ModuleContext,
 } from "@saarathi/shared";
 import type { MediaFiles } from "./files.js";
@@ -106,6 +107,18 @@ export function createMedia(options: MediaOptions): MediaController {
   const ready = (ctx: ModuleContext<MediaModuleState>) => ctx.state.speechProvider === "microsoft"
     ? Boolean(ctx.state.speechKey) : Boolean(options.voice);
 
+  /** Her check-first switch is on, and this one has words she has not seen. */
+  const held = (state: Readonly<MediaModuleState>, message: PaidMessage | undefined) =>
+    Boolean(message && state.checkFirst && message.text && !message.approved);
+
+  /** The message she is being asked about, refusing if there is none or it moved on. */
+  const heldOrRefuse = (ctx: ModuleContext<MediaModuleState>, wanted: string | undefined) => {
+    const head = ctx.state.paid[0];
+    if (!head || !held(ctx.state, head)) return ctx.refuse("No paid message is waiting for you");
+    if (wanted && wanted !== head.id) return ctx.refuse("That message has moved on");
+    return head;
+  };
+
   const finished = (ctx: ModuleContext<MediaModuleState>, paidId: string | null) => {
     if (paidId) ctx.setState((state) => ({ paid: state.paid.filter((message) => message.id !== paidId) }));
   };
@@ -139,6 +152,10 @@ export function createMedia(options: MediaOptions): MediaController {
     if (!voiced) testWaiting = false;
     const head = testWaiting ? null : ctx.state.paid[0];
     if (!testWaiting && !head) return;
+    if (head && held(ctx.state, head)) {
+      ctx.setState({ ttsStatus: `${head.name}'s message is waiting for you to check` });
+      return;
+    }
     testWaiting = false;
     if (head && !voiced) return startCue(ctx, null, PAID_ALERT_MS, head.id);
     const microsoft = ctx.state.speechProvider === "microsoft";
@@ -182,12 +199,12 @@ export function createMedia(options: MediaOptions): MediaController {
     id: MEDIA_ID,
     title: "Media",
     overlay: true,
-    initialState: { items: [], active: null, speech: null, ttsEnabled: true, paid: [], ttsStatus: voiceStatus(),
+    initialState: { items: [], active: null, speech: null, ttsEnabled: true, paid: [], checkFirst: false, ttsStatus: voiceStatus(),
       speechProvider: "system", speechRegion: "centralindia", speechKey: "", hasSpeechKey: false },
     // Her library survives. Playback does not: a server restart stops the lane
     // rather than claiming a clip is still audible after the process died. The
     // paid queue survives too, and its head is read again from the start.
-    persist: ["items", "ttsEnabled", "paid", "speechProvider", "speechRegion", "speechKey"],
+    persist: ["items", "ttsEnabled", "paid", "checkFirst", "speechProvider", "speechRegion", "speechKey"],
     serverOnly: ["speechKey"],
 
     actions: {
@@ -226,6 +243,42 @@ export function createMedia(options: MediaOptions): MediaController {
           // Off means quiet, not gone: the queue carries on, on screen only.
           interrupt(ctx);
           ctx.setState({ ttsEnabled: enabled === "on" });
+          ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
+          void advance(ctx);
+        },
+      },
+      checkFirst: {
+        label: "Check paid messages first",
+        needsArgs: true,
+        run(input, ctx) {
+          const on = input.args[0];
+          if (on !== "on" && on !== "off") return ctx.refuse("Choose on or off");
+          ctx.setState({ checkFirst: on === "on" });
+          // Off lets whatever was waiting go, in order.
+          if (on === "off") {
+            ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
+            void advance(ctx);
+          }
+        },
+      },
+      // No arguments needed, so the deck and a hotkey can answer the one at
+      // the head of the line; her card names the message so a tap never lands
+      // on the next one by mistake.
+      approve: {
+        label: "Show the paid message",
+        run(input, ctx) {
+          const head = heldOrRefuse(ctx, input.args[0]);
+          ctx.setState((state) => ({ paid: state.paid.map((message) => message.id === head.id ? { ...message, approved: true } : message) }));
+          ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
+          void advance(ctx);
+        },
+      },
+      thanksOnly: {
+        label: "Thanks only, skip the words",
+        run(input, ctx) {
+          const head = heldOrRefuse(ctx, input.args[0]);
+          ctx.setState((state) => ({ paid: state.paid.map((message) => message.id === head.id
+            ? { ...message, text: "", cut: "You left it out", approved: true } : message) }));
           ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
           void advance(ctx);
         },

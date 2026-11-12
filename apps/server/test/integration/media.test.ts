@@ -418,6 +418,86 @@ describe("paid-message speech", () => {
   });
 });
 
+describe("guarding paid messages", () => {
+  it("never reads a link and thanks a scam by name only, through mock chat", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn(async (_text: string) => wav(2_000));
+    const h = await harness({ modules: [createMedia({ files: fakeFiles(), voice }).module] });
+    try {
+      h.chat({ type: "superchat", author: "Ana", text: "my plan is at fitplan.xyz/ana" });
+      h.chat({ type: "superchat", author: "Bot", text: "you have won, claim your prize on telegram" });
+      await vi.advanceTimersByTimeAsync(0);
+      const first = stateOf(h.kernel.snapshot()).paid[0]!;
+      expect(first.text).toBe("my plan is at (link)");
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      expect(stateOf(h.kernel.snapshot()).paid[0]).toMatchObject({ name: "Bot", text: "", cut: "Asks people to message an account off-platform" });
+      expect(voice.mock.calls.map(([text]) => text)).toEqual(["Ana sent $5.00. my plan is at (link)", "Bot sent $5.00. Thank you!"]);
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("with check first on, holds a message with words until she answers from the card or the deck", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn(async (_text: string) => wav(2_000));
+    const h = await harness({ modules: [createMedia({ files: fakeFiles(), voice }).module] });
+    try {
+      expect(await h.kernel.invoke(`${MEDIA_ID}.approve`)).toMatchObject({ ok: false, reason: "No paid message is waiting for you" });
+      await h.kernel.invoke(`${MEDIA_ID}.checkFirst`, { args: ["on"] });
+      h.chat({ type: "superchat", author: "Ana", text: "Read me?" });
+      h.chat({ type: "superchat", author: "Bo", text: "Something rude" });
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      const waiting = stateOf(h.kernel.snapshot());
+      expect(waiting.active).toBeNull();
+      expect(waiting.ttsStatus).toContain("Ana's message is waiting");
+      expect(voice).not.toHaveBeenCalled();
+
+      // Her card names the message, so a stale tap cannot land on the next one.
+      expect(await h.kernel.invoke(`${MEDIA_ID}.approve`, { args: [waiting.paid[1]!.id] }))
+        .toMatchObject({ ok: false, reason: "That message has moved on" });
+      expect(await h.kernel.invoke(`${MEDIA_ID}.approve`, { args: [waiting.paid[0]!.id] })).toEqual({ ok: true });
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      expect(stateOf(h.kernel.snapshot()).active).toBeNull();
+
+      // A deck button sends no id and answers the one at the head.
+      await h.kernel.invoke(`${MEDIA_ID}.thanksOnly`, { via: "deck" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stateOf(h.kernel.snapshot()).paid[0]).toMatchObject({ name: "Bo", text: "", cut: "You left it out" });
+      expect(voice.mock.calls.map(([text]) => text)).toEqual(["Ana sent $5.00. Read me?", "Bo sent $5.00. Thank you!"]);
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("does not hold a message with no words, and turning checking off lets the line go", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn(async (_text: string) => wav(2_000));
+    const h = await harness({ modules: [createMedia({ files: fakeFiles(), voice }).module] });
+    try {
+      await h.kernel.invoke(`${MEDIA_ID}.checkFirst`, { args: ["on"] });
+      h.chat({ type: "superchat", author: "Bot", text: "dm me on telegram" });
+      h.chat({ type: "superchat", author: "Ana", text: "Held" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(voice).toHaveBeenLastCalledWith("Bot sent $5.00. Thank you!", expect.any(AbortSignal));
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      expect(stateOf(h.kernel.snapshot()).active).toBeNull();
+      await h.kernel.invoke(`${MEDIA_ID}.checkFirst`, { args: ["off"] });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(voice).toHaveBeenLastCalledWith("Ana sent $5.00. Held", expect.any(AbortSignal));
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("keeps checking on, and the message it is holding, across a restart", async () => {
+    const store = new MemoryStore();
+    const first = await harness({ modules: [createMedia({ files: fakeFiles() }).module], store });
+    await first.kernel.invoke(`${MEDIA_ID}.checkFirst`, { args: ["on"] });
+    first.chat({ type: "superchat", author: "Ana", text: "Still here?" });
+    await first.stop();
+    const second = await harness({ modules: [createMedia({ files: fakeFiles() }).module], store });
+    try {
+      expect(stateOf(second.kernel.snapshot())).toMatchObject({ checkFirst: true, active: null, paid: [{ name: "Ana", text: "Still here?" }] });
+      await second.kernel.invoke(`${MEDIA_ID}.approve`);
+      expect(stateOf(second.kernel.snapshot()).active).toMatchObject({ itemId: null });
+    } finally { await second.stop(); }
+  });
+});
+
 describe("choosing Microsoft speech", () => {
   const key = "abcdef0123456789abcdef0123456789";
   it("reads mock paid Kannada messages with Gagan and keeps the credential out of every publication", async () => {

@@ -60,7 +60,12 @@ export interface PaidMessage {
   at: number;
   name: string;
   amount: string;
+  /** What may be shown and read: links already taken out. */
   text: string;
+  /** Why the whole message was left out, for her card. Never on stream. */
+  cut?: string;
+  /** She let it through while checking messages first. */
+  approved?: true;
 }
 
 export interface MediaState {
@@ -74,6 +79,11 @@ export interface MediaState {
    * pressed mid-sentence reads it again rather than losing it.
    */
   paid: PaidMessage[];
+  /**
+   * Hold each paid message with words in it until she says Show it or Thanks
+   * only. No list catches abuse in every language her chat writes in; she does.
+   */
+  checkFirst: boolean;
   ttsStatus: string;
   speech: MediaItem | null;
   speechProvider: "system" | "microsoft";
