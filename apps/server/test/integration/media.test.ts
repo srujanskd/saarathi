@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MEDIA_ID, type MediaState } from "@saarathi/shared";
+import { MAX_PAID_QUEUE, MEDIA_ID, PAID_ALERT_MS, type MediaState } from "@saarathi/shared";
 import type { MediaFiles } from "../../src/modules/media/files.js";
 import { createMedia } from "../../src/modules/media/index.js";
 import { MemoryStore } from "../../src/core/store.js";
@@ -59,6 +59,10 @@ const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
 );
+
+function persistedPaid(store: MemoryStore): string[] {
+  return ((store.read(MEDIA_ID) as MediaState | undefined)?.paid ?? []).map((message) => message.name);
+}
 
 function stateOf(snapshot: { modules: Record<string, unknown> }): MediaState {
   return snapshot.modules[MEDIA_ID] as MediaState;
@@ -206,14 +210,17 @@ describe("paid-message speech", () => {
       const playing = stateOf(h.kernel.snapshot());
       expect(playing.items).toEqual([]);
       expect(playing.active?.itemId).toBe(playing.speech?.id);
+      expect(playing.active?.paidId).toBe(playing.paid[0]?.id);
       expect(playing.speech?.durationMs).toBe(2_000);
+      // Two seconds of voice, but on screen long enough to read.
+      expect(playing.active!.endsAt - playing.active!.startedAt).toBe(PAID_ALERT_MS);
       expect(media.asset(playing.speech!.id, "wrong-key")).toBeNull();
       expect(media.asset(playing.speech!.id, playing.speech!.assetKey)).not.toBeNull();
       expect(h.store.read(MEDIA_ID)).not.toHaveProperty("speech");
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
       expect(voice).toHaveBeenCalledTimes(2);
       expect(voice).toHaveBeenNthCalledWith(2, "Bo sent $10.00. One more rep!", expect.any(AbortSignal));
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
       expect(stateOf(h.kernel.snapshot()).active).toBeNull();
       expect(stateOf(h.kernel.snapshot()).speech).toBeNull();
       expect(files.saved.size).toBe(0);
@@ -221,13 +228,13 @@ describe("paid-message speech", () => {
   });
 
   it("ignores ordinary chat, persists mute across restarts, and can turn back on", async () => {
+    vi.useFakeTimers();
     const store = new MemoryStore();
     const voice = vi.fn(async () => wav(2_000));
     const first = await harness({ modules: [createMedia({ files: fakeFiles(), voice }).module], store });
     first.chat("Hello");
     await first.kernel.invoke("media.tts", { args: ["off"] });
-    first.chat({ type: "superchat", text: "Silent" });
-    expect(voice).not.toHaveBeenCalled();
+    expect(stateOf(first.kernel.snapshot()).active).toBeNull();
     await first.stop();
     const second = await harness({ modules: [createMedia({ files: fakeFiles(), voice }).module], store });
     try {
@@ -235,8 +242,39 @@ describe("paid-message speech", () => {
       expect((await second.kernel.invoke("media.testVoice")).ok).toBe(false);
       await second.kernel.invoke("media.tts", { args: ["on"] });
       await second.kernel.invoke("media.testVoice");
-      await vi.waitFor(() => expect(stateOf(second.kernel.snapshot()).active).not.toBeNull());
-    } finally { await second.stop(); }
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stateOf(second.kernel.snapshot()).active).not.toBeNull();
+      expect(voice).toHaveBeenCalledTimes(1);
+    } finally { await second.stop(); vi.useRealTimers(); }
+  });
+
+  it("shows a paid message without a voice when speech is off, and drains on its own", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    const voice = vi.fn(async () => wav(2_000));
+    const h = await harness({ modules: [createMedia({ files: fakeFiles(), voice }).module] });
+    try {
+      await h.kernel.invoke("media.tts", { args: ["off"] });
+      h.chat({ type: "superchat", author: "Ana", amount: "₹100.00", text: "Quiet one" });
+      h.chat({ type: "superchat", author: "Bo", text: "Second" });
+      const shown = stateOf(h.kernel.snapshot());
+      expect(shown.active).toMatchObject({ itemId: null, paidId: shown.paid[0]!.id, startedAt: 10_000, endsAt: 10_000 + PAID_ALERT_MS });
+      expect(shown.paid[0]).toMatchObject({ name: "Ana", amount: "₹100.00", text: "Quiet one" });
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      expect(stateOf(h.kernel.snapshot()).active?.paidId).toBe(stateOf(h.kernel.snapshot()).paid[0]!.id);
+      expect(stateOf(h.kernel.snapshot()).paid.map((message) => message.name)).toEqual(["Bo"]);
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      expect(stateOf(h.kernel.snapshot())).toMatchObject({ active: null, paid: [] });
+      expect(voice).not.toHaveBeenCalled();
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("still shows paid messages on a server with no voice at all", async () => {
+    const h = await harness({ modules: [createMedia({ files: fakeFiles() }).module] });
+    try {
+      h.chat({ type: "superchat", author: "Ana", text: "Linux box" });
+      expect(stateOf(h.kernel.snapshot()).active).toMatchObject({ itemId: null });
+    } finally { await h.stop(); }
   });
 
   it.each(["media.stop", "media.tts", "core.disable"])("%s cancels pending synthesis and never plays a late result", async (action) => {
@@ -255,7 +293,11 @@ describe("paid-message speech", () => {
       expect(signal?.aborted).toBe(true);
       finish(wav(2_000));
       await Promise.resolve();
-      expect(stateOf(h.kernel.snapshot())).toMatchObject({ active: null, speech: null });
+      const after = stateOf(h.kernel.snapshot());
+      expect(after.speech).toBeNull();
+      // Speech off carries on silently; the other two leave the lane empty.
+      expect(after.active?.itemId ?? null).toBeNull();
+      expect(Boolean(after.active)).toBe(action === "media.tts");
       expect(files.saved.size).toBe(0);
     } finally { await h.stop(); }
   });
@@ -277,16 +319,87 @@ describe("paid-message speech", () => {
     } finally { await h.stop(); vi.useRealTimers(); }
   });
 
+  it("pauses a message for a clip she pressed and reads it again in full afterwards", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn(async (_text: string) => wav(2_000));
+    const files = fakeFiles();
+    const media = createMedia({ files, voice });
+    const h = await harness({ modules: [media.module] });
+    try {
+      const horn = media.add(upload());
+      if (!horn.ok) throw new Error(horn.reason);
+      h.chat({ type: "superchat", author: "Ana", text: "First" });
+      h.chat({ type: "superchat", author: "Bo", text: "Second" });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await h.kernel.invoke(`${MEDIA_ID}.play`, { args: [horn.value.id] });
+      expect(stateOf(h.kernel.snapshot()).active?.itemId).toBe(horn.value.id);
+      expect(stateOf(h.kernel.snapshot()).paid.map((message) => message.name)).toEqual(["Ana", "Bo"]);
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      expect(voice.mock.calls.map(([text]) => text)).toEqual([
+        "Ana sent $5.00. First", "Ana sent $5.00. First", "Bo sent $5.00. Second",
+      ]);
+      expect(stateOf(h.kernel.snapshot())).toMatchObject({ paid: [], active: null, speech: null });
+      expect([...files.saved]).toEqual([`${horn.value.id}:audio/wav`]);
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("reads what was waiting after a restart, starting with the one cut off", async () => {
+    vi.useFakeTimers();
+    const store = new MemoryStore();
+    const voice = vi.fn(async () => wav(2_000));
+    const first = await harness({ modules: [createMedia({ files: fakeFiles(), voice }).module], store });
+    first.chat({ type: "superchat", author: "Ana", text: "First" });
+    first.chat({ type: "superchat", author: "Bo", text: "Second" });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await first.stop();
+    expect(persistedPaid(store)).toEqual(["Ana", "Bo"]);
+
+    voice.mockClear();
+    const second = await harness({ modules: [createMedia({ files: fakeFiles(), voice }).module], store });
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(voice).toHaveBeenCalledWith("Ana sent $5.00. First", expect.any(AbortSignal));
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      expect(voice).toHaveBeenLastCalledWith("Bo sent $5.00. Second", expect.any(AbortSignal));
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      expect(persistedPaid(store)).toEqual([]);
+    } finally { await second.stop(); vi.useRealTimers(); }
+  });
+
+  it("shows a message silently when its voice fails, then reads the next one", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn().mockRejectedValueOnce(new Error("blip")).mockResolvedValue(wav(2_000));
+    const h = await harness({ modules: [createMedia({ files: fakeFiles(), voice }).module] });
+    try {
+      h.chat({ type: "superchat", author: "Ana", text: "First" });
+      h.chat({ type: "superchat", author: "Bo", text: "Second" });
+      await vi.advanceTimersByTimeAsync(0);
+      const failed = stateOf(h.kernel.snapshot());
+      expect(failed.active).toMatchObject({ itemId: null, paidId: failed.paid[0]!.id });
+      expect(failed.paid[0]!.name).toBe("Ana");
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      expect(voice).toHaveBeenLastCalledWith("Bo sent $5.00. Second", expect.any(AbortSignal));
+      expect(stateOf(h.kernel.snapshot()).paid.map((message) => message.name)).toEqual(["Bo"]);
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
   it("reports failed synthesis and lets her retry without exposing the error", async () => {
+    vi.useFakeTimers();
     const voice = vi.fn().mockRejectedValueOnce(new Error("private provider details")).mockResolvedValue(wav(2_000));
     const h = await harness({ modules: [createMedia({ files: fakeFiles(), voice }).module] });
     try {
       h.chat({ type: "superchat", text: "Hello" });
-      await vi.waitFor(() => expect(stateOf(h.kernel.snapshot()).ttsStatus).toContain("Could not read"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stateOf(h.kernel.snapshot()).ttsStatus).toContain("Could not read");
       expect(JSON.stringify(h.kernel.snapshot())).not.toContain("private provider details");
       await h.kernel.invoke("media.testVoice");
-      await vi.waitFor(() => expect(stateOf(h.kernel.snapshot()).active).not.toBeNull());
-    } finally { await h.stop(); }
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      expect(voice).toHaveBeenCalledTimes(2);
+      expect(stateOf(h.kernel.snapshot()).speech).not.toBeNull();
+    } finally { await h.stop(); vi.useRealTimers(); }
   });
 
   it("bounds the queue during a burst of paid messages", async () => {
@@ -294,13 +407,94 @@ describe("paid-message speech", () => {
     const voice = vi.fn(() => new Promise<Buffer>((resolve) => { finish = resolve; }));
     const h = await harness({ modules: [createMedia({ files: fakeFiles(), voice }).module] });
     try {
-      for (let i = 0; i < 30; i++) h.chat({ type: "superchat", text: `Message ${i}` });
+      for (let i = 0; i < MAX_PAID_QUEUE + 5; i++) h.chat({ type: "superchat", text: `Message ${i}` });
       expect(voice).toHaveBeenCalledTimes(1);
+      expect(stateOf(h.kernel.snapshot()).paid).toHaveLength(MAX_PAID_QUEUE);
       expect(stateOf(h.kernel.snapshot()).ttsStatus).toContain("queue is full");
       await h.kernel.invoke("media.stop");
       finish(wav(2_000));
       await Promise.resolve();
     } finally { await h.stop(); }
+  });
+});
+
+describe("guarding paid messages", () => {
+  it("never reads a link and thanks a scam by name only, through mock chat", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn(async (_text: string) => wav(2_000));
+    const h = await harness({ modules: [createMedia({ files: fakeFiles(), voice }).module] });
+    try {
+      h.chat({ type: "superchat", author: "Ana", text: "my plan is at fitplan.xyz/ana" });
+      h.chat({ type: "superchat", author: "Bot", text: "you have won, claim your prize on telegram" });
+      await vi.advanceTimersByTimeAsync(0);
+      const first = stateOf(h.kernel.snapshot()).paid[0]!;
+      expect(first.text).toBe("my plan is at (link)");
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      expect(stateOf(h.kernel.snapshot()).paid[0]).toMatchObject({ name: "Bot", text: "", cut: "Asks people to message an account off-platform" });
+      expect(voice.mock.calls.map(([text]) => text)).toEqual(["Ana sent $5.00. my plan is at (link)", "Bot sent $5.00. Thank you!"]);
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("with check first on, holds a message with words until she answers from the card or the deck", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn(async (_text: string) => wav(2_000));
+    const h = await harness({ modules: [createMedia({ files: fakeFiles(), voice }).module] });
+    try {
+      expect(await h.kernel.invoke(`${MEDIA_ID}.approve`)).toMatchObject({ ok: false, reason: "No paid message is waiting for you" });
+      await h.kernel.invoke(`${MEDIA_ID}.checkFirst`, { args: ["on"] });
+      h.chat({ type: "superchat", author: "Ana", text: "Read me?" });
+      h.chat({ type: "superchat", author: "Bo", text: "Something rude" });
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      const waiting = stateOf(h.kernel.snapshot());
+      expect(waiting.active).toBeNull();
+      expect(waiting.ttsStatus).toContain("Ana's message is waiting");
+      expect(voice).not.toHaveBeenCalled();
+
+      // Her card names the message, so a stale tap cannot land on the next one.
+      expect(await h.kernel.invoke(`${MEDIA_ID}.approve`, { args: [waiting.paid[1]!.id] }))
+        .toMatchObject({ ok: false, reason: "That message has moved on" });
+      expect(await h.kernel.invoke(`${MEDIA_ID}.approve`, { args: [waiting.paid[0]!.id] })).toEqual({ ok: true });
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      expect(stateOf(h.kernel.snapshot()).active).toBeNull();
+
+      // A deck button sends no id and answers the one at the head.
+      await h.kernel.invoke(`${MEDIA_ID}.thanksOnly`, { via: "deck" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stateOf(h.kernel.snapshot()).paid[0]).toMatchObject({ name: "Bo", text: "", cut: "You left it out" });
+      expect(voice.mock.calls.map(([text]) => text)).toEqual(["Ana sent $5.00. Read me?", "Bo sent $5.00. Thank you!"]);
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("does not hold a message with no words, and turning checking off lets the line go", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn(async (_text: string) => wav(2_000));
+    const h = await harness({ modules: [createMedia({ files: fakeFiles(), voice }).module] });
+    try {
+      await h.kernel.invoke(`${MEDIA_ID}.checkFirst`, { args: ["on"] });
+      h.chat({ type: "superchat", author: "Bot", text: "dm me on telegram" });
+      h.chat({ type: "superchat", author: "Ana", text: "Held" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(voice).toHaveBeenLastCalledWith("Bot sent $5.00. Thank you!", expect.any(AbortSignal));
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      expect(stateOf(h.kernel.snapshot()).active).toBeNull();
+      await h.kernel.invoke(`${MEDIA_ID}.checkFirst`, { args: ["off"] });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(voice).toHaveBeenLastCalledWith("Ana sent $5.00. Held", expect.any(AbortSignal));
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("keeps checking on, and the message it is holding, across a restart", async () => {
+    const store = new MemoryStore();
+    const first = await harness({ modules: [createMedia({ files: fakeFiles() }).module], store });
+    await first.kernel.invoke(`${MEDIA_ID}.checkFirst`, { args: ["on"] });
+    first.chat({ type: "superchat", author: "Ana", text: "Still here?" });
+    await first.stop();
+    const second = await harness({ modules: [createMedia({ files: fakeFiles() }).module], store });
+    try {
+      expect(stateOf(second.kernel.snapshot())).toMatchObject({ checkFirst: true, active: null, paid: [{ name: "Ana", text: "Still here?" }] });
+      await second.kernel.invoke(`${MEDIA_ID}.approve`);
+      expect(stateOf(second.kernel.snapshot()).active).toMatchObject({ itemId: null });
+    } finally { await second.stop(); }
   });
 });
 
@@ -328,26 +522,29 @@ describe("choosing Microsoft speech", () => {
       expect((await h.kernel.invoke("media.testVoice")).ok).toBe(false);
       await h.kernel.invoke("media.speechSettings", { args: ["system", "", ""] });
       await h.kernel.invoke("media.testVoice");
-      await vi.advanceTimersByTimeAsync(0);
+      // Waits behind the message now on screen without a voice.
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
       expect(local).toHaveBeenCalledTimes(1);
     } finally { await h.stop(); vi.useRealTimers(); }
   });
 
-  it("cancels an old voice when settings change and restores the selected provider after restart", async () => {
+  it("cancels an old voice when settings change, keeps the message, and restores the provider after restart", async () => {
     const store = new MemoryStore();
     let finish!: (data: Buffer) => void;
-    let signal: AbortSignal | undefined;
+    const signals: AbortSignal[] = [];
     const voice = vi.fn((_text: string, abort: AbortSignal) => {
-      signal = abort;
+      signals.push(abort);
       return new Promise<Buffer>((resolve) => { finish = resolve; });
     });
     const files = fakeFiles();
     const first = await harness({ modules: [createMedia({ files, microsoftVoice: voice }).module], store });
     await first.kernel.invoke("media.speechSettings", { args: ["microsoft", "centralindia", key] });
     first.chat({ type: "superchat", text: "ನಮಸ್ಕಾರ" });
+    const old = finish;
     await first.kernel.invoke("media.speechSettings", { args: ["microsoft", "eastus", key] });
-    expect(signal!.aborted).toBe(true);
-    finish(wav(2_000));
+    expect(signals.map((signal) => signal.aborted)).toEqual([true, false]);
+    expect(stateOf(first.kernel.snapshot()).paid).toHaveLength(1);
+    old(wav(2_000));
     await Promise.resolve();
     expect(files.saved.size).toBe(0);
     await first.stop();

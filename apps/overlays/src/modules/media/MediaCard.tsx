@@ -87,8 +87,8 @@ export function MediaCard({ connection, deck }: CardProps) {
       {invoke.notice ? <Notice notice={invoke.notice} testId="media-notice" onDismiss={invoke.dismiss} /> : null}
 
       <div className="field">
-        <span>Read paid messages aloud</span>
-        <p className="hint">Reads the sender, amount and message for Super Chats and tips. Add the Media overlay in OBS to hear it on stream.</p>
+        <span>Paid messages</span>
+        <p className="hint">Super Chats and tips show on the Media overlay in OBS with the sender, amount and message. With speech on, they are read aloud too; enable the overlay's audio in the OBS mixer.</p>
         <button className="btn" type="button" aria-pressed={state?.ttsEnabled ?? false} disabled={invoke.working || !state}
           onClick={() => void invoke.run(`${MEDIA_ID}.tts`, [state?.ttsEnabled ? "off" : "on"])}>
           Speech {state?.ttsEnabled ? "on" : "off"}
@@ -97,13 +97,22 @@ export function MediaCard({ connection, deck }: CardProps) {
           onClick={() => void invoke.run(`${MEDIA_ID}.testVoice`)}>Test voice</button>
         <button className="btn" type="button" disabled={invoke.working}
           onClick={() => void invoke.run(`${MEDIA_ID}.stop`)}>Stop speech and media</button>
+        <button className="btn" type="button" aria-pressed={state?.checkFirst ?? false} disabled={invoke.working || !state}
+          onClick={() => void invoke.run(`${MEDIA_ID}.checkFirst`, [state?.checkFirst ? "off" : "on"])}>
+          Check messages first: {state?.checkFirst ? "on" : "off"}
+        </button>
+        <p className="hint">Links are never shown or read, and scam-shaped messages are left out. With checking on, each message with words in it waits for you.</p>
+        {state ? <Waiting state={state} invoke={invoke} /> : null}
         <p className="hint" role="status">{state?.ttsStatus}</p>
+        {state?.paid.length ? <p className="hint" data-testid="media-paid-waiting">
+          {state.paid.length === 1 ? "1 paid message" : `${state.paid.length} paid messages`} in line. Stop clears them.
+        </p> : null}
         {state ? <SpeechSettings state={state} invoke={invoke} /> : null}
       </div>
 
       {state?.active ? (
         <div className="media-live" data-testid="media-active">
-          <span>Playing {state.speech?.label ?? items.find((item) => item.id === state.active?.itemId)?.label ?? "a clip"}</span>
+          <span>{nowPlaying(state)}</span>
           <button className="tool" type="button" onClick={() => void invoke.run(`${MEDIA_ID}.stop`)}>
             Stop all
           </button>
@@ -184,6 +193,33 @@ function Preview({ item, src }: { item: MediaItem; src: string }) {
 
 function assetPath(item: MediaItem): string {
   return `/api/media/${encodeURIComponent(item.id)}/${encodeURIComponent(item.assetKey)}`;
+}
+
+/** The one paid message held for her, with the two answers big enough to hit mid-set. */
+function Waiting({ state, invoke }: { state: MediaState; invoke: Invoker }) {
+  const head = state.paid[0];
+  if (!head || !state.checkFirst || !head.text || head.approved) return null;
+  return (
+    <div className="media-waiting" data-testid="media-paid-check">
+      <p><strong>{head.name}</strong> sent <strong>{head.amount}</strong></p>
+      <blockquote>{head.text}</blockquote>
+      <div className="media-waiting-actions">
+        <button className="btn btn-primary" type="button" disabled={invoke.working}
+          onClick={() => void invoke.run(`${MEDIA_ID}.approve`, [head.id])}>Show it</button>
+        <button className="btn" type="button" disabled={invoke.working}
+          onClick={() => void invoke.run(`${MEDIA_ID}.thanksOnly`, [head.id])}>Thanks only</button>
+      </div>
+    </div>
+  );
+}
+
+function nowPlaying(state: MediaState): string {
+  const message = state.active?.paidId ? state.paid.find((candidate) => candidate.id === state.active?.paidId) : undefined;
+  if (message) {
+    return `Showing ${message.name}'s ${message.amount}${state.speech ? ", reading it aloud" : ""}${message.cut ? `. Message left out: ${message.cut}` : ""}`;
+  }
+  if (state.speech) return "Playing the test voice";
+  return `Playing ${state.items.find((item) => item.id === state.active?.itemId)?.label ?? "a clip"}`;
 }
 
 function formatBytes(bytes: number): string {

@@ -1,17 +1,37 @@
 import { describe, expect, it } from "vitest";
 import type { PaidEvent } from "@saarathi/shared";
-import { paidSpeech, systemVoice } from "../../src/modules/media/speech.js";
+import { paidMessage, paidSpeech, systemVoice } from "../../src/modules/media/speech.js";
 
-const paid = (over: Partial<PaidEvent> = {}): PaidEvent => ({
+const event = (over: Partial<PaidEvent> = {}): PaidEvent => ({
   type: "paid-event", kind: "superchat", source: "mock", at: 1,
   author: { id: "ana", name: "Ana" }, amount: { display: "$5.00" }, text: "Keep going!", ...over,
 });
+const paid = (over: Partial<PaidEvent> = {}) => paidMessage(event(over), "message");
 
 describe("paid speech text", () => {
   it("uses the same message for tips and Super Chats, including a thanks for empty stickers", () => {
     expect(paidSpeech(paid())).toBe("Ana sent $5.00. Keep going!");
     expect(paidSpeech(paid({ kind: "tip" }))).toBe("Ana sent $5.00. Keep going!");
     expect(paidSpeech(paid({ kind: "sticker", text: "" }))).toBe("Ana sent $5.00. Thank you!");
+  });
+
+  it("keeps the arrival time and the id it was given", () => {
+    expect(paid({ at: 42 })).toEqual({ id: "message", at: 42, name: "Ana", amount: "$5.00", text: "Keep going!" });
+  });
+
+  it("never puts a link on her stream, in the message or in a name", () => {
+    expect(paid({ text: "follow me at bit.ly/abc ok", author: { id: "x", name: "visit spam.tk" } }))
+      .toMatchObject({ name: "visit (link)", text: "follow me at (link) ok" });
+  });
+
+  it("leaves a scam out entirely, says why on her card, and still thanks them", () => {
+    const message = paid({ text: "message me on whatsapp for free coaching" });
+    expect(message).toMatchObject({ text: "", cut: "Asks people to message an account off-platform" });
+    expect(paidSpeech(message)).toBe("Ana sent $5.00. Thank you!");
+  });
+
+  it("looks for a scam in the whole message, not the part that fits on screen", () => {
+    expect(paid({ text: `${"go ".repeat(70)}claim your prize` }).cut).toBe("Fake giveaway win");
   });
 
   it("bounds every viewer-controlled field and removes control characters", () => {

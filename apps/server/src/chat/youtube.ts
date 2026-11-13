@@ -5,7 +5,6 @@ import type {
   ChatView,
   InvokeResult,
   Logger,
-  Money,
   StreamEvent,
 } from "@saarathi/shared";
 import type { ChatType } from "youtube-chat-next";
@@ -17,6 +16,7 @@ import {
   type ChatSink,
   type ChatWrites,
 } from "./adapter.js";
+import { parseAmount } from "./money.js";
 import { YouTubeGrant } from "./youtube-grant.js";
 import {
   CLIENT_WHERE,
@@ -725,13 +725,3 @@ export function normalize(item: any): StreamEvent | null {
   return null;
 }
 
-/** Keep what YouTube displayed, and pull a number out of it when we can. */
-export function parseAmount(display: unknown): Money {
-  const shown = typeof display === "string" ? display : "";
-  const digits = shown.replace(/[^\d.]/g, "");
-  const value = digits ? Number(digits) : Number.NaN;
-  return {
-    display: shown || "a tip",
-    ...(Number.isFinite(value) ? { value } : {}),
-  };
-}

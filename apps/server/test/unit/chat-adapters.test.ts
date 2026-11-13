@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { GAINS, type ConnectionStatus, type StreamEvent } from "@saarathi/shared";
 import type { ChatSink } from "../../src/chat/adapter.js";
 import { MockChatAdapter } from "../../src/chat/mock.js";
-import { normalize, parseAmount } from "../../src/chat/youtube.js";
+import { normalize } from "../../src/chat/youtube.js";
 
 /** A sink that keeps what an adapter pushed at it. */
 function testSink() {
@@ -127,7 +127,16 @@ describe("MockChatAdapter", () => {
     const adapter = new MockChatAdapter();
     await adapter.start(sink);
     adapter.send({ text: "big one", type: "superchat", amount: "₹500.00" });
-    expect(events[0]).toMatchObject({ amount: { display: "₹500.00" } });
+    expect(events[0]).toMatchObject({ amount: { display: "₹500.00", value: 500, currency: "INR" } });
+  });
+
+  it("sends a superchat with no message, which is most of the small ones", async () => {
+    const { sink, events } = testSink();
+    const adapter = new MockChatAdapter();
+    await adapter.start(sink);
+    adapter.send({ text: "  ", type: "superchat" });
+    adapter.send({ text: "  " });
+    expect(events).toEqual([expect.objectContaining({ type: "paid-event", text: "" })]);
   });
 
   it("makes a new member, and flags them as one", async () => {
@@ -261,7 +270,7 @@ describe("youtube normalize", () => {
     expect(event).toMatchObject({
       type: "paid-event",
       kind: "superchat",
-      amount: { display: "$5.00", value: 5 },
+      amount: { display: "$5.00", value: 5, currency: "USD" },
     });
   });
 
@@ -304,29 +313,5 @@ describe("youtube normalize", () => {
     vi.setSystemTime(1_700_000_000_000);
     expect(normalize({ author, message: message("hi") })!.at).toBe(1_700_000_000_000);
     vi.useRealTimers();
-  });
-});
-
-describe("parseAmount", () => {
-  it("keeps what YouTube displayed and pulls the number out", () => {
-    expect(parseAmount("$5.00")).toEqual({ display: "$5.00", value: 5 });
-    expect(parseAmount("₹500.00")).toEqual({ display: "₹500.00", value: 500 });
-    expect(parseAmount("CA$1.99")).toEqual({ display: "CA$1.99", value: 1.99 });
-  });
-
-  it("still reports the display when it cannot find a number", () => {
-    expect(parseAmount("a lot")).toEqual({ display: "a lot" });
-  });
-
-  it("says 'a tip' rather than nothing when there is no display at all", () => {
-    for (const input of ["", null, undefined, 5, {}]) {
-      expect(parseAmount(input), String(input)).toEqual({ display: "a tip" });
-    }
-  });
-
-  it("omits the value instead of reporting NaN", () => {
-    const amount = parseAmount("$1.2.3");
-    expect(amount.display).toBe("$1.2.3");
-    expect("value" in amount).toBe(false);
   });
 });

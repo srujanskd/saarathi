@@ -2,15 +2,36 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PaidEvent } from "@saarathi/shared";
+import type { PaidEvent, PaidMessage } from "@saarathi/shared";
+import { scamIn, withoutLinks } from "../../core/screen.js";
 
 export type SpeechVoice = (text: string, signal: AbortSignal) => Promise<Buffer>;
 
-export function paidSpeech(event: PaidEvent, language: "en" | "kn" = "en"): string {
-  const clean = (text: string, max: number) => Array.from(text, (char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 ? " " : char).join("").replace(/\s+/g, " ").trim().slice(0, max);
-  const message = clean(event.text, 180);
-  if (language === "kn") return `${clean(event.author.name, 40)} ಅವರಿಂದ ${clean(event.amount.display, 24)}. ${message || "ನಿಮ್ಮ ಬೆಂಬಲಕ್ಕೆ ಧನ್ಯವಾದಗಳು!"}`;
-  return `${clean(event.author.name, 40)} sent ${clean(event.amount.display, 24)}.${message ? ` ${message}` : " Thank you!"}`;
+const clean = (text: string, max: number) => Array.from(text, (char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 ? " " : char)
+  .join("").replace(/\s+/g, " ").trim().slice(0, max);
+
+/**
+ * Bounded and screened at the door, so the queue holds exactly what may go on
+ * her stream. Paying does not buy a link on screen or in her voice: it is
+ * swapped for a word. A message shaped like a scam is left out entirely and
+ * the sender is thanked by name, which is all a real supporter loses.
+ */
+export function paidMessage(event: PaidEvent, id: string): PaidMessage {
+  const full = clean(event.text, 1_000);
+  const scam = scamIn(full);
+  return {
+    id,
+    at: event.at,
+    name: clean(withoutLinks(event.author.name, "(link)"), 40),
+    amount: clean(event.amount.display, 24),
+    text: scam ? "" : clean(withoutLinks(full, "(link)"), 180),
+    ...(scam ? { cut: scam } : {}),
+  };
+}
+
+export function paidSpeech(message: Pick<PaidMessage, "name" | "amount" | "text">, language: "en" | "kn" = "en"): string {
+  if (language === "kn") return `${message.name} ಅವರಿಂದ ${message.amount}. ${message.text || "ನಿಮ್ಮ ಬೆಂಬಲಕ್ಕೆ ಧನ್ಯವಾದಗಳು!"}`;
+  return `${message.name} sent ${message.amount}.${message.text ? ` ${message.text}` : " Thank you!"}`;
 }
 
 // Text travels over stdin, never through a shell or as executable PowerShell.

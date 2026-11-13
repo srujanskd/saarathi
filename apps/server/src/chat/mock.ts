@@ -1,5 +1,6 @@
 import type { Author, ChannelStats, MockChatInput, StreamEvent } from "@saarathi/shared";
 import type { ChatAdapter, ChatSink, ChatWrites } from "./adapter.js";
+import { parseAmount } from "./money.js";
 
 /**
  * What the bot is called when mock chat echoes its own writes back.
@@ -123,8 +124,10 @@ export class MockChatAdapter implements ChatAdapter {
 
   send(input: MockChatInput): void {
     if (!this.sink) return;
-    const text = input.text?.trim();
-    if (!text) return;
+    const text = input.text?.trim() ?? "";
+    // A Super Chat with no message is a real one -- most of them, at the low
+    // end -- and the speech and alert paths have to be shown what it does.
+    if (!text && input.type !== "superchat") return;
 
     const role = input.role ?? "viewer";
     const author: Author = {
@@ -151,7 +154,7 @@ export class MockChatAdapter implements ChatAdapter {
         ...base,
         type: "paid-event",
         kind: "superchat",
-        amount: { display: input.amount || "$5.00" },
+        amount: parseAmount(input.amount || "$5.00"),
       };
     } else if (input.type === "member") {
       event = { ...base, type: "new-member" };

@@ -23,7 +23,8 @@ export function ChatCard({ connection, status }: CardProps) {
   function send(event: FormEvent): void {
     event.preventDefault();
     const line = text.trim();
-    if (!line) return;
+    // A Super Chat may carry no message at all, and mock chat has to send one.
+    if (!line && kind !== "superchat") return;
     const input: MockChatInput = { text: line, type: kind };
     const who = author.trim();
     if (who) input.author = who;
