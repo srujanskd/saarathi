@@ -1,3 +1,5 @@
+import { PAID_TIERS } from "../events.js";
+
 export const MEDIA_ID = "media";
 export const MAX_MEDIA_ITEMS = 24;
 export const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
@@ -14,8 +16,31 @@ export const MAX_PAID_QUEUE = 50;
  * shorter than reading it is, and a silent one has nothing else to time it by.
  */
 export const PAID_ALERT_MS = 6_000;
-/** And this much longer per rung above the smallest: a bigger one is worth more of the screen. */
+/** And this much longer per size above the smallest: a bigger one is worth more of the screen. */
 export const PAID_ALERT_TIER_MS = 1_000;
+
+/**
+ * Roughly where each of the platform's rungs starts, in her currency. For her
+ * to recognise a rung by, on her card and in a preview: nothing is ranked by
+ * it, the rung itself already came off the platform. Typed to `PAID_TIERS`, so
+ * a longer ladder fails to build here instead of previewing a blank amount.
+ */
+export const PAID_TIER_SAMPLES = ["₹40", "₹80", "₹160", "₹400", "₹800", "₹2,000", "₹5,000"] as const satisfies
+  readonly string[] & { length: typeof PAID_TIERS };
+
+/**
+ * One of her paid-alert levels. Her levels split the platform's rungs into as
+ * many groups as she wants, up to one each: a level runs from its own `from`
+ * up to the rung before the next level's, so every rung lands on exactly one
+ * and none can be left out. The first always starts at 1, and a paid event
+ * with no rung lands there too.
+ */
+export interface AlertLevel {
+  /** The smallest rung on this level, 1 to `PAID_TIERS`. */
+  from: number;
+  /** A library clip played before the alert, then the alert and its speech. */
+  introId?: string;
+}
 
 /**
  * How a paid alert looks. Hers to pick from the card, because only she knows
@@ -79,6 +104,20 @@ export interface MediaCue {
    * it aloud, saves it or thanks anyone for it.
    */
   sample?: PaidMessage;
+  /**
+   * Set while this cue is a level's intro clip, to the paid message (or the
+   * sample) it comes before. No alert is drawn over an intro: the alert is the
+   * cue that follows it.
+   */
+  introFor?: string;
+  /** Her level the alert is on, 1 to the number she has, for her card. */
+  level?: number;
+  /**
+   * How big the alert is drawn, 1 to `PAID_TIERS`: her levels spread over the
+   * sizes the overlay has, so her top level always gets the biggest. Worked
+   * out when the cue starts, so a reload mid-alert draws the same one.
+   */
+  size?: number;
   startedAt: number;
   endsAt: number;
 }
@@ -165,4 +204,6 @@ export interface MediaState {
   rememberedVoices: number;
   alertTheme: AlertTheme;
   alertPosition: AlertPosition;
+  /** Her levels, smallest first. One per rung until she groups them. */
+  alertLevels: AlertLevel[];
 }

@@ -16,7 +16,9 @@ export function MediaOverlay({ connection }: { connection: Connection }) {
     return () => clearTimeout(timer);
   }, [cue, remaining]);
 
-  const message = cue?.sample ?? (cue?.paidId ? state?.paid.find((candidate) => candidate.id === cue.paidId) : undefined);
+  // An intro is a clip on its own: the alert is the cue after it.
+  const message = cue?.introFor ? undefined
+    : cue?.sample ?? (cue?.paidId ? state?.paid.find((candidate) => candidate.id === cue.paidId) : undefined);
 
   if (!cue || (!item && !message) || remaining <= 0) return null;
   const elapsedSeconds = Math.max(0, (connection.serverNow() - cue.startedAt) / 1000);
@@ -24,14 +26,14 @@ export function MediaOverlay({ connection }: { connection: Connection }) {
     <>
       {item ? <Cue key={cue.id} item={item} elapsedSeconds={elapsedSeconds}
         src={connection.assetUrl(`/api/media/${encodeURIComponent(item.id)}/${encodeURIComponent(item.assetKey)}`)} /> : null}
-      {message && state ? <PaidAlert key={`alert-${cue.id}`} message={message} remainingMs={remaining}
+      {message && state ? <PaidAlert key={`alert-${cue.id}`} message={message} size={cue.size ?? 1} remainingMs={remaining}
         theme={state.alertTheme} position={state.alertPosition} /> : null}
     </>
   );
 }
 
 const ALERT_FADE_MS = 400;
-/** The rung the shine starts at, and the one the burst does. */
+/** The size the shine starts at, and the one the burst does. */
 const SHINE_FROM = 4;
 const BURST_FROM = 6;
 const SPARKS = 16;
@@ -58,17 +60,18 @@ const SPARK_PATHS = Array.from({ length: SPARKS }, (_, index) => {
  * browser source that OBS reloads mid-alert comes back to the same card with
  * the time it has left; the exit is scheduled off that, not off a timer here.
  *
- * The rung sets the size, the colour, how hard it lands and whether it shines
- * or bursts. Every one of those runs once, on transform and opacity, so a
- * reload mid-alert replays the entrance and nothing is left running after.
+ * The size the server drew it at, from her level, sets how big it is, the
+ * colour, how hard it lands and whether it shines or bursts. Every one of those
+ * runs once, on transform and opacity, so a reload mid-alert replays the
+ * entrance and nothing is left running after.
  */
-function PaidAlert({ message, remainingMs, theme, position }: {
+function PaidAlert({ message, size, remainingMs, theme, position }: {
   message: PaidMessage;
+  size: number;
   remainingMs: number;
   theme: AlertTheme;
   position: AlertPosition;
 }) {
-  const tier = message.tier ?? 1;
   // An animation delay counts from when the animation started, which is this
   // card's mount, so the exit is worked out once against the time left then.
   // Recomputed on every render it shrinks while the clock it is measured from
@@ -77,20 +80,20 @@ function PaidAlert({ message, remainingMs, theme, position }: {
   const [exitMs] = useState(() => Math.max(0, remainingMs - ALERT_FADE_MS));
   const style = {
     "--alert-out": `${exitMs}ms`,
-    "--tier": tier,
+    "--tier": size,
   } as CSSProperties;
   return (
     <div className="paid-stage" data-position={position}>
-      <div className="paid-alert-wrap" data-tier={message.tier ?? "none"} style={style}>
+      <div className="paid-alert-wrap" data-tier={size} style={style}>
         <div className="paid-alert" data-theme={theme} data-testid="paid-alert">
           <p className="paid-alert-top">
             <span className="paid-alert-name">{message.name}</span>
             <span className="paid-alert-amount">{message.amount}</span>
           </p>
           {message.text ? <p className="paid-alert-text">{message.text}</p> : null}
-          {tier >= SHINE_FROM ? <span className="paid-alert-shine" aria-hidden /> : null}
+          {size >= SHINE_FROM ? <span className="paid-alert-shine" aria-hidden /> : null}
         </div>
-        {tier >= BURST_FROM ? (
+        {size >= BURST_FROM ? (
           <div className="paid-alert-burst" aria-hidden data-testid="paid-alert-burst">
             {SPARK_PATHS.map((spark, index) => <span key={index} style={spark} />)}
           </div>

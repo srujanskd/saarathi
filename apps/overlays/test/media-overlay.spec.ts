@@ -219,6 +219,30 @@ test("a paid alert keeps its exit time when the state changes under it", async (
   expect(await saarathi.invoke({ action: `${MEDIA_ID}.stop`, args: [] })).toEqual({ ok: true });
 });
 
+// The server says an intro is on; only the page can say the alert stayed off
+// the screen while it was, and came on once it was over.
+test("a level's intro clip shows on its own, and the alert follows it", async ({
+  page: overlay, pages, saarathi,
+}) => {
+  const uploaded = await saarathi.raw(`/api/media?${new URLSearchParams({ label: "Meme", volume: "0.8" })}`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${saarathi.controlToken}`, "content-type": "image/png" },
+    body: PNG,
+  });
+  const meme = ((await uploaded.json()) as { item: MediaItem }).item;
+  expect(await saarathi.invoke({ action: `${MEDIA_ID}.alertLevels`, args: [JSON.stringify([{ from: 1, introId: meme.id }])] }))
+    .toEqual({ ok: true });
+  await overlay.goto(overlayUrl(pages, saarathi, MEDIA_ID));
+  expect(await saarathi.invoke({ action: `${MEDIA_ID}.previewAlert`, args: ["1"] })).toEqual({ ok: true });
+
+  await expect(overlay.getByTestId("media-image")).toBeVisible();
+  await expect(overlay.getByTestId("paid-alert")).toHaveCount(0);
+  expect(await saarathi.invoke({ action: `${MEDIA_ID}.skipIntro`, args: [] })).toEqual({ ok: true });
+  await expect(overlay.getByTestId("paid-alert")).toContainText("Preview");
+  await expect(overlay.getByTestId("media-image")).toHaveCount(0);
+  expect(await saarathi.invoke({ action: `${MEDIA_ID}.stop`, args: [] })).toEqual({ ok: true });
+});
+
 function tone(): Buffer {
   const rate = 8_000;
   const samples = rate * 10;
