@@ -338,12 +338,14 @@ describe("paid-message speech", () => {
       expect(stateOf(h.kernel.snapshot()).active?.itemId).toBe(horn.value.id);
       expect(stateOf(h.kernel.snapshot()).paid.map((message) => message.name)).toEqual(["Ana", "Bo"]);
 
+      // Read again from the top once her clip ends, from the audio already
+      // made: a clip is not a reason to pay for the same words twice.
       await vi.advanceTimersByTimeAsync(2_000);
+      const again = stateOf(h.kernel.snapshot());
+      expect(again.active).toMatchObject({ itemId: again.speech!.id, paidId: again.paid[0]!.id, startedAt: Date.now() });
       await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
       await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
-      expect(voice.mock.calls.map(([text]) => text)).toEqual([
-        "Ana sent $5.00. First", "Ana sent $5.00. First", "Bo sent $5.00. Second",
-      ]);
+      expect(voice.mock.calls.map(([text]) => text)).toEqual(["Ana sent $5.00. First", "Bo sent $5.00. Second"]);
       expect(stateOf(h.kernel.snapshot())).toMatchObject({ paid: [], active: null, speech: null });
       expect([...files.saved]).toEqual([`${horn.value.id}:audio/wav`]);
     } finally { await h.stop(); vi.useRealTimers(); }
@@ -952,5 +954,307 @@ describe("Claude picking voices", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(voice).toHaveBeenLastCalledWith("Thank you for supporting the stream!", expect.any(AbortSignal), undefined);
     } finally { await h.stop(); vi.useRealTimers(); }
+  });
+});
+
+describe("her alert levels and the clip each one plays first", () => {
+  const levels = (list: { from: number; introId?: string }[]) => [JSON.stringify(list)];
+
+  it("groups mock Super Chats into five levels, sized and timed by her level rather than the rung", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    const h = await harness({ modules: [createMedia({ files: fakeFiles() }).module] });
+    try {
+      expect(await h.kernel.invoke("media.tts", { args: ["off"] })).toEqual({ ok: true });
+      expect(await h.kernel.invoke("media.alertLevels", { args: levels([{ from: 1 }, { from: 3 }, { from: 4 }, { from: 5 }, { from: 6 }]) }))
+        .toEqual({ ok: true });
+      h.chat({ type: "superchat", author: "Red", amount: "₹5,000.00", text: "Top", tier: 7 });
+      h.chat({ type: "superchat", author: "Magenta", amount: "₹2,000.00", text: "Same level", tier: 6 });
+      h.chat({ type: "superchat", author: "Light blue", amount: "₹80.00", text: "Bottom", tier: 2 });
+      const seen: { level?: number; size?: number; ms: number }[] = [];
+      for (let shown = 0; shown < 3; shown++) {
+        const cue = stateOf(h.kernel.snapshot()).active!;
+        seen.push({ level: cue.level, size: cue.size, ms: cue.endsAt - cue.startedAt });
+        await vi.advanceTimersByTimeAsync(cue.endsAt - cue.startedAt);
+      }
+      expect(seen).toEqual([
+        { level: 5, size: 7, ms: PAID_ALERT_MS + 6 * PAID_ALERT_TIER_MS },
+        { level: 5, size: 7, ms: PAID_ALERT_MS + 6 * PAID_ALERT_TIER_MS },
+        { level: 1, size: 1, ms: PAID_ALERT_MS },
+      ]);
+      expect(await h.kernel.invoke("media.alertLevels", { args: levels([{ from: 2 }]) }))
+        .toMatchObject({ ok: false, reason: "The first level has to start at the smallest" });
+      expect(await h.kernel.invoke("media.alertLevels", { args: ["not json"] })).toMatchObject({ ok: false });
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("plays the level's clip, then the speech it made ready meanwhile, then the next message", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn(async (_text: string) => wav(2_000));
+    const media = createMedia({ files: fakeFiles(), voice });
+    const h = await harness({ modules: [media.module] });
+    try {
+      const horn = media.add(upload("Air horn"));
+      if (!horn.ok) throw new Error(horn.reason);
+      expect(await h.kernel.invoke("media.alertLevels", { args: levels([{ from: 1 }, { from: 6, introId: horn.value.id }]) }))
+        .toEqual({ ok: true });
+      h.chat({ type: "superchat", author: "Ana", amount: "₹5,000.00", text: "Big", tier: 7 });
+      h.chat({ type: "superchat", author: "Bo", amount: "₹100.00", text: "Small", tier: 2 });
+      await vi.advanceTimersByTimeAsync(0);
+
+      const intro = stateOf(h.kernel.snapshot());
+      expect(intro.active).toMatchObject({ itemId: horn.value.id, introFor: intro.paid[0]!.id, level: 2, size: 7 });
+      expect(intro.active).not.toHaveProperty("paidId");
+      // Made before the intro, so it is ready the moment the intro ends.
+      expect(voice.mock.calls.map(([text]) => text)).toEqual(["Ana sent ₹5,000.00. Big"]);
+      expect(intro.ttsStatus).toBe("Playing the intro for Ana");
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      const reading = stateOf(h.kernel.snapshot());
+      expect(reading.active).toMatchObject({ itemId: reading.speech!.id, paidId: reading.paid[0]!.id, level: 2, size: 7 });
+      expect(voice).toHaveBeenCalledTimes(1);
+
+      // Level 1 has no clip: straight to its speech.
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS + 6 * PAID_ALERT_TIER_MS);
+      const next = stateOf(h.kernel.snapshot());
+      expect(next.paid.map((message) => message.name)).toEqual(["Bo"]);
+      expect(next.active).toMatchObject({ itemId: next.speech!.id, paidId: next.paid[0]!.id, level: 1 });
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("with speech off, or a voice that fails, still plays the clip and then shows the alert", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn(async () => { throw new Error("no voice"); });
+    const media = createMedia({ files: fakeFiles(), voice });
+    const h = await harness({ modules: [media.module] });
+    try {
+      const horn = media.add(upload());
+      if (!horn.ok) throw new Error(horn.reason);
+      await h.kernel.invoke("media.alertLevels", { args: levels([{ from: 1, introId: horn.value.id }]) });
+      h.chat({ type: "superchat", author: "Ana", text: "Failing voice" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stateOf(h.kernel.snapshot()).active).toMatchObject({ itemId: horn.value.id });
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stateOf(h.kernel.snapshot()).active).toMatchObject({ itemId: null, paidId: stateOf(h.kernel.snapshot()).paid[0]!.id });
+      // Shown silently; the voice that just failed is not asked again for the same message.
+      expect(voice).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+
+      await h.kernel.invoke("media.tts", { args: ["off"] });
+      h.chat({ type: "superchat", author: "Bo", text: "Quiet" });
+      expect(stateOf(h.kernel.snapshot()).active).toMatchObject({ itemId: horn.value.id });
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stateOf(h.kernel.snapshot()).active).toMatchObject({ itemId: null, paidId: stateOf(h.kernel.snapshot()).paid[0]!.id });
+      expect(voice).toHaveBeenCalledTimes(1);
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("holds the clip as well as the words until she lets a checked message through", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn(async (_text: string) => wav(2_000));
+    const media = createMedia({ files: fakeFiles(), voice });
+    const h = await harness({ modules: [media.module] });
+    try {
+      const horn = media.add(upload());
+      if (!horn.ok) throw new Error(horn.reason);
+      await h.kernel.invoke("media.alertLevels", { args: levels([{ from: 1, introId: horn.value.id }]) });
+      await h.kernel.invoke("media.checkFirst", { args: ["on"] });
+      h.chat({ type: "superchat", author: "Ana", text: "Check me" });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(stateOf(h.kernel.snapshot()).active).toBeNull();
+      expect(await h.kernel.invoke("media.approve")).toEqual({ ok: true });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stateOf(h.kernel.snapshot()).active).toMatchObject({ itemId: horn.value.id });
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("Skip intro, from the card or the deck, goes straight to the message, and refuses when no intro is on", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn(async (_text: string) => wav(2_000));
+    const media = createMedia({ files: fakeFiles(), voice });
+    const h = await harness({ modules: [media.module] });
+    try {
+      expect(await h.kernel.invoke("media.skipIntro")).toMatchObject({ ok: false, reason: "No intro is playing" });
+      const horn = media.add(upload());
+      if (!horn.ok) throw new Error(horn.reason);
+      await h.kernel.invoke("media.alertLevels", { args: levels([{ from: 1, introId: horn.value.id }]) });
+      h.chat({ type: "superchat", author: "Ana", text: "Skip to me" });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(await h.kernel.invoke("media.skipIntro")).toEqual({ ok: true });
+      await vi.advanceTimersByTimeAsync(0);
+      const state = stateOf(h.kernel.snapshot());
+      expect(state.active).toMatchObject({ itemId: state.speech!.id, paidId: state.paid[0]!.id });
+      expect(voice).toHaveBeenCalledTimes(1);
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("a clip she presses over the intro does not cost the message its turn, and its intro plays again after", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn(async (_text: string) => wav(2_000));
+    const media = createMedia({ files: fakeFiles(), voice });
+    const h = await harness({ modules: [media.module] });
+    try {
+      const horn = media.add(upload("Air horn"));
+      const drum = media.add(upload("Drum"));
+      if (!horn.ok || !drum.ok) throw new Error("upload");
+      await h.kernel.invoke("media.alertLevels", { args: levels([{ from: 1, introId: horn.value.id }]) });
+      h.chat({ type: "superchat", author: "Ana", text: "Still here" });
+      await vi.advanceTimersByTimeAsync(500);
+      await h.kernel.invoke("media.play", { args: [drum.value.id] });
+      expect(stateOf(h.kernel.snapshot()).active).toMatchObject({ itemId: drum.value.id });
+      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stateOf(h.kernel.snapshot()).active).toMatchObject({ itemId: horn.value.id });
+      await vi.advanceTimersByTimeAsync(2_000);
+      const state = stateOf(h.kernel.snapshot());
+      expect(state.active).toMatchObject({ itemId: state.speech!.id, paidId: state.paid[0]!.id });
+      // The voice made during the first intro was kept through her clip.
+      expect(voice).toHaveBeenCalledTimes(1);
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("puts the intro on at once, and picks the voice and makes the speech while it plays", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn(async (_text: string, _signal: AbortSignal, _style?: SpeechStyle) => wav(2_000));
+    const pick = vi.fn(() => new Promise<SpeechStyle>((resolve) => setTimeout(() => resolve({ voice: "bright", mood: "excited" }), 1_000)));
+    const media = createMedia({ files: fakeFiles(), voice, picker: { available: () => true, pick } });
+    const h = await harness({ modules: [media.module] });
+    try {
+      const horn = media.add(upload());
+      if (!horn.ok) throw new Error(horn.reason);
+      await h.kernel.invoke("media.alertLevels", { args: levels([{ from: 1, introId: horn.value.id }]) });
+      expect(await h.kernel.invoke("media.pickVoices", { args: ["on"] })).toEqual({ ok: true });
+      h.chat({ type: "superchat", author: "Ana", text: "Hype" });
+      await vi.advanceTimersByTimeAsync(0);
+      // On screen before Claude has answered or a word is made.
+      const intro = stateOf(h.kernel.snapshot());
+      expect(intro.active).toMatchObject({ itemId: horn.value.id, introFor: intro.paid[0]!.id });
+      expect(intro.ttsStatus).toBe("Playing the intro for Ana");
+      expect(pick).toHaveBeenCalledTimes(1);
+      expect(voice).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(voice).toHaveBeenCalledWith("Ana sent $5.00. Hype", expect.any(AbortSignal), { voice: "bright", mood: "excited" });
+      expect(stateOf(h.kernel.snapshot()).active).toMatchObject({ itemId: horn.value.id });
+
+      // The voice starts the moment the intro ends.
+      await vi.advanceTimersByTimeAsync(1_000);
+      const reading = stateOf(h.kernel.snapshot());
+      expect(reading.active).toMatchObject({ itemId: reading.speech!.id, paidId: reading.paid[0]!.id, startedAt: Date.now() });
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("a voice she fixes while the intro plays reads the message, rather than leaving it silent", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn(async (_text: string) => wav(2_000)).mockRejectedValueOnce(new Error("bad key"));
+    const media = createMedia({ files: fakeFiles(), voice });
+    const h = await harness({ modules: [media.module] });
+    try {
+      const horn = media.add(upload());
+      if (!horn.ok) throw new Error(horn.reason);
+      await h.kernel.invoke("media.alertLevels", { args: levels([{ from: 1, introId: horn.value.id }]) });
+      h.chat({ type: "superchat", author: "Ana", text: "Read me" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(voice).toHaveBeenCalledTimes(1);
+      expect(stateOf(h.kernel.snapshot()).active).toMatchObject({ itemId: horn.value.id });
+
+      expect(await h.kernel.invoke("media.speechSettings", { args: ["system"] })).toEqual({ ok: true });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(voice).toHaveBeenCalledTimes(2);
+      // Saving her voice does not cut the intro short.
+      expect(stateOf(h.kernel.snapshot()).active).toMatchObject({ itemId: horn.value.id });
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      const reading = stateOf(h.kernel.snapshot());
+      expect(reading.active).toMatchObject({ itemId: reading.speech!.id, paidId: reading.paid[0]!.id });
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("switched off and on again, starts the message from the top, intro and voice included", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn(async (_text: string) => wav(2_000)).mockRejectedValueOnce(new Error("blip"));
+    const media = createMedia({ files: fakeFiles(), voice });
+    const h = await harness({ modules: [media.module] });
+    try {
+      const horn = media.add(upload());
+      if (!horn.ok) throw new Error(horn.reason);
+      await h.kernel.invoke("media.alertLevels", { args: levels([{ from: 1, introId: horn.value.id }]) });
+      h.chat({ type: "superchat", author: "Ana", text: "Again" });
+      // The intro plays out and the voice has failed: shown silently.
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stateOf(h.kernel.snapshot()).active).toMatchObject({ itemId: null });
+
+      expect(await h.kernel.invoke("core.disable", { args: [MEDIA_ID] })).toEqual({ ok: true });
+      expect(await h.kernel.invoke("core.enable", { args: [MEDIA_ID] })).toEqual({ ok: true });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stateOf(h.kernel.snapshot()).active).toMatchObject({ itemId: horn.value.id });
+      await vi.advanceTimersByTimeAsync(2_000);
+      const reading = stateOf(h.kernel.snapshot());
+      expect(reading.active).toMatchObject({ itemId: reading.speech!.id, paidId: reading.paid[0]!.id });
+      expect(voice).toHaveBeenCalledTimes(2);
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("removing the clip mid-intro moves on to the message and leaves its level with no clip", async () => {
+    vi.useFakeTimers();
+    const voice = vi.fn(async (_text: string) => wav(2_000));
+    const media = createMedia({ files: fakeFiles(), voice });
+    const h = await harness({ modules: [media.module] });
+    try {
+      const horn = media.add(upload());
+      if (!horn.ok) throw new Error(horn.reason);
+      await h.kernel.invoke("media.alertLevels", { args: levels([{ from: 1, introId: horn.value.id }, { from: 4 }]) });
+      h.chat({ type: "superchat", author: "Ana", text: "Removed intro" });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(media.remove(horn.value.id)).toEqual({ ok: true, value: undefined });
+      await vi.advanceTimersByTimeAsync(0);
+      const state = stateOf(h.kernel.snapshot());
+      expect(state.alertLevels).toEqual([{ from: 1 }, { from: 4 }]);
+      expect(state.active).toMatchObject({ itemId: state.speech!.id, paidId: state.paid[0]!.id });
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("previews a level with its clip, then its alert, and End preview leaves the real queue alone", async () => {
+    vi.useFakeTimers();
+    const media = createMedia({ files: fakeFiles() });
+    const h = await harness({ modules: [media.module] });
+    try {
+      const horn = media.add(upload());
+      if (!horn.ok) throw new Error(horn.reason);
+      await h.kernel.invoke("media.tts", { args: ["off"] });
+      await h.kernel.invoke("media.alertLevels", { args: levels([{ from: 1 }, { from: 5, introId: horn.value.id }]) });
+      expect(await h.kernel.invoke("media.previewAlert", { args: ["3"] })).toMatchObject({ ok: false, reason: "Choose a level from 1 to 2" });
+      expect(await h.kernel.invoke("media.previewAlert", { args: ["2"] })).toEqual({ ok: true });
+      const intro = stateOf(h.kernel.snapshot()).active!;
+      expect(intro).toMatchObject({ itemId: horn.value.id, level: 2, size: 7, sample: { tier: 5, amount: "₹800" } });
+      expect(intro.introFor).toBe(intro.sample!.id);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stateOf(h.kernel.snapshot()).active).toMatchObject({ itemId: null, level: 2, size: 7, sample: { tier: 5 } });
+      expect(stateOf(h.kernel.snapshot()).active).not.toHaveProperty("introFor");
+
+      h.chat({ type: "superchat", author: "Ana", text: "Real" });
+      expect(await h.kernel.invoke("media.endPreview", { args: [intro.sample!.id] })).toEqual({ ok: true });
+      expect(stateOf(h.kernel.snapshot()).paid.map((message) => message.name)).toEqual(["Ana"]);
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("keeps her levels and their clips across a restart, and drops a clip whose file is gone", async () => {
+    const store = new MemoryStore();
+    const files = fakeFiles();
+    const first = createMedia({ files });
+    const h1 = await harness({ modules: [first.module], store });
+    const horn = first.add(upload("Air horn"));
+    const meme = first.add(upload("Meme"));
+    if (!horn.ok || !meme.ok) throw new Error("upload");
+    expect(await h1.kernel.invoke("media.alertLevels", {
+      args: levels([{ from: 1, introId: horn.value.id }, { from: 3 }, { from: 6, introId: meme.value.id }]),
+    })).toEqual({ ok: true });
+    await h1.stop();
+
+    files.remove(horn.value);
+    const h2 = await harness({ modules: [createMedia({ files }).module], store });
+    try {
+      expect(stateOf(h2.kernel.snapshot()).alertLevels).toEqual([{ from: 1 }, { from: 3 }, { from: 6, introId: meme.value.id }]);
+    } finally { await h2.stop(); }
   });
 });

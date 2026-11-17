@@ -30,10 +30,10 @@
 /* The ladder. Each rung is its own hue and the top ones are also hotter, so
    "bigger" reads at a glance on a phone-sized stream. A rung is only ever on
    screen alone, so the lightness-step rule for neighbours does not bind here;
-   each colour is still bright enough to stand off the navy after 4:2:0. One
-   with no rung -- a tip nothing banded -- wears the brand coral. */
+   each colour is still bright enough to stand off the navy after 4:2:0. The
+   rung here is the size her level draws at, so every alert has one: a tip
+   nothing banded lands on her first level and wears its colour. */
 .paid-alert-wrap {
-  --tier-rgb: var(--accent-rgb);
   --scale: calc(1 + (var(--tier, 1) - 1) * 0.07);
   --pop-from: calc(0.97 - (var(--tier, 1) - 1) * 0.03);
   --pop-peak: calc(1 + (var(--tier, 1) - 1) * 0.012);

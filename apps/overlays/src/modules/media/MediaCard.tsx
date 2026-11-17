@@ -5,9 +5,11 @@ import {
   MAX_MEDIA_BYTES,
   MAX_MEDIA_ITEMS,
   MEDIA_ID,
+  PAID_TIER_SAMPLES,
   PAID_TIERS,
   SPEECH_MOODS,
   SPEECH_VOICES,
+  type AlertLevel,
   type MediaItem,
   type AlertPosition,
   type AlertTheme,
@@ -77,7 +79,10 @@ export function MediaCard({ connection, deck }: CardProps) {
     const result = await connection.request<{ ok: true }>(`/api/media/${item.id}`, { method: "DELETE" });
     if (!result.ok) return invoke.say(result.reason, false);
     if (preview === item.id) setPreview(null);
-    invoke.say(`${item.label} removed`);
+    const opened = (state?.alertLevels ?? []).flatMap((level, index) => level.introId === item.id ? [index + 1] : []);
+    invoke.say(opened.length
+      ? `${item.label} removed. Level ${opened.join(" and ")} no longer plays a clip first.`
+      : `${item.label} removed`);
   }
 
   async function putOnDeck(item: MediaItem): Promise<void> {
@@ -119,11 +124,17 @@ export function MediaCard({ connection, deck }: CardProps) {
         {state ? <SpeechSettings state={state} invoke={invoke} /> : null}
         {state ? <VoicePicking state={state} invoke={invoke} /> : null}
         {state ? <AlertLook state={state} invoke={invoke} /> : null}
+        {state ? <AlertLevels state={state} invoke={invoke} /> : null}
       </div>
 
       {state?.active ? (
         <div className="media-live" data-testid="media-active">
           <span>{nowPlaying(state)}</span>
+          {state.active.introFor && !sample ? (
+            <button className="tool" type="button" onClick={() => void invoke.run(`${MEDIA_ID}.skipIntro`)}>
+              Skip intro
+            </button>
+          ) : null}
           {sample ? (
             <button className="tool" type="button"
               onClick={() => void invoke.run(`${MEDIA_ID}.endPreview`, [sample.id])}>End preview</button>
@@ -228,13 +239,19 @@ function Waiting({ state, invoke }: { state: MediaState; invoke: Invoker }) {
 }
 
 function nowPlaying(state: MediaState): string {
-  const message = state.active?.paidId ? state.paid.find((candidate) => candidate.id === state.active?.paidId) : undefined;
+  const cue = state.active;
+  if (cue?.sample) return `Previewing level ${cue.level ?? 1}${cue.introFor ? ": its intro clip first" : ""}`;
+  if (cue?.introFor) {
+    const owed = state.paid.find((candidate) => candidate.id === cue.introFor);
+    const clip = state.items.find((item) => item.id === cue.itemId)?.label ?? "a clip";
+    return `Playing ${clip} before ${owed ? `${owed.name}'s ${owed.amount}` : "a paid message"}`;
+  }
+  const message = cue?.paidId ? state.paid.find((candidate) => candidate.id === cue.paidId) : undefined;
   if (message) {
     const sound = message.style
       ? ` in the ${SPEECH_VOICES[message.style.voice].label} voice, ${SPEECH_MOODS[message.style.mood].label.toLowerCase()}` : "";
     return `Showing ${message.name}'s ${message.amount}${state.speech ? `, reading it aloud${sound}` : ""}${message.cut ? `. Message left out: ${message.cut}` : ""}`;
   }
-  if (state.active?.sample) return `Previewing a size ${state.active.sample.tier ?? 1} paid alert`;
   if (state.speech) return "Playing the test voice";
   return `Playing ${state.items.find((item) => item.id === state.active?.itemId)?.label ?? "a clip"}`;
 }
@@ -346,7 +363,7 @@ function AlertLook({ state, invoke }: { state: MediaState; invoke: Invoker }) {
   return (
     <details className="fold" data-testid="media-alert-look">
       <summary>Alert look: {ALERT_THEMES[state.alertTheme].label}, {ALERT_POSITIONS[state.alertPosition].label.toLowerCase()}</summary>
-      <p className="hint">Bigger paid messages get a bigger alert that stays up longer, in a hotter colour. The biggest ones shine and burst.</p>
+      <p className="hint">Each level gets a bigger alert than the one below, staying up longer in a hotter colour. The top levels shine and burst.</p>
       <div className="segment" role="radiogroup" aria-label="Look">
         {themes.map((theme) => (
           <button key={theme} type="button" className="seg" role="radio" disabled={invoke.working}
@@ -362,14 +379,84 @@ function AlertLook({ state, invoke }: { state: MediaState; invoke: Invoker }) {
             onClick={() => void invoke.run(`${MEDIA_ID}.alertPosition`, [position])}>{ALERT_POSITIONS[position].label}</button>
         ))}
       </div>
-      <p className="hint">Preview in OBS, from smallest to biggest. Nothing is read aloud.</p>
-      <div className="media-sizes">
-        {Array.from({ length: PAID_TIERS }, (_, index) => (
-          <button key={index} type="button" className="btn" disabled={invoke.working || Boolean(state.active)}
-            aria-label={`Preview size ${index + 1}`}
-            onClick={() => void invoke.run(`${MEDIA_ID}.previewAlert`, [String(index + 1)])}>{index + 1}</button>
-        ))}
-      </div>
+    </details>
+  );
+}
+
+/** "From ₹160 to under ₹800", or "₹5,000 and up" for the top one. */
+function levelRange(from: number, to: number): string {
+  const floor = PAID_TIER_SAMPLES[from - 1];
+  return to >= PAID_TIERS ? `${floor} and up` : `${floor} to under ${PAID_TIER_SAMPLES[to]}`;
+}
+
+/**
+ * Her levels, each one a row: where it starts, what it plays first, and a
+ * preview. Every change saves the whole list at once, and every choice offered
+ * is one that keeps the list valid -- a level can only start between its
+ * neighbours -- so there is no half-edited state and no Save to forget.
+ */
+function AlertLevels({ state, invoke }: { state: MediaState; invoke: Invoker }) {
+  const levels = state.alertLevels;
+  const save = (next: AlertLevel[]) => void invoke.run(`${MEDIA_ID}.alertLevels`, [JSON.stringify(next)]);
+  const change = (index: number, patch: Partial<AlertLevel>) => {
+    const { introId, ...level } = { ...levels[index]!, ...patch };
+    save(levels.map((current, at) => at === index ? (introId ? { ...level, introId } : level) : current));
+  };
+  // Removing the first level hands its sizes to the next; any other merges into the one below.
+  const remove = (index: number) => save(index === 0
+    ? [{ ...levels[1]!, from: 1 }, ...levels.slice(2)]
+    : levels.filter((_, at) => at !== index));
+  // A new level takes the top size off the highest level that has more than one.
+  const add = () => {
+    let index = levels.length - 1;
+    while (index >= 0 && (levels[index + 1]?.from ?? PAID_TIERS + 1) - levels[index]!.from < 2) index--;
+    if (index < 0) return;
+    const top = (levels[index + 1]?.from ?? PAID_TIERS + 1) - 1;
+    save([...levels.slice(0, index + 1), { from: top }, ...levels.slice(index + 1)]);
+  };
+  const busy = invoke.working || Boolean(state.active);
+  return (
+    <details className="fold" data-testid="media-alert-levels">
+      <summary>Alert levels: {levels.length}</summary>
+      <p className="hint">Paid messages come in {PAID_TIERS} sizes by amount. Group them into as many levels as you like. A level
+        can play a clip from your library first, then shows the alert and reads it. Amounts are approximate.</p>
+      {levels.map((level, index) => {
+        const to = (levels[index + 1]?.from ?? PAID_TIERS + 1) - 1;
+        const lowest = index === 0 ? 1 : levels[index - 1]!.from + 1;
+        return (
+          <div key={index} className="media-level" data-testid="media-level">
+            <p className="media-level-head"><strong>Level {index + 1}</strong> <span>{levelRange(level.from, to)}</span></p>
+            {index > 0 ? (
+              <label className="field">
+                <span>Starts at</span>
+                <select className="select" value={level.from} disabled={invoke.working}
+                  onChange={(event) => change(index, { from: Number(event.target.value) })}>
+                  {Array.from({ length: to - lowest + 1 }, (_, offset) => lowest + offset).map((from) => (
+                    <option key={from} value={from}>{PAID_TIER_SAMPLES[from - 1]}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <label className="field">
+              <span>Clip first</span>
+              <select className="select" value={level.introId ?? ""} disabled={invoke.working}
+                onChange={(event) => change(index, { introId: event.target.value || undefined })}>
+                <option value="">None</option>
+                {state.items.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+              </select>
+            </label>
+            <div className="media-level-tools">
+              <button type="button" className="btn" disabled={busy}
+                onClick={() => void invoke.run(`${MEDIA_ID}.previewAlert`, [String(index + 1)])}>Preview level {index + 1}</button>
+              {levels.length > 1 ? (
+                <button type="button" className="btn" disabled={invoke.working} onClick={() => remove(index)}>Remove</button>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+      <button type="button" className="btn" disabled={invoke.working || levels.length >= PAID_TIERS} onClick={add}>Add level</button>
+      <p className="hint">Previews show in OBS. Nothing is read aloud.</p>
     </details>
   );
 }

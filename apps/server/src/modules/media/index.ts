@@ -9,9 +9,10 @@ import {
   MEDIA_ID,
   PAID_ALERT_MS,
   PAID_ALERT_TIER_MS,
-  PAID_TIERS,
+  PAID_TIER_SAMPLES,
   knownTier,
   MEDIA_TYPES,
+  type AlertLevel,
   type GameModuleDef,
   type MediaCue,
   type MediaItem,
@@ -23,6 +24,7 @@ import {
 } from "@saarathi/shared";
 import type { MediaFiles } from "./files.js";
 import { paidMessage, paidSpeech, type SpeechVoice } from "./speech.js";
+import { defaultLevels, levelOf, parseLevels, restoreLevels, sizeOf } from "./levels.js";
 import { microsoftVoice, SpeechError, validSpeechRegion, type MicrosoftVoice } from "./microsoft-speech.js";
 import { inspectMedia } from "./inspect.js";
 import { PickerError, type VoicePicker } from "./voice-picker.js";
@@ -54,12 +56,17 @@ const MAX_REMEMBERED_VOICES = 500;
  */
 const PICKER_PAUSE_MS = 5 * 60_000;
 
-/** Long enough to read, and longer the bigger it is. */
-const alertMs = (message: Pick<PaidMessage, "tier"> | null | undefined) =>
-  PAID_ALERT_MS + PAID_ALERT_TIER_MS * ((message?.tier ?? 1) - 1);
+/** Long enough to read, and longer the bigger it is drawn. */
+const alertMs = (size: number) => PAID_ALERT_MS + PAID_ALERT_TIER_MS * (size - 1);
 
-/** What a preview at each rung says it was for. Rupees because hers are; nobody is charged. */
-const SAMPLE_AMOUNTS = ["₹40", "₹80", "₹160", "₹400", "₹800", "₹2,000", "₹5,000"];
+/** Where a paid message sits on her levels as they are now, and so how big it is drawn. */
+const placed = (levels: readonly AlertLevel[], tier: number | undefined) => {
+  const level = levelOf(levels, tier);
+  return { level, size: sizeOf(level, levels.length) };
+};
+
+/** What the cue past an intro, or a cue with no intro, carries besides its clip. */
+type CueExtra = Pick<MediaCue, "paidId" | "sample" | "introFor" | "level" | "size">;
 
 const knownTheme = (value: unknown): value is keyof typeof ALERT_THEMES =>
   typeof value === "string" && Object.hasOwn(ALERT_THEMES, value);
@@ -115,6 +122,13 @@ export function createMedia(options: MediaOptions): MediaController {
   // Messages whose pick ended without a style; they are read in the default voice.
   const unpicked = new Set<string>();
   let pickerPausedUntil = 0;
+  // Messages whose level intro has played, so a read she cut short with a
+  // clip does not open with it twice. In memory on purpose: after a restart a
+  // message is shown again from the start, and that includes its intro.
+  const introDone = new Set<string>();
+  // Messages whose voice failed this time round. They are shown silently
+  // rather than sent to a voice that just failed a second time.
+  const voiceFailed = new Set<string>();
 
   const stopPicking = () => {
     picking?.controller.abort();
@@ -131,9 +145,14 @@ export function createMedia(options: MediaOptions): MediaController {
   };
 
   /**
-   * Stop reading, and keep the queue. A clip she pressed, a voice she changed or
-   * a restart all end up here: none of them is a decision about anybody's
-   * message, so the one being read stays at the head and is read again in full.
+   * Throw the voice away, and keep the queue. A voice she changed, speech
+   * switched off or on, Stop and the module stopping end up here: none of
+   * them is a decision about anybody's message, so the one being read stays
+   * at the head and is read again in full, in whatever voice is set now. That
+   * is also why a voice that failed is tried again: it may be fixed.
+   *
+   * A clip she presses does not come here. It goes over whatever is on and
+   * keeps the voice already made, so nothing is synthesised twice.
    */
   const interrupt = (ctx: ModuleContext<MediaModuleState>) => {
     epoch++;
@@ -141,14 +160,27 @@ export function createMedia(options: MediaOptions): MediaController {
     generation = null;
     if (ctx.state.speech && ctx.state.active?.itemId === ctx.state.speech.id) ctx.setState({ active: null });
     clearSpeech(ctx);
+    voiceFailed.clear();
+  };
+
+  /**
+   * Everything the lane remembers about the messages it has met, all of it in
+   * memory. Stop forgets it, and so does the module stopping: switched back
+   * on, it starts each message from the top, intro included, as a restart does.
+   */
+  const forget = () => {
+    stopPicking();
+    unpicked.clear();
+    introDone.clear();
+    voiceFailed.clear();
+    testWaiting = false;
+    testStyle = undefined;
   };
 
   /** Her Stop: the one way the queue is meant to empty. */
   const cancelSpeech = (ctx: ModuleContext<MediaModuleState>) => {
     interrupt(ctx);
-    stopPicking();
-    unpicked.clear();
-    testWaiting = false;
+    forget();
     if (ctx.state.paid.length > 0) ctx.setState({ paid: [], paidViewers: [] });
     ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
   };
@@ -252,53 +284,144 @@ export function createMedia(options: MediaOptions): MediaController {
   const finished = (ctx: ModuleContext<MediaModuleState>, paidId: string | null) => {
     if (!paidId) return;
     unpicked.delete(paidId);
+    introDone.delete(paidId);
+    voiceFailed.delete(paidId);
     ctx.setState((state) => ({
       paid: state.paid.filter((message) => message.id !== paidId),
       paidViewers: state.paidViewers.filter(([id]) => id !== paidId),
     }));
   };
 
-  /** The one way anything gets on the lane, and the one way it comes off. */
-  const startCue = (ctx: ModuleContext<MediaModuleState>, itemId: string | null, durationMs: number, paidId: string | null,
-    sample?: PaidMessage) => {
+  /** The one way anything gets on the lane. */
+  const startCue = (ctx: ModuleContext<MediaModuleState>, itemId: string | null, durationMs: number, extra: CueExtra = {}) => {
     const startedAt = now();
-    const cue: MediaCue = { id: id(), itemId, startedAt, endsAt: startedAt + durationMs,
-      ...(paidId ? { paidId } : {}), ...(sample ? { sample } : {}) };
+    const cue: MediaCue = { id: id(), itemId, startedAt, endsAt: startedAt + durationMs, ...extra };
     // Replacing is the v1 queue policy. The old timer may still wake up,
-    // but the cue id stops it from clearing the replacement.
+    // but the cue id stops it from ending the replacement.
     ctx.setState({ active: cue });
     ctx.after(durationMs, () => {
-      if (ctx.state.active?.id !== cue.id) return;
-      ctx.setState({ active: null });
-      clearSpeech(ctx);
-      finished(ctx, paidId);
-      ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
-      void advance(ctx);
+      if (ctx.state.active?.id === cue.id) endCue(ctx, cue);
     });
   };
 
   /**
-   * Put the next thing on the lane, if it is free. Every path that frees it
-   * calls this. A paid message is shown whether or not it can be heard: speech
-   * off, no voice on this machine and a voice that failed all still put the
-   * name and the amount on her stream.
+   * And the one way it comes off, however it ended: running out, her skipping
+   * an intro, or its clip being removed. An intro hands on to whatever it came
+   * before. Anything else is done with, and the lane moves on.
+   */
+  const endCue = (ctx: ModuleContext<MediaModuleState>, cue: MediaCue) => {
+    if (ctx.state.active?.id === cue.id) ctx.setState({ active: null });
+    if (cue.introFor) return afterIntro(ctx, cue);
+    if (cue.itemId && cue.itemId === ctx.state.speech?.id) clearSpeech(ctx);
+    finished(ctx, cue.paidId ?? null);
+    ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
+    void advance(ctx);
+  };
+
+  /** The clip her level plays first, if it has one and it is still in her library. */
+  const introOf = (state: Readonly<MediaModuleState>, tier: number | undefined) => {
+    const introId = state.alertLevels[levelOf(state.alertLevels, tier) - 1]?.introId;
+    return introId ? state.items.find((item) => item.id === introId) : undefined;
+  };
+
+  /**
+   * Put this message's intro on the lane, if its level has one it has not
+   * played yet. True when it did: the intro's own ending carries on from there.
+   */
+  const playIntro = (ctx: ModuleContext<MediaModuleState>, message: PaidMessage) => {
+    if (introDone.has(message.id)) return false;
+    const clip = introOf(ctx.state, message.tier);
+    if (!clip) return false;
+    startCue(ctx, clip.id, clip.durationMs, { introFor: message.id, ...placed(ctx.state.alertLevels, message.tier) });
+    ctx.setState({ ttsStatus: `Playing the intro for ${message.name}` });
+    return true;
+  };
+
+  /**
+   * An intro is over. Whatever it came before goes on next: a preview's
+   * sample, or the message, read in the voice made while the intro played.
+   */
+  const afterIntro = (ctx: ModuleContext<MediaModuleState>, cue: MediaCue) => {
+    if (cue.sample) return showSample(ctx, cue.sample);
+    if (cue.introFor) introDone.add(cue.introFor);
+    void advance(ctx);
+  };
+
+  /** A preview's alert, placed the way a real one on its level would be. */
+  const showSample = (ctx: ModuleContext<MediaModuleState>, sample: PaidMessage) => {
+    const where = placed(ctx.state.alertLevels, sample.tier);
+    startCue(ctx, null, alertMs(where.size), { sample, ...where });
+  };
+
+  /**
+   * Speech made already and held, through an intro or a clip she pressed.
+   * Its message's intro goes first if that has not played, and been cut
+   * short by her clip counts as not played.
+   */
+  const resume = (ctx: ModuleContext<MediaModuleState>) => {
+    const head = ctx.state.paid[0];
+    if (head && speaking === head.id && playIntro(ctx, head)) return;
+    void speak(ctx, epoch);
+  };
+
+  /** Play the speech that is ready. A failure shows the message silently, never drops it. */
+  const speak = async (ctx: ModuleContext<MediaModuleState>, started: number) => {
+    const paidId = speaking;
+    const result = ctx.state.speech ? await ctx.invoke("play", { args: [ctx.state.speech.id] }) : { ok: false };
+    if (started !== epoch) return;
+    if (result.ok) {
+      ctx.setState({ ttsStatus: "Reading a paid message" });
+      return;
+    }
+    clearSpeech(ctx);
+    ctx.setState({ ttsStatus: "Could not read that message. Try Test voice again." });
+    if (paidId) voiceFailed.add(paidId);
+    void advance(ctx);
+  };
+
+  /**
+   * Put the next thing on the lane, if it is free, and get its voice ready.
+   * Every path that frees the lane, and every path that finishes a voice,
+   * calls this. A paid message is shown whether or not it can be heard:
+   * speech off, no voice on this machine and a voice that failed all still
+   * put the name and the amount on her stream.
+   *
+   * A level's intro goes on first, at once. It needs neither Claude nor the
+   * voice, so both are worked on while it plays rather than before it, and
+   * the screen is never empty while a paid message waits on either.
    */
   const advance = async (ctx: ModuleContext<MediaModuleState>) => {
-    if (generation || ctx.state.speech || ctx.state.active) return;
+    if (generation) return;
+    const active = ctx.state.active;
+    // The head's own intro is the one thing its voice is made behind.
+    const behindIntro = Boolean(active?.introFor && !active.sample && active.introFor === ctx.state.paid[0]?.id);
+    if (active && !behindIntro) return;
+    if (ctx.state.speech) {
+      // The intro's ending comes back here and finds the lane free.
+      if (!behindIntro) resume(ctx);
+      return;
+    }
     const voiced = ctx.state.ttsEnabled && ready(ctx);
     if (!voiced) testWaiting = false;
-    const head = testWaiting ? null : ctx.state.paid[0];
-    if (!testWaiting && !head) return;
+    // A test phrase jumps the queue, but not an intro that is already on.
+    const test = testWaiting && !behindIntro;
+    const head = test ? null : ctx.state.paid[0];
+    if (!test && !head) return;
     if (head && held(ctx.state, head)) {
       ctx.setState({ ttsStatus: `${head.name}'s message is waiting for you to check` });
       return;
     }
-    testWaiting = false;
-    if (head && !voiced) return startCue(ctx, null, alertMs(head), head.id);
+    if (test) testWaiting = false;
+    const onIntro = behindIntro || Boolean(head && playIntro(ctx, head));
+    if (head && (!voiced || voiceFailed.has(head.id))) {
+      if (onIntro) return;
+      const where = placed(ctx.state.alertLevels, head.tier);
+      return startCue(ctx, null, alertMs(where.size), { paidId: head.id, ...where });
+    }
     // Usually chosen while the one before was playing. When it is not, the
     // pick's own ending calls back in here.
     if (head && needsPick(ctx.state, head)) {
-      ctx.setState({ ttsStatus: "Choosing a voice…" });
+      if (!onIntro) ctx.setState({ ttsStatus: "Choosing a voice…" });
       pickAhead(ctx);
       return;
     }
@@ -312,7 +435,7 @@ export function createMedia(options: MediaOptions): MediaController {
       : microsoft ? "ಮನೆಯ ಸದಸ್ಯರೇ, ನಿಮ್ಮ ಬೆಂಬಲಕ್ಕೆ ಧನ್ಯವಾದಗಳು. ಮುಂದಿನ ಸವಾಲಿಗೆ ಸಿದ್ಧರಾಗಿ!"
         : "Thank you for supporting the stream!";
     const paidId = head?.id ?? null;
-    ctx.setState({ ttsStatus: "Preparing speech…" });
+    if (!onIntro) ctx.setState({ ttsStatus: "Preparing speech…" });
     try {
       const data = microsoft
         ? await cloudVoice(text, controller.signal, { key: ctx.state.speechKey, region: ctx.state.speechRegion }, style)
@@ -325,10 +448,9 @@ export function createMedia(options: MediaOptions): MediaController {
       ctx.setState({ speech: made.value });
       speaking = paidId;
       generation = null;
-      const result = await ctx.invoke("play", { args: [made.value.id] });
-      if (started !== epoch) return;
-      if (!result.ok) throw new Error("Speech playback unavailable");
-      ctx.setState({ ttsStatus: "Reading a paid message" });
+      // Held while the intro, or a clip she pressed, is still on: whichever
+      // ends calls back into advance, which reads it then.
+      if (!ctx.state.active) resume(ctx);
     } catch (error) {
       if (started !== epoch) return;
       generation = null;
@@ -336,8 +458,8 @@ export function createMedia(options: MediaOptions): MediaController {
       ctx.setState({ ttsStatus: error instanceof SpeechError ? error.message : "Could not read that message. Try Test voice again." });
       // Shown without a voice rather than dropped: the voice failed, the
       // message did not.
-      if (paidId) startCue(ctx, null, alertMs(head), paidId);
-      else void advance(ctx);
+      if (paidId) voiceFailed.add(paidId);
+      void advance(ctx);
     }
   };
 
@@ -348,12 +470,12 @@ export function createMedia(options: MediaOptions): MediaController {
     initialState: { items: [], active: null, speech: null, ttsEnabled: true, paid: [], checkFirst: false, ttsStatus: voiceStatus(),
       speechProvider: "system", speechRegion: "centralindia", speechKey: "", hasSpeechKey: false,
       pickVoices: false, pickerStatus: pickerOff, viewerVoices: [], rememberedVoices: 0, paidViewers: [],
-      alertTheme: "card", alertPosition: "top" },
+      alertTheme: "card", alertPosition: "top", alertLevels: defaultLevels() },
     // Her library survives. Playback does not: a server restart stops the lane
     // rather than claiming a clip is still audible after the process died. The
     // paid queue survives too, and its head is read again from the start.
     persist: ["items", "ttsEnabled", "paid", "checkFirst", "speechProvider", "speechRegion", "speechKey", "pickVoices",
-      "viewerVoices", "paidViewers", "alertTheme", "alertPosition"],
+      "viewerVoices", "paidViewers", "alertTheme", "alertPosition", "alertLevels"],
     serverOnly: ["speechKey", "viewerVoices", "paidViewers"],
 
     actions: {
@@ -487,10 +609,15 @@ export function createMedia(options: MediaOptions): MediaController {
             ? ctx.state.speech
             : ctx.state.items.find((candidate) => candidate.id === input.args[0]);
           if (!item) return ctx.refuse("That clip is gone");
-          if (item.id !== ctx.state.speech?.id) interrupt(ctx);
-          const paidId = item.id === ctx.state.speech?.id ? speaking : null;
+          // Her clip goes over whatever is on, and the message under it keeps
+          // its turn and its voice: once the clip ends it is read again in
+          // full, its intro too if the clip cut that short.
+          if (item.id !== ctx.state.speech?.id) return startCue(ctx, item.id, item.durationMs);
+          const paidId = speaking;
           const message = paidId ? ctx.state.paid.find((candidate) => candidate.id === paidId) : undefined;
-          startCue(ctx, item.id, paidId ? Math.max(item.durationMs, alertMs(message)) : item.durationMs, paidId);
+          if (!paidId) return startCue(ctx, item.id, item.durationMs);
+          const where = placed(ctx.state.alertLevels, message?.tier);
+          startCue(ctx, item.id, Math.max(item.durationMs, alertMs(where.size)), { paidId, ...where });
         },
       },
       alertTheme: {
@@ -511,25 +638,53 @@ export function createMedia(options: MediaOptions): MediaController {
           ctx.setState({ alertPosition: position });
         },
       },
+      // Takes the whole list, the way her deck does, so no save can leave
+      // her levels half-edited with a gap or an overlap between them.
+      alertLevels: {
+        label: "Paid alert levels",
+        needsArgs: true,
+        run(input, ctx) {
+          let raw: unknown;
+          try { raw = JSON.parse(input.args[0] ?? ""); } catch { return ctx.refuse("Those levels could not be read"); }
+          const levels = parseLevels(raw, new Set(ctx.state.items.map((item) => item.id)));
+          if (typeof levels === "string") return ctx.refuse(levels);
+          ctx.setState({ alertLevels: levels });
+        },
+      },
+      // Without an argument, so a deck button or a hotkey can skip whichever
+      // intro is on. The message it came before goes on as if it had ended.
+      skipIntro: {
+        label: "Skip the intro",
+        run(_input, ctx) {
+          const cue = ctx.state.active;
+          if (!cue?.introFor) return ctx.refuse("No intro is playing");
+          endCue(ctx, cue);
+        },
+      },
       // Silent, and only on a free lane: a preview never pushes a real
       // message off the screen, and a real one that arrives meanwhile waits
-      // a few seconds, the same as it would behind any clip.
+      // a few seconds, the same as it would behind any clip. It plays the
+      // level's intro first, because that is the part she is checking.
       previewAlert: {
         label: "Preview a paid alert",
         needsArgs: true,
         run(input, ctx) {
-          const tier = Number(input.args[0]);
-          if (!knownTier(tier)) return ctx.refuse(`Choose a size from 1 to ${PAID_TIERS}`);
+          const level = Number(input.args[0]);
+          const levels = ctx.state.alertLevels;
+          if (!Number.isInteger(level) || level < 1 || level > levels.length) return ctx.refuse(`Choose a level from 1 to ${levels.length}`);
           if (ctx.state.active || generation || ctx.state.speech) return ctx.refuse("Wait for what is on screen to finish");
+          const tier = levels[level - 1]!.from;
           const sample: PaidMessage = {
             id: `preview-${id()}`,
             at: now(),
             name: "Preview",
-            amount: SAMPLE_AMOUNTS[tier - 1]!,
-            text: "This is how a paid message this size looks on your stream.",
+            amount: PAID_TIER_SAMPLES[tier - 1]!,
+            text: "This is how a paid message on this level looks on your stream.",
             tier,
           };
-          startCue(ctx, null, alertMs(sample), null, sample);
+          const clip = introOf(ctx.state, tier);
+          if (clip) startCue(ctx, clip.id, clip.durationMs, { sample, introFor: sample.id, ...placed(levels, tier) });
+          else showSample(ctx, sample);
         },
       },
       // Her way off a preview that keeps whoever paid while she was placing
@@ -565,11 +720,13 @@ export function createMedia(options: MediaOptions): MediaController {
         return { ...message, ...(kept ? { style: kept } : {}), ...(knownTier(tier) ? { tier } : {}) };
       });
       const viewerVoices = ctx.state.viewerVoices.filter(([, voice]) => knownVoice(voice));
+      const clipIds = new Set(ctx.state.items.filter((item) => options.files.exists(item)).map((item) => item.id));
       const paidViewers = ctx.state.paidViewers.filter(([messageId]) => paid.some((message) => message.id === messageId));
       ctx.setState({ paid, viewerVoices, paidViewers, hasSpeechKey: Boolean(ctx.state.speechKey), ttsStatus: voiceStatus(ctx.state),
         rememberedVoices: viewerVoices.length, pickerStatus: ctx.state.pickVoices ? pickerOn : pickerOff,
         alertTheme: knownTheme(ctx.state.alertTheme) ? ctx.state.alertTheme : "card",
-        alertPosition: knownPosition(ctx.state.alertPosition) ? ctx.state.alertPosition : "top" });
+        alertPosition: knownPosition(ctx.state.alertPosition) ? ctx.state.alertPosition : "top",
+        alertLevels: restoreLevels(ctx.state.alertLevels, clipIds) });
       ctx.on("paid-event", (event) => {
         if (ctx.state.paid.length >= MAX_PAID_QUEUE) {
           ctx.setState({ ttsStatus: "Paid message queue is full. New messages are being skipped." });
@@ -593,7 +750,7 @@ export function createMedia(options: MediaOptions): MediaController {
 
     teardown(ctx) {
       interrupt(ctx);
-      stopPicking();
+      forget();
       if (ctx.state.active) ctx.setState({ active: null });
       context = null;
     },
@@ -627,11 +784,16 @@ export function createMedia(options: MediaOptions): MediaController {
       } catch {
         return { ok: false, reason: "Saarathi could not remove that file" };
       }
+      const cue = ctx.state.active;
+      // A level that opened with this clip now opens with nothing, rather
+      // than pointing at a file that is gone.
       ctx.setState((state) => ({
         items: state.items.filter((candidate) => candidate.id !== item.id),
         active: state.active?.itemId === item.id ? null : state.active,
+        alertLevels: state.alertLevels.map((level) => level.introId === item.id ? { from: level.from } : level),
       }));
-      void advance(ctx);
+      if (cue?.itemId === item.id) endCue(ctx, cue);
+      else void advance(ctx);
       return { ok: true, value: undefined };
     },
     asset(itemId, key) {
