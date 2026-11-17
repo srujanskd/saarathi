@@ -151,6 +151,46 @@ test("a paid message shows in the Media OBS source, survives a reload and stops"
   await expect(overlay.getByTestId("paid-alert")).toHaveCount(0);
 });
 
+// The biggest rung is the one with the most moving parts: a pop, a shine and
+// a burst of sparks. Every one of them has to stay on transform and opacity,
+// and the position she picked has to actually move the card there.
+test("the biggest paid alert bursts on transform and opacity only, where she put it", async ({
+  page: overlay, pages, saarathi,
+}) => {
+  expect(await saarathi.invoke({ action: `${MEDIA_ID}.tts`, args: ["off"] })).toEqual({ ok: true });
+  expect(await saarathi.invoke({ action: `${MEDIA_ID}.alertTheme`, args: ["bold"] })).toEqual({ ok: true });
+  expect(await saarathi.invoke({ action: `${MEDIA_ID}.alertPosition`, args: ["bottom-right"] })).toEqual({ ok: true });
+  await overlay.setViewportSize({ width: 1280, height: 720 });
+  await overlay.goto(overlayUrl(pages, saarathi, MEDIA_ID));
+  await saarathi.mockChat({ type: "superchat", author: "Ana", amount: "₹5,000.00", text: "Last set!", tier: 7 });
+
+  const alert = overlay.getByTestId("paid-alert");
+  await expect(alert).toContainText("Last set!");
+  await expect(overlay.getByTestId("paid-alert-burst").locator("span")).toHaveCount(16);
+  const animated = await overlay.evaluate(() => document.getAnimations().map((animation) => ({
+    name: (animation as CSSAnimation).animationName,
+    properties: (animation.effect as KeyframeEffect).getKeyframes().flatMap((frame) =>
+      Object.keys(frame).filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key))),
+  })));
+  // Proves the shine and sparks are running, so the property check below is not vacuous.
+  expect(new Set(animated.map((animation) => animation.name))).toEqual(
+    new Set(["paid-alert-in", "paid-alert-out", "paid-alert-shine", "paid-alert-spark"]));
+  expect(new Set(animated.flatMap((animation) => animation.properties))).toEqual(new Set(["opacity", "transform"]));
+
+  // Wait for the entrance to land before measuring where it landed.
+  await expect.poll(() => overlay.evaluate(() => document.getAnimations()
+    .filter((animation) => (animation as CSSAnimation).animationName === "paid-alert-in")
+    .every((animation) => animation.playState === "finished"))).toBe(true);
+  const box = (await alert.boundingBox())!;
+  expect(box.x + box.width).toBeGreaterThan(1280 * 0.9);
+  expect(box.y + box.height).toBeGreaterThan(720 * 0.9);
+  // Bigger than the smallest rung's 34vw, which is what tier 7 is for.
+  expect(box.width).toBeGreaterThan(1280 * 0.34 * 1.3);
+
+  expect(await saarathi.invoke({ action: `${MEDIA_ID}.stop`, args: [] })).toEqual({ ok: true });
+  await expect(alert).toHaveCount(0);
+});
+
 function tone(): Buffer {
   const rate = 8_000;
   const samples = rate * 10;

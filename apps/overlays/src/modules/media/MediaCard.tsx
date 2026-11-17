@@ -1,11 +1,16 @@
 import { useState } from "react";
 import {
+  ALERT_POSITIONS,
+  ALERT_THEMES,
   MAX_MEDIA_BYTES,
   MAX_MEDIA_ITEMS,
   MEDIA_ID,
+  PAID_TIERS,
   SPEECH_MOODS,
   SPEECH_VOICES,
   type MediaItem,
+  type AlertPosition,
+  type AlertTheme,
   type MediaState,
   type SpeechVoiceId,
 } from "@saarathi/shared";
@@ -112,6 +117,7 @@ export function MediaCard({ connection, deck }: CardProps) {
         </p> : null}
         {state ? <SpeechSettings state={state} invoke={invoke} /> : null}
         {state ? <VoicePicking state={state} invoke={invoke} /> : null}
+        {state ? <AlertLook state={state} invoke={invoke} /> : null}
       </div>
 
       {state?.active ? (
@@ -224,6 +230,7 @@ function nowPlaying(state: MediaState): string {
       ? ` in the ${SPEECH_VOICES[message.style.voice].label} voice, ${SPEECH_MOODS[message.style.mood].label.toLowerCase()}` : "";
     return `Showing ${message.name}'s ${message.amount}${state.speech ? `, reading it aloud${sound}` : ""}${message.cut ? `. Message left out: ${message.cut}` : ""}`;
   }
+  if (state.active?.sample) return `Previewing a size ${state.active.sample.tier ?? 1} paid alert`;
   if (state.speech) return "Playing the test voice";
   return `Playing ${state.items.find((item) => item.id === state.active?.itemId)?.label ?? "a clip"}`;
 }
@@ -318,6 +325,45 @@ function VoicePicking({ state, invoke }: { state: MediaState; invoke: Invoker })
         {voices.map((voice) => (
           <button key={voice} className="btn" type="button" disabled={invoke.working || !state.ttsEnabled}
             onClick={() => void invoke.run(`${MEDIA_ID}.testVoice`, [voice])}>{SPEECH_VOICES[voice].label}</button>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+/**
+ * How the alert looks and where it lands, with a preview she can fire at each
+ * size while OBS is open, because a position chosen blind is a guess about
+ * what it covers.
+ */
+function AlertLook({ state, invoke }: { state: MediaState; invoke: Invoker }) {
+  const themes = Object.keys(ALERT_THEMES) as AlertTheme[];
+  const positions = Object.keys(ALERT_POSITIONS) as AlertPosition[];
+  return (
+    <details className="fold" data-testid="media-alert-look">
+      <summary>Alert look: {ALERT_THEMES[state.alertTheme].label}, {ALERT_POSITIONS[state.alertPosition].label.toLowerCase()}</summary>
+      <p className="hint">Bigger paid messages get a bigger alert that stays up longer, in a hotter colour. The biggest ones shine and burst.</p>
+      <div className="segment" role="radiogroup" aria-label="Look">
+        {themes.map((theme) => (
+          <button key={theme} type="button" className="seg" role="radio" disabled={invoke.working}
+            aria-checked={state.alertTheme === theme} data-active={state.alertTheme === theme}
+            onClick={() => void invoke.run(`${MEDIA_ID}.alertTheme`, [theme])}>{ALERT_THEMES[theme].label}</button>
+        ))}
+      </div>
+      <p className="hint">Where on the screen:</p>
+      <div className="media-positions" role="radiogroup" aria-label="Position">
+        {positions.map((position) => (
+          <button key={position} type="button" className="seg" role="radio" disabled={invoke.working}
+            aria-checked={state.alertPosition === position} data-active={state.alertPosition === position}
+            onClick={() => void invoke.run(`${MEDIA_ID}.alertPosition`, [position])}>{ALERT_POSITIONS[position].label}</button>
+        ))}
+      </div>
+      <p className="hint">Preview in OBS, from smallest to biggest. Nothing is read aloud.</p>
+      <div className="media-sizes">
+        {Array.from({ length: PAID_TIERS }, (_, index) => (
+          <button key={index} type="button" className="btn" disabled={invoke.working || Boolean(state.active)}
+            aria-label={`Preview size ${index + 1}`}
+            onClick={() => void invoke.run(`${MEDIA_ID}.previewAlert`, [String(index + 1)])}>{index + 1}</button>
         ))}
       </div>
     </details>

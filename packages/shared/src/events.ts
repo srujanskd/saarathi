@@ -61,12 +61,25 @@ export interface ChatCommandEvent extends EventBase {
   text: string;
 }
 
+/**
+ * How many rungs a paid event's `tier` runs over. Seven because that is the
+ * longest ladder any platform we read has; one with fewer rungs spreads them.
+ */
+export const PAID_TIERS = 7;
+
 export interface PaidEvent extends EventBase {
   type: "paid-event";
   /** Where the money came from. Modules should treat every kind the same. */
   kind: "superchat" | "sticker" | "tip";
   amount: Money;
   text: string;
+  /**
+   * How big this one is, 1 to `PAID_TIERS`, on the platform's own ladder. It
+   * ranks a ₹500 against a $5 without an exchange rate, because the platform
+   * already did that when it banded them. Absent where nothing banded it, a
+   * tip from off-platform for one: treat that as the smallest, never guess.
+   */
+  tier?: number;
 }
 
 export interface NewMemberEvent extends EventBase {

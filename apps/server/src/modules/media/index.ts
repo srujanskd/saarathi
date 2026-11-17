@@ -1,11 +1,15 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
+  ALERT_POSITIONS,
+  ALERT_THEMES,
   MAX_MEDIA_BYTES,
   MAX_MEDIA_DURATION_MS,
   MAX_MEDIA_ITEMS,
   MAX_PAID_QUEUE,
   MEDIA_ID,
   PAID_ALERT_MS,
+  PAID_ALERT_TIER_MS,
+  PAID_TIERS,
   MEDIA_TYPES,
   type GameModuleDef,
   type MediaCue,
@@ -17,7 +21,7 @@ import {
   type SpeechVoiceId,
 } from "@saarathi/shared";
 import type { MediaFiles } from "./files.js";
-import { paidMessage, paidSpeech, type SpeechVoice } from "./speech.js";
+import { knownTier, paidMessage, paidSpeech, type SpeechVoice } from "./speech.js";
 import { microsoftVoice, SpeechError, validSpeechRegion, type MicrosoftVoice } from "./microsoft-speech.js";
 import { inspectMedia } from "./inspect.js";
 import { PickerError, type VoicePicker } from "./voice-picker.js";
@@ -48,6 +52,18 @@ const MAX_REMEMBERED_VOICES = 500;
  * raid its own timeout.
  */
 const PICKER_PAUSE_MS = 5 * 60_000;
+
+/** Long enough to read, and longer the bigger it is. */
+const alertMs = (message: Pick<PaidMessage, "tier"> | null | undefined) =>
+  PAID_ALERT_MS + PAID_ALERT_TIER_MS * ((message?.tier ?? 1) - 1);
+
+/** What a preview at each rung says it was for. Rupees because hers are; nobody is charged. */
+const SAMPLE_AMOUNTS = ["₹40", "₹80", "₹160", "₹400", "₹800", "₹2,000", "₹5,000"];
+
+const knownTheme = (value: unknown): value is keyof typeof ALERT_THEMES =>
+  typeof value === "string" && Object.hasOwn(ALERT_THEMES, value);
+const knownPosition = (value: unknown): value is keyof typeof ALERT_POSITIONS =>
+  typeof value === "string" && Object.hasOwn(ALERT_POSITIONS, value);
 
 export interface MediaUpload {
   label: unknown;
@@ -242,9 +258,11 @@ export function createMedia(options: MediaOptions): MediaController {
   };
 
   /** The one way anything gets on the lane, and the one way it comes off. */
-  const startCue = (ctx: ModuleContext<MediaModuleState>, itemId: string | null, durationMs: number, paidId: string | null) => {
+  const startCue = (ctx: ModuleContext<MediaModuleState>, itemId: string | null, durationMs: number, paidId: string | null,
+    sample?: PaidMessage) => {
     const startedAt = now();
-    const cue: MediaCue = { id: id(), itemId, startedAt, endsAt: startedAt + durationMs, ...(paidId ? { paidId } : {}) };
+    const cue: MediaCue = { id: id(), itemId, startedAt, endsAt: startedAt + durationMs,
+      ...(paidId ? { paidId } : {}), ...(sample ? { sample } : {}) };
     // Replacing is the v1 queue policy. The old timer may still wake up,
     // but the cue id stops it from clearing the replacement.
     ctx.setState({ active: cue });
@@ -275,7 +293,7 @@ export function createMedia(options: MediaOptions): MediaController {
       return;
     }
     testWaiting = false;
-    if (head && !voiced) return startCue(ctx, null, PAID_ALERT_MS, head.id);
+    if (head && !voiced) return startCue(ctx, null, alertMs(head), head.id);
     // Usually chosen while the one before was playing. When it is not, the
     // pick's own ending calls back in here.
     if (head && needsPick(ctx.state, head)) {
@@ -317,7 +335,7 @@ export function createMedia(options: MediaOptions): MediaController {
       ctx.setState({ ttsStatus: error instanceof SpeechError ? error.message : "Could not read that message. Try Test voice again." });
       // Shown without a voice rather than dropped: the voice failed, the
       // message did not.
-      if (paidId) startCue(ctx, null, PAID_ALERT_MS, paidId);
+      if (paidId) startCue(ctx, null, alertMs(head), paidId);
       else void advance(ctx);
     }
   };
@@ -328,12 +346,13 @@ export function createMedia(options: MediaOptions): MediaController {
     overlay: true,
     initialState: { items: [], active: null, speech: null, ttsEnabled: true, paid: [], checkFirst: false, ttsStatus: voiceStatus(),
       speechProvider: "system", speechRegion: "centralindia", speechKey: "", hasSpeechKey: false,
-      pickVoices: false, pickerStatus: pickerOff, viewerVoices: [], rememberedVoices: 0, paidViewers: [] },
+      pickVoices: false, pickerStatus: pickerOff, viewerVoices: [], rememberedVoices: 0, paidViewers: [],
+      alertTheme: "card", alertPosition: "top" },
     // Her library survives. Playback does not: a server restart stops the lane
     // rather than claiming a clip is still audible after the process died. The
     // paid queue survives too, and its head is read again from the start.
     persist: ["items", "ttsEnabled", "paid", "checkFirst", "speechProvider", "speechRegion", "speechKey", "pickVoices",
-      "viewerVoices", "paidViewers"],
+      "viewerVoices", "paidViewers", "alertTheme", "alertPosition"],
     serverOnly: ["speechKey", "viewerVoices", "paidViewers"],
 
     actions: {
@@ -469,7 +488,47 @@ export function createMedia(options: MediaOptions): MediaController {
           if (!item) return ctx.refuse("That clip is gone");
           if (item.id !== ctx.state.speech?.id) interrupt(ctx);
           const paidId = item.id === ctx.state.speech?.id ? speaking : null;
-          startCue(ctx, item.id, paidId ? Math.max(item.durationMs, PAID_ALERT_MS) : item.durationMs, paidId);
+          const message = paidId ? ctx.state.paid.find((candidate) => candidate.id === paidId) : undefined;
+          startCue(ctx, item.id, paidId ? Math.max(item.durationMs, alertMs(message)) : item.durationMs, paidId);
+        },
+      },
+      alertTheme: {
+        label: "Paid alert look",
+        needsArgs: true,
+        run(input, ctx) {
+          const theme = input.args[0];
+          if (!knownTheme(theme)) return ctx.refuse("Choose one of the looks");
+          ctx.setState({ alertTheme: theme });
+        },
+      },
+      alertPosition: {
+        label: "Paid alert position",
+        needsArgs: true,
+        run(input, ctx) {
+          const position = input.args[0];
+          if (!knownPosition(position)) return ctx.refuse("Choose one of the positions");
+          ctx.setState({ alertPosition: position });
+        },
+      },
+      // Silent, and only on a free lane: a preview never pushes a real
+      // message off the screen, and a real one that arrives meanwhile waits
+      // a few seconds, the same as it would behind any clip.
+      previewAlert: {
+        label: "Preview a paid alert",
+        needsArgs: true,
+        run(input, ctx) {
+          const tier = Number(input.args[0]);
+          if (!knownTier(tier)) return ctx.refuse(`Choose a size from 1 to ${PAID_TIERS}`);
+          if (ctx.state.active || generation || ctx.state.speech) return ctx.refuse("Wait for what is on screen to finish");
+          const sample: PaidMessage = {
+            id: `preview-${id()}`,
+            at: now(),
+            name: "Preview",
+            amount: SAMPLE_AMOUNTS[tier - 1]!,
+            text: "This is how a paid message this size looks on your stream.",
+            tier,
+          };
+          startCue(ctx, null, alertMs(sample), null, sample);
         },
       },
       stop: {
@@ -484,14 +543,16 @@ export function createMedia(options: MediaOptions): MediaController {
 
     setup(ctx) {
       // Saved by some earlier release: a voice or mood it no longer has is dropped, not trusted.
-      const paid = ctx.state.paid.map(({ style, ...message }) => {
+      const paid = ctx.state.paid.map(({ style, tier, ...message }) => {
         const kept = knownStyle(style);
-        return kept ? { ...message, style: kept } : message;
+        return { ...message, ...(kept ? { style: kept } : {}), ...(knownTier(tier) ? { tier } : {}) };
       });
       const viewerVoices = ctx.state.viewerVoices.filter(([, voice]) => knownVoice(voice));
       const paidViewers = ctx.state.paidViewers.filter(([messageId]) => paid.some((message) => message.id === messageId));
       ctx.setState({ paid, viewerVoices, paidViewers, hasSpeechKey: Boolean(ctx.state.speechKey), ttsStatus: voiceStatus(ctx.state),
-        rememberedVoices: viewerVoices.length, pickerStatus: ctx.state.pickVoices ? pickerOn : pickerOff });
+        rememberedVoices: viewerVoices.length, pickerStatus: ctx.state.pickVoices ? pickerOn : pickerOff,
+        alertTheme: knownTheme(ctx.state.alertTheme) ? ctx.state.alertTheme : "card",
+        alertPosition: knownPosition(ctx.state.alertPosition) ? ctx.state.alertPosition : "top" });
       ctx.on("paid-event", (event) => {
         if (ctx.state.paid.length >= MAX_PAID_QUEUE) {
           ctx.setState({ ttsStatus: "Paid message queue is full. New messages are being skipped." });

@@ -684,6 +684,28 @@ export class YouTubeAdapter implements ChatAdapter {
 }
 
 /**
+ * YouTube's seven Super Chat bands, read off the colour it paints each one.
+ *
+ * The colour is the only place the band survives into the chat feed, and it is
+ * worth reading rather than ranking the amount ourselves: YouTube sets the
+ * bands per currency, so the colour already says that ₹500 and $5 land
+ * together, which no amount we parse could without an exchange rate. A text
+ * message carries its body colour and a sticker its background, so both are
+ * listed, header colours too in case either ever moves. A colour not here
+ * means no tier, never a guess: an alert that undersells one is better than
+ * one that throws confetti for the wrong person.
+ */
+const TIER_BY_COLOR: Record<string, number> = {
+  "#1565C0": 1, "#1E88E5": 1,
+  "#00B8D4": 2, "#00E5FF": 2,
+  "#00BFA5": 3, "#1DE9B6": 3,
+  "#FFB300": 4, "#FFCA28": 4,
+  "#E65100": 5, "#F57C00": 5,
+  "#C2185B": 6, "#E91E63": 6,
+  "#D00000": 7, "#E62117": 7,
+};
+
+/**
  * Exported for tests: adapter normalization is where the platform-specific bugs
  * live, and the alternative is standing up a fake InnerTube client to reach it.
  */
@@ -713,11 +735,13 @@ export function normalize(item: any): StreamEvent | null {
   };
 
   if (item?.superchat) {
+    const tier = typeof item.superchat.color === "string" ? TIER_BY_COLOR[item.superchat.color.toUpperCase()] : undefined;
     return {
       ...base,
       type: "paid-event",
       kind: item.superchat.sticker ? "sticker" : "superchat",
       amount: parseAmount(item.superchat.amount),
+      ...(tier ? { tier } : {}),
     };
   }
   if (item?.isMembership) return { ...base, type: "new-member" };

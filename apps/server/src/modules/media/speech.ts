@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { PaidEvent, PaidMessage, SpeechStyle } from "@saarathi/shared";
+import { PAID_TIERS, type PaidEvent, type PaidMessage, type SpeechStyle } from "@saarathi/shared";
 import { scamIn, withoutLinks } from "../../core/screen.js";
 import { delivery, sapiRate, sayWordsPerMinute } from "./delivery.js";
 import { inTempDirectory, runChild } from "./child.js";
@@ -27,7 +27,13 @@ export function paidMessage(event: PaidEvent, id: string): PaidMessage {
     amount: clean(event.amount.display, 24),
     text: scam ? "" : clean(withoutLinks(full, "(link)"), 180),
     ...(scam ? { cut: scam } : {}),
+    ...(knownTier(event.tier) ? { tier: event.tier } : {}),
   };
+}
+
+/** A rung the overlay has a look for. Anything else, saved by an older build included, is the smallest. */
+export function knownTier(tier: unknown): tier is number {
+  return Number.isInteger(tier) && (tier as number) >= 1 && (tier as number) <= PAID_TIERS;
 }
 
 export function paidSpeech(message: Pick<PaidMessage, "name" | "amount" | "text">, language: "en" | "kn" = "en"): string {

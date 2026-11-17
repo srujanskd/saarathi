@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { CHATLOG_ID, type ChatLogState, type MockChatInput } from "@saarathi/shared";
+import { CHATLOG_ID, PAID_TIERS, type ChatLogState, type MockChatInput } from "@saarathi/shared";
 import { useBotReplies, useModuleState } from "../../lib/connection.js";
 import type { CardProps } from "../types.js";
 import { formatEvent } from "./format.js";
@@ -19,6 +19,7 @@ export function ChatCard({ connection, status }: CardProps) {
   const [text, setText] = useState("");
   const [kind, setKind] = useState<Kind>("chat");
   const [amount, setAmount] = useState("");
+  const [tier, setTier] = useState("");
 
   function send(event: FormEvent): void {
     event.preventDefault();
@@ -29,6 +30,7 @@ export function ChatCard({ connection, status }: CardProps) {
     const who = author.trim();
     if (who) input.author = who;
     if (kind === "superchat") input.amount = amount.trim() || "$5.00";
+    if (kind === "superchat" && tier) input.tier = Number(tier);
     connection.mockChat(input);
     setText("");
   }
@@ -83,6 +85,17 @@ export function ChatCard({ connection, status }: CardProps) {
             </label>
           ) : null}
         </div>
+        {kind === "superchat" ? (
+          <label className="field">
+            <span>Size, as the platform bands it</span>
+            <select className="select" data-testid="mock-tier" value={tier} onChange={(event) => setTier(event.target.value)}>
+              <option value="">None, like a tip</option>
+              {Array.from({ length: PAID_TIERS }, (_, index) => (
+                <option key={index} value={index + 1}>{index + 1}{index === 0 ? ", smallest" : index === PAID_TIERS - 1 ? ", biggest" : ""}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <label className="field">
           <span>Message</span>
           <input

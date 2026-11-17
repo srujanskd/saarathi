@@ -396,6 +396,12 @@ export interface MockChatInput {
   /** Display amount for superchats, e.g. "$5.00", parsed exactly as a real one is. A superchat may have empty `text`. */
   amount?: string;
   /**
+   * Which rung a superchat lands on, 1 to `PAID_TIERS`. Given rather than
+   * worked out from `amount`, because a real adapter reads it off the platform
+   * too; leave it out to send one nothing banded.
+   */
+  tier?: number;
+  /**
    * Who mock chat should say sent it.
    *
    * Every rule that reads `Author` has to be drivable without a live stream,
