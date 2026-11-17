@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { PaidEvent, PaidMessage, SpeechStyle } from "@saarathi/shared";
+import { knownTier, type PaidEvent, type PaidMessage, type SpeechStyle } from "@saarathi/shared";
 import { scamIn, withoutLinks } from "../../core/screen.js";
 import { delivery, sapiRate, sayWordsPerMinute } from "./delivery.js";
 import { inTempDirectory, runChild } from "./child.js";
@@ -27,6 +27,7 @@ export function paidMessage(event: PaidEvent, id: string): PaidMessage {
     amount: clean(event.amount.display, 24),
     text: scam ? "" : clean(withoutLinks(full, "(link)"), 180),
     ...(scam ? { cut: scam } : {}),
+    ...(knownTier(event.tier) ? { tier: event.tier } : {}),
   };
 }
 

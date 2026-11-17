@@ -130,6 +130,16 @@ describe("MockChatAdapter", () => {
     expect(events[0]).toMatchObject({ amount: { display: "₹500.00", value: 500, currency: "INR" } });
   });
 
+  it("carries the size she picked, and drops one no platform could send", async () => {
+    const { sink, events } = testSink();
+    const adapter = new MockChatAdapter();
+    await adapter.start(sink);
+    adapter.send({ text: "big", type: "superchat", tier: 7 });
+    adapter.send({ text: "plain", type: "superchat" });
+    for (const tier of [0, 8, 2.5, Number.NaN, "3" as unknown as number]) adapter.send({ text: "odd", type: "superchat", tier });
+    expect(events.map((event) => "tier" in event ? event.tier : undefined)).toEqual([7, undefined, undefined, undefined, undefined, undefined, undefined]);
+  });
+
   it("sends a superchat with no message, which is most of the small ones", async () => {
     const { sink, events } = testSink();
     const adapter = new MockChatAdapter();
@@ -281,6 +291,26 @@ describe("youtube normalize", () => {
       superchat: { amount: "$2.00", sticker: {} },
     });
     expect(event).toMatchObject({ type: "paid-event", kind: "sticker" });
+  });
+
+  it("reads the band off the colour YouTube paints a Super Chat, sticker or text", () => {
+    const tierOf = (superchat: object) => {
+      const event = normalize({ author, message: message("hi"), superchat: { amount: "₹500.00", ...superchat } });
+      return event && "tier" in event ? event.tier : undefined;
+    };
+    expect(tierOf({ color: "#1E88E5" })).toBe(1);
+    expect(tierOf({ color: "#1de9b6" })).toBe(3);
+    expect(tierOf({ color: "#E62117" })).toBe(7);
+    // A sticker carries its background, which is the header shade.
+    expect(tierOf({ color: "#C2185B", sticker: {} })).toBe(6);
+  });
+
+  it("gives no band to a colour it does not know, rather than a guess", () => {
+    for (const color of ["#123456", "", undefined, 42]) {
+      const event = normalize({ author, message: message("hi"), superchat: { amount: "$5.00", color } });
+      expect(event).toMatchObject({ type: "paid-event" });
+      expect(event).not.toHaveProperty("tier");
+    }
   });
 
   it("keeps a paid event with no text, because the money is the point", () => {

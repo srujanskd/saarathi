@@ -14,6 +14,30 @@ export const MAX_PAID_QUEUE = 50;
  * shorter than reading it is, and a silent one has nothing else to time it by.
  */
 export const PAID_ALERT_MS = 6_000;
+/** And this much longer per rung above the smallest: a bigger one is worth more of the screen. */
+export const PAID_ALERT_TIER_MS = 1_000;
+
+/**
+ * How a paid alert looks. Hers to pick from the card, because only she knows
+ * what sits well over her camera and her scene.
+ */
+export const ALERT_THEMES = {
+  card: { label: "Card" },
+  bold: { label: "Bold" },
+  minimal: { label: "Minimal" },
+} as const;
+export type AlertTheme = keyof typeof ALERT_THEMES;
+
+/** Where it lands. Six, laid out on her card the way they sit on the screen. */
+export const ALERT_POSITIONS = {
+  "top-left": { label: "Top left" },
+  top: { label: "Top" },
+  "top-right": { label: "Top right" },
+  "bottom-left": { label: "Bottom left" },
+  bottom: { label: "Bottom" },
+  "bottom-right": { label: "Bottom right" },
+} as const;
+export type AlertPosition = keyof typeof ALERT_POSITIONS;
 
 export const MEDIA_TYPES = {
   "audio/mpeg": { kind: "audio", extension: "mp3" },
@@ -49,6 +73,12 @@ export interface MediaCue {
   itemId: string | null;
   /** The paid message on screen, when this cue is one. */
   paidId?: string;
+  /**
+   * A made-up paid message she asked to see while placing the alert. Carried
+   * on the cue rather than queued, because it is nobody's money: nothing reads
+   * it aloud, saves it or thanks anyone for it.
+   */
+  sample?: PaidMessage;
   startedAt: number;
   endsAt: number;
 }
@@ -92,6 +122,8 @@ export interface PaidMessage {
   amount: string;
   /** What may be shown and read: links already taken out. */
   text: string;
+  /** 1 to `PAID_TIERS`, from the event. Absent is the smallest. */
+  tier?: number;
   /** Why the whole message was left out, for her card. Never on stream. */
   cut?: string;
   /** She let it through while checking messages first. */
@@ -131,4 +163,6 @@ export interface MediaState {
   pickerStatus: string;
   /** How many viewers have a remembered voice. The list itself stays on the server. */
   rememberedVoices: number;
+  alertTheme: AlertTheme;
+  alertPosition: AlertPosition;
 }

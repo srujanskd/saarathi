@@ -87,3 +87,28 @@
   grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
 }
+
+/* Laid out the way the screen is: three across the top, three along the bottom. */
+.media-positions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.35rem;
+  margin-bottom: 0.7rem;
+  padding: 0.25rem;
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+.media-positions .seg { min-height: 3.25rem; }
+
+.media-sizes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(3rem, 1fr));
+  gap: 0.4rem;
+}
+
+.media-sizes .btn {
+  margin: 0;
+  padding: 0;
+  font-weight: 750;
+}

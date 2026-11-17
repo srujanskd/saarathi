@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MAX_PAID_QUEUE, MEDIA_ID, PAID_ALERT_MS, type MediaState } from "@saarathi/shared";
+import { MAX_PAID_QUEUE, MEDIA_ID, PAID_ALERT_MS, PAID_ALERT_TIER_MS, PAID_TIERS, type MediaState } from "@saarathi/shared";
 import type { MediaFiles } from "../../src/modules/media/files.js";
 import { createMedia } from "../../src/modules/media/index.js";
 import { PickerError, type VoicePicker } from "../../src/modules/media/voice-picker.js";
@@ -417,6 +417,115 @@ describe("paid-message speech", () => {
       await h.kernel.invoke("media.stop");
       finish(wav(2_000));
       await Promise.resolve();
+    } finally { await h.stop(); }
+  });
+});
+
+describe("how a paid alert looks", () => {
+  it("gives a bigger message from mock chat its size and more time on screen, and none to an unbanded one", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    const h = await harness({ modules: [createMedia({ files: fakeFiles() }).module] });
+    try {
+      h.chat({ type: "superchat", author: "Big", amount: "₹5,000.00", text: "Go!", tier: PAID_TIERS });
+      h.chat({ type: "superchat", author: "Tip", text: "Thanks" });
+      const big = stateOf(h.kernel.snapshot());
+      expect(big.paid.map((message) => message.tier)).toEqual([PAID_TIERS, undefined]);
+      expect(big.active).toMatchObject({ paidId: big.paid[0]!.id, endsAt: 10_000 + PAID_ALERT_MS + (PAID_TIERS - 1) * PAID_ALERT_TIER_MS });
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS);
+      expect(stateOf(h.kernel.snapshot()).active?.paidId).toBe(big.paid[0]!.id);
+      await vi.advanceTimersByTimeAsync((PAID_TIERS - 1) * PAID_ALERT_TIER_MS);
+      const after = stateOf(h.kernel.snapshot());
+      expect(after.paid.map((message) => message.name)).toEqual(["Tip"]);
+      expect(after.active!.endsAt - after.active!.startedAt).toBe(PAID_ALERT_MS);
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("keeps her look and position across a restart and refuses one that does not exist", async () => {
+    const store = new MemoryStore();
+    const first = await harness({ modules: [createMedia({ files: fakeFiles() }).module], store });
+    expect(stateOf(first.kernel.snapshot())).toMatchObject({ alertTheme: "card", alertPosition: "top" });
+    expect(await first.kernel.invoke("media.alertTheme", { args: ["bold"] })).toEqual({ ok: true });
+    expect(await first.kernel.invoke("media.alertPosition", { args: ["bottom-left"] })).toEqual({ ok: true });
+    expect(await first.kernel.invoke("media.alertTheme", { args: ["neon"] })).toMatchObject({ ok: false });
+    expect(await first.kernel.invoke("media.alertPosition", { args: ["toString"] })).toMatchObject({ ok: false });
+    await first.stop();
+
+    const second = await harness({ modules: [createMedia({ files: fakeFiles() }).module], store });
+    try {
+      expect(stateOf(second.kernel.snapshot())).toMatchObject({ alertTheme: "bold", alertPosition: "bottom-left" });
+    } finally { await second.stop(); }
+  });
+
+  it("previews each size silently without queueing anything, never over a real alert, and Stop clears it", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    const voice = vi.fn(async () => wav(2_000));
+    const store = new MemoryStore();
+    const h = await harness({ modules: [createMedia({ files: fakeFiles(), voice }).module], store });
+    try {
+      expect(await h.kernel.invoke("media.previewAlert", { args: ["0"] })).toMatchObject({ ok: false });
+      expect(await h.kernel.invoke("media.previewAlert", { args: ["6"] })).toEqual({ ok: true });
+      const shown = stateOf(h.kernel.snapshot());
+      expect(shown.active).toMatchObject({ itemId: null, sample: { tier: 6, name: "Preview" }, endsAt: 10_000 + PAID_ALERT_MS + 5 * PAID_ALERT_TIER_MS });
+      expect(shown.active).not.toHaveProperty("paidId");
+      expect(shown.paid).toEqual([]);
+      expect(persistedPaid(store)).toEqual([]);
+      expect(await h.kernel.invoke("media.previewAlert", { args: ["2"] })).toMatchObject({ ok: false });
+
+      // A real one waits for the preview rather than being pushed off.
+      h.chat({ type: "superchat", author: "Ana", text: "Real" });
+      expect(stateOf(h.kernel.snapshot()).active?.sample).toBeDefined();
+      await vi.advanceTimersByTimeAsync(PAID_ALERT_MS + 5 * PAID_ALERT_TIER_MS);
+      expect(voice).toHaveBeenCalledTimes(1);
+      expect(voice).toHaveBeenCalledWith("Ana sent $5.00. Real", expect.any(AbortSignal), undefined);
+      expect(await h.kernel.invoke("media.stop", { args: [] })).toEqual({ ok: true });
+
+      expect(await h.kernel.invoke("media.previewAlert", { args: ["1"] })).toEqual({ ok: true });
+      expect(await h.kernel.invoke("media.stop", { args: [] })).toEqual({ ok: true });
+      expect(stateOf(h.kernel.snapshot()).active).toBeNull();
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("End preview hands the lane to whoever paid meanwhile, and Stop stays a full stop", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    const h = await harness({ modules: [createMedia({ files: fakeFiles() }).module] });
+    try {
+      expect(await h.kernel.invoke("media.tts", { args: ["off"] })).toEqual({ ok: true });
+      expect(await h.kernel.invoke("media.previewAlert", { args: [String(PAID_TIERS)] })).toEqual({ ok: true });
+      h.chat({ type: "superchat", author: "Ana", amount: "₹500.00", text: "Real" });
+      const sample = stateOf(h.kernel.snapshot()).active?.sample;
+      expect(sample).toBeDefined();
+
+      // A tap meant for some other preview ends nothing.
+      expect(await h.kernel.invoke("media.endPreview", { args: ["preview-elsewhere"] })).toMatchObject({ ok: false });
+      expect(await h.kernel.invoke("media.endPreview", { args: [sample!.id] })).toEqual({ ok: true });
+      const after = stateOf(h.kernel.snapshot());
+      expect(after.paid.map((message) => message.name)).toEqual(["Ana"]);
+      expect(after.active).toMatchObject({ paidId: after.paid[0]!.id });
+      expect(after.active).not.toHaveProperty("sample");
+      expect(await h.kernel.invoke("media.endPreview", { args: [sample!.id] })).toMatchObject({ ok: false });
+
+      // Stop is her panic button on the deck. Over a preview it stops the
+      // preview and everything queued behind it, and puts nothing on stream.
+      expect(await h.kernel.invoke("media.stop", { args: [] })).toEqual({ ok: true });
+      expect(await h.kernel.invoke("media.previewAlert", { args: ["1"] })).toEqual({ ok: true });
+      h.chat({ type: "superchat", author: "Bo", amount: "₹500.00", text: "Also real" });
+      expect(await h.kernel.invoke("media.stop", { args: [] })).toEqual({ ok: true });
+      expect(stateOf(h.kernel.snapshot())).toMatchObject({ active: null, paid: [] });
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
+  it("drops a saved size this build has no look for", async () => {
+    const store = new MemoryStore();
+    store.write(MEDIA_ID, { paid: [{ id: "a", at: 1, name: "Ana", amount: "$5.00", text: "", tier: 99 },
+      { id: "b", at: 2, name: "Bo", amount: "$5.00", text: "", tier: 3 }], alertTheme: "neon", alertPosition: 7 });
+    const h = await harness({ modules: [createMedia({ files: fakeFiles() }).module], store });
+    try {
+      const state = stateOf(h.kernel.snapshot());
+      expect(state.paid.map((message) => message.tier)).toEqual([undefined, 3]);
+      expect(state).toMatchObject({ alertTheme: "card", alertPosition: "top" });
     } finally { await h.stop(); }
   });
 });
