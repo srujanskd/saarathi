@@ -67,6 +67,15 @@ export interface ChatCommandEvent extends EventBase {
  */
 export const PAID_TIERS = 7;
 
+/**
+ * A rung the overlay has a look for. One check for the adapters that hand a
+ * tier in and the module that reads it back from saved state, so the range
+ * cannot drift between them. Anything else is no tier, which is the smallest.
+ */
+export function knownTier(tier: unknown): tier is number {
+  return Number.isInteger(tier) && (tier as number) >= 1 && (tier as number) <= PAID_TIERS;
+}
+
 export interface PaidEvent extends EventBase {
   type: "paid-event";
   /** Where the money came from. Modules should treat every kind the same. */

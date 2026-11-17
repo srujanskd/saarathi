@@ -10,6 +10,7 @@ import {
   PAID_ALERT_MS,
   PAID_ALERT_TIER_MS,
   PAID_TIERS,
+  knownTier,
   MEDIA_TYPES,
   type GameModuleDef,
   type MediaCue,
@@ -21,7 +22,7 @@ import {
   type SpeechVoiceId,
 } from "@saarathi/shared";
 import type { MediaFiles } from "./files.js";
-import { knownTier, paidMessage, paidSpeech, type SpeechVoice } from "./speech.js";
+import { paidMessage, paidSpeech, type SpeechVoice } from "./speech.js";
 import { microsoftVoice, SpeechError, validSpeechRegion, type MicrosoftVoice } from "./microsoft-speech.js";
 import { inspectMedia } from "./inspect.js";
 import { PickerError, type VoicePicker } from "./voice-picker.js";
@@ -531,18 +532,25 @@ export function createMedia(options: MediaOptions): MediaController {
           startCue(ctx, null, alertMs(sample), null, sample);
         },
       },
+      // Her way off a preview that keeps whoever paid while she was placing
+      // it: the queue carries on as if the preview had run out. Not Stop,
+      // because Stop is her panic button on the deck and a hotkey, and a
+      // panic button that puts the next paid message on stream is not one.
+      // Takes the preview's id so it never reaches a deck, where nothing
+      // starts a preview, and so a late tap cannot end a different one.
+      endPreview: {
+        label: "End the preview",
+        needsArgs: true,
+        run(input, ctx) {
+          const sample = ctx.state.active?.sample;
+          if (!sample || sample.id !== input.args[0]) return ctx.refuse("No preview is playing");
+          ctx.setState({ active: null });
+          void advance(ctx);
+        },
+      },
       stop: {
         label: "Stop all media",
         run(_input, ctx) {
-          // A preview is the only thing on the lane she put there to look at,
-          // and Stop is the only way off it, so Stop ends just the preview.
-          // Clearing the queue too would throw away whoever paid while she
-          // was placing the alert. Pressed again, it stops everything.
-          if (ctx.state.active?.sample) {
-            ctx.setState({ active: null });
-            void advance(ctx);
-            return;
-          }
           if (!ctx.state.active && !generation && ctx.state.paid.length === 0 && !testWaiting) return ctx.refuse("Nothing is playing");
           cancelSpeech(ctx);
           ctx.setState({ active: null });

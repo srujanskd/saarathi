@@ -1,4 +1,4 @@
-import { PAID_TIERS, type Author, type ChannelStats, type MockChatInput, type StreamEvent } from "@saarathi/shared";
+import { knownTier, type Author, type ChannelStats, type MockChatInput, type StreamEvent } from "@saarathi/shared";
 import type { ChatAdapter, ChatSink, ChatWrites } from "./adapter.js";
 import { parseAmount } from "./money.js";
 
@@ -156,7 +156,7 @@ export class MockChatAdapter implements ChatAdapter {
         kind: "superchat",
         amount: parseAmount(input.amount || "$5.00"),
         // From a socket, so checked like anything a real platform hands us.
-        ...(Number.isInteger(input.tier) && input.tier! >= 1 && input.tier! <= PAID_TIERS ? { tier: input.tier } : {}),
+        ...(knownTier(input.tier) ? { tier: input.tier } : {}),
       };
     } else if (input.type === "member") {
       event = { ...base, type: "new-member" };

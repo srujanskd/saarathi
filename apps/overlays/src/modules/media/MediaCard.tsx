@@ -35,6 +35,7 @@ export function MediaCard({ connection, deck }: CardProps) {
   const [preview, setPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const items = state?.items ?? [];
+  const sample = state?.active?.sample;
 
   async function choose(file: File | undefined): Promise<void> {
     if (!file) return;
@@ -123,9 +124,12 @@ export function MediaCard({ connection, deck }: CardProps) {
       {state?.active ? (
         <div className="media-live" data-testid="media-active">
           <span>{nowPlaying(state)}</span>
-          <button className="tool" type="button" onClick={() => void invoke.run(`${MEDIA_ID}.stop`)}>
-            {state.active.sample ? "End preview" : "Stop all"}
-          </button>
+          {sample ? (
+            <button className="tool" type="button"
+              onClick={() => void invoke.run(`${MEDIA_ID}.endPreview`, [sample.id])}>End preview</button>
+          ) : (
+            <button className="tool" type="button" onClick={() => void invoke.run(`${MEDIA_ID}.stop`)}>Stop all</button>
+          )}
         </div>
       ) : <p className="hint">Nothing is playing.</p>}
 

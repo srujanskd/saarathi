@@ -487,7 +487,7 @@ describe("how a paid alert looks", () => {
     } finally { await h.stop(); vi.useRealTimers(); }
   });
 
-  it("Stop on a preview ends only the preview and the paid message behind it still plays", async () => {
+  it("End preview hands the lane to whoever paid meanwhile, and Stop stays a full stop", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);
     const h = await harness({ modules: [createMedia({ files: fakeFiles() }).module] });
@@ -495,15 +495,23 @@ describe("how a paid alert looks", () => {
       expect(await h.kernel.invoke("media.tts", { args: ["off"] })).toEqual({ ok: true });
       expect(await h.kernel.invoke("media.previewAlert", { args: [String(PAID_TIERS)] })).toEqual({ ok: true });
       h.chat({ type: "superchat", author: "Ana", amount: "₹500.00", text: "Real" });
-      expect(stateOf(h.kernel.snapshot()).active?.sample).toBeDefined();
+      const sample = stateOf(h.kernel.snapshot()).active?.sample;
+      expect(sample).toBeDefined();
 
-      expect(await h.kernel.invoke("media.stop", { args: [] })).toEqual({ ok: true });
+      // A tap meant for some other preview ends nothing.
+      expect(await h.kernel.invoke("media.endPreview", { args: ["preview-elsewhere"] })).toMatchObject({ ok: false });
+      expect(await h.kernel.invoke("media.endPreview", { args: [sample!.id] })).toEqual({ ok: true });
       const after = stateOf(h.kernel.snapshot());
       expect(after.paid.map((message) => message.name)).toEqual(["Ana"]);
       expect(after.active).toMatchObject({ paidId: after.paid[0]!.id });
       expect(after.active).not.toHaveProperty("sample");
+      expect(await h.kernel.invoke("media.endPreview", { args: [sample!.id] })).toMatchObject({ ok: false });
 
-      // Pressed again, with a real one on screen, Stop is the full stop it always was.
+      // Stop is her panic button on the deck. Over a preview it stops the
+      // preview and everything queued behind it, and puts nothing on stream.
+      expect(await h.kernel.invoke("media.stop", { args: [] })).toEqual({ ok: true });
+      expect(await h.kernel.invoke("media.previewAlert", { args: ["1"] })).toEqual({ ok: true });
+      h.chat({ type: "superchat", author: "Bo", amount: "₹500.00", text: "Also real" });
       expect(await h.kernel.invoke("media.stop", { args: [] })).toEqual({ ok: true });
       expect(stateOf(h.kernel.snapshot())).toMatchObject({ active: null, paid: [] });
     } finally { await h.stop(); vi.useRealTimers(); }
