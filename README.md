@@ -89,6 +89,24 @@ Microsoft receives the sender, amount and message; this option needs internet ac
 Azure charges. It works on Linux servers as well as Windows and macOS. See the
 [Azure Speech setup guide](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/get-started-text-to-speech).
 
+**Voices per viewer** (under Media) lets Claude pick how each paid message sounds. It uses Claude
+Code on the computer running Saarathi, on that computer's Claude plan, with Haiku: one of four
+voices (Announcer, Buddy, Warm, Bright) for each viewer from their name, and a mood (neutral,
+excited, calm, heartfelt) for each message. A viewer keeps their voice next time; up to 500 are
+remembered, the one heard least recently going first, and **Forget remembered voices** clears them
+after a second tap. Claude picks while the message before is still playing, so it rarely delays an
+alert; if it fails, it is not asked again for five minutes. The switch is off by default and refuses
+to turn on where Claude Code is not installed. Installing Claude Code and signing it in is a one-time
+step in a terminal, for whoever sets Saarathi up on her PC, not for her; when it stops answering, the
+card tells her to ask that person. If Claude does not answer (signed out, offline, plan
+limit), the message is read in the default voice and the card says why. Claude runs with every
+tool, setting, hook and MCP server off, in an empty temporary folder, and its answer must be one of
+the listed voices and moods. With Microsoft's Kannada voices each one has its own voice, speed and
+pitch, and a mood shifts speed and pitch. With the built-in voice they differ in speed only (on
+Windows, also a male or female installed voice), so on a Mac they sound much alike. The sender, amount
+and message are sent to Anthropic. The switch, the remembered voices and each waiting message's
+chosen voice survive a restart. The four voice buttons there play each voice in OBS.
+
 The media pack stores up to 24 clips beside her state file. A clip can be previewed, added to the
 deck, played through one server-timed lane and stopped explicitly. The library survives a restart;
 active playback does not. An overlay that reconnects during a clip seeks to the server's elapsed

@@ -1,9 +1,12 @@
+import type { SpeechStyle } from "@saarathi/shared";
+import { DEFAULT_STYLE, delivery } from "./delivery.js";
+
 export interface MicrosoftSpeechSettings {
   key: string;
   region: string;
 }
 
-export type MicrosoftVoice = (text: string, signal: AbortSignal, settings: MicrosoftSpeechSettings) => Promise<Buffer>;
+export type MicrosoftVoice = (text: string, signal: AbortSignal, settings: MicrosoftSpeechSettings, style?: SpeechStyle) => Promise<Buffer>;
 
 export class SpeechError extends Error {
   constructor(kind: "credentials" | "quota" | "unavailable") {
@@ -19,15 +22,18 @@ export function validSpeechRegion(region: string): boolean {
   return /^[a-z][a-z0-9]{1,39}$/.test(region);
 }
 
-export function kannadaAnnouncerSsml(text: string): string {
+/** Every value but the escaped text comes from a closed table, never from chat. */
+export function kannadaSsml(text: string, style: SpeechStyle = DEFAULT_STYLE): string {
   const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
-  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="kn-IN"><voice name="kn-IN-GaganNeural"><prosody rate="-15%" pitch="-12%">${escaped}</prosody></voice></speak>`;
+  const sound = delivery(style);
+  const percent = (value: number) => `${value >= 0 ? "+" : ""}${value}%`;
+  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="kn-IN"><voice name="${sound.azureVoice}"><prosody rate="${percent(sound.rate)}" pitch="${percent(sound.pitch)}">${escaped}</prosody></voice></speak>`;
 }
 
 /** Azure's supported REST API, with no key in URLs, logs or provider errors. */
 export function microsoftVoice(request: typeof fetch = fetch): MicrosoftVoice {
-  return async (text, signal, settings) => {
+  return async (text, signal, settings, style) => {
     if (!validSpeechRegion(settings.region) || !settings.key) throw new SpeechError("credentials");
     try {
       const response = await request(`https://${settings.region}.tts.speech.microsoft.com/cognitiveservices/v1`, {
@@ -40,7 +46,7 @@ export function microsoftVoice(request: typeof fetch = fetch): MicrosoftVoice {
           "X-Microsoft-OutputFormat": "riff-24khz-16bit-mono-pcm",
           "User-Agent": "Saarathi",
         },
-        body: kannadaAnnouncerSsml(text),
+        body: kannadaSsml(text, style),
       });
       if (!response.ok) {
         void response.body?.cancel().catch(() => undefined);

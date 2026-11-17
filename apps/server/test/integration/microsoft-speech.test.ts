@@ -1,15 +1,32 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { kannadaAnnouncerSsml, microsoftVoice } from "../../src/modules/media/microsoft-speech.js";
+import { kannadaSsml, microsoftVoice } from "../../src/modules/media/microsoft-speech.js";
 
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe("Microsoft Kannada speech", () => {
   it("escapes viewer text so it cannot change voices or load external audio", () => {
-    const ssml = kannadaAnnouncerSsml('ನಮಸ್ಕಾರ <audio src="https://example.com"/> & goodbye');
+    const ssml = kannadaSsml('ನಮಸ್ಕಾರ <audio src="https://example.com"/> & goodbye');
     expect(ssml).toContain('voice name="kn-IN-GaganNeural"');
     expect(ssml).toContain('prosody rate="-15%" pitch="-12%"');
     expect(ssml).toContain('ನಮಸ್ಕಾರ &lt;audio src=&quot;https://example.com&quot;/&gt; &amp; goodbye');
     expect(ssml).not.toContain('<audio');
+  });
+
+  it("reads the announcer by default, exactly as before voices could change", () => {
+    expect(kannadaSsml("hi")).toBe(kannadaSsml("hi", { voice: "announcer", mood: "neutral" }));
+  });
+
+  it("changes voice and delivery for a style, and nothing else", () => {
+    const ssml = kannadaSsml("hi", { voice: "bright", mood: "excited" });
+    expect(ssml).toContain('voice name="kn-IN-SapnaNeural"');
+    expect(ssml).toContain('prosody rate="+20%" pitch="+14%"');
+    expect(kannadaSsml("hi", { voice: "warm", mood: "calm" })).toContain('prosody rate="-15%" pitch="-6%"');
+  });
+
+  it("sends the style it was given", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(new Response(Buffer.from("wav bytes")));
+    await microsoftVoice(request)("hi", new AbortController().signal, { key: "private-key", region: "eastus" }, { voice: "buddy", mood: "heartfelt" });
+    expect(request.mock.calls[0]![1]!.body).toBe(kannadaSsml("hi", { voice: "buddy", mood: "heartfelt" }));
   });
 
   it("requests WAV from the selected region, sends the key only in a header and forbids redirects", async () => {
@@ -18,7 +35,7 @@ describe("Microsoft Kannada speech", () => {
     const signal = new AbortController().signal;
     expect(await voice("ನಮಸ್ಕಾರ", signal, { key: "private-key", region: "centralindia" })).toEqual(Buffer.from("wav bytes"));
     expect(request).toHaveBeenCalledWith("https://centralindia.tts.speech.microsoft.com/cognitiveservices/v1", expect.objectContaining({
-      method: "POST", redirect: "error", body: kannadaAnnouncerSsml("ನಮಸ್ಕಾರ"),
+      method: "POST", redirect: "error", body: kannadaSsml("ನಮಸ್ಕಾರ"),
       headers: expect.objectContaining({ "Ocp-Apim-Subscription-Key": "private-key", "X-Microsoft-OutputFormat": "riff-24khz-16bit-mono-pcm" }),
     }));
   });

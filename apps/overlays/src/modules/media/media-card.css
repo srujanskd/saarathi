@@ -80,3 +80,10 @@
 }
 
 .media-waiting-actions .btn { margin: 0; }
+
+/* Two across on a phone, so each one is still a thumb-sized target. */
+.media-voices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
