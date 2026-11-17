@@ -145,9 +145,14 @@ export function createMedia(options: MediaOptions): MediaController {
   };
 
   /**
-   * Stop reading, and keep the queue. A clip she pressed, a voice she changed or
-   * a restart all end up here: none of them is a decision about anybody's
-   * message, so the one being read stays at the head and is read again in full.
+   * Throw the voice away, and keep the queue. A voice she changed, speech
+   * switched off or on, Stop and the module stopping end up here: none of
+   * them is a decision about anybody's message, so the one being read stays
+   * at the head and is read again in full, in whatever voice is set now. That
+   * is also why a voice that failed is tried again: it may be fixed.
+   *
+   * A clip she presses does not come here. It goes over whatever is on and
+   * keeps the voice already made, so nothing is synthesised twice.
    */
   const interrupt = (ctx: ModuleContext<MediaModuleState>) => {
     epoch++;
@@ -155,16 +160,27 @@ export function createMedia(options: MediaOptions): MediaController {
     generation = null;
     if (ctx.state.speech && ctx.state.active?.itemId === ctx.state.speech.id) ctx.setState({ active: null });
     clearSpeech(ctx);
+    voiceFailed.clear();
   };
 
-  /** Her Stop: the one way the queue is meant to empty. */
-  const cancelSpeech = (ctx: ModuleContext<MediaModuleState>) => {
-    interrupt(ctx);
+  /**
+   * Everything the lane remembers about the messages it has met, all of it in
+   * memory. Stop forgets it, and so does the module stopping: switched back
+   * on, it starts each message from the top, intro included, as a restart does.
+   */
+  const forget = () => {
     stopPicking();
     unpicked.clear();
     introDone.clear();
     voiceFailed.clear();
     testWaiting = false;
+    testStyle = undefined;
+  };
+
+  /** Her Stop: the one way the queue is meant to empty. */
+  const cancelSpeech = (ctx: ModuleContext<MediaModuleState>) => {
+    interrupt(ctx);
+    forget();
     if (ctx.state.paid.length > 0) ctx.setState({ paid: [], paidViewers: [] });
     ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
   };
@@ -276,23 +292,30 @@ export function createMedia(options: MediaOptions): MediaController {
     }));
   };
 
-  /** The one way anything gets on the lane, and the one way it comes off. */
+  /** The one way anything gets on the lane. */
   const startCue = (ctx: ModuleContext<MediaModuleState>, itemId: string | null, durationMs: number, extra: CueExtra = {}) => {
     const startedAt = now();
-    const defined = Object.fromEntries(Object.entries(extra).filter(([, value]) => value !== undefined)) as CueExtra;
-    const cue: MediaCue = { id: id(), itemId, startedAt, endsAt: startedAt + durationMs, ...defined };
+    const cue: MediaCue = { id: id(), itemId, startedAt, endsAt: startedAt + durationMs, ...extra };
     // Replacing is the v1 queue policy. The old timer may still wake up,
-    // but the cue id stops it from clearing the replacement.
+    // but the cue id stops it from ending the replacement.
     ctx.setState({ active: cue });
     ctx.after(durationMs, () => {
-      if (ctx.state.active?.id !== cue.id) return;
-      ctx.setState({ active: null });
-      if (cue.introFor) return afterIntro(ctx, cue);
-      clearSpeech(ctx);
-      finished(ctx, cue.paidId ?? null);
-      ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
-      void advance(ctx);
+      if (ctx.state.active?.id === cue.id) endCue(ctx, cue);
     });
+  };
+
+  /**
+   * And the one way it comes off, however it ended: running out, her skipping
+   * an intro, or its clip being removed. An intro hands on to whatever it came
+   * before. Anything else is done with, and the lane moves on.
+   */
+  const endCue = (ctx: ModuleContext<MediaModuleState>, cue: MediaCue) => {
+    if (ctx.state.active?.id === cue.id) ctx.setState({ active: null });
+    if (cue.introFor) return afterIntro(ctx, cue);
+    if (cue.itemId && cue.itemId === ctx.state.speech?.id) clearSpeech(ctx);
+    finished(ctx, cue.paidId ?? null);
+    ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
+    void advance(ctx);
   };
 
   /** The clip her level plays first, if it has one and it is still in her library. */
@@ -315,18 +338,30 @@ export function createMedia(options: MediaOptions): MediaController {
   };
 
   /**
-   * An intro is over, by running out, by her skipping it or by its clip being
-   * removed. Whatever it came before goes on next: a preview's sample, the
-   * speech made ready while it played, or the message from the top.
+   * An intro is over. Whatever it came before goes on next: a preview's
+   * sample, or the message, read in the voice made while the intro played.
    */
   const afterIntro = (ctx: ModuleContext<MediaModuleState>, cue: MediaCue) => {
-    if (cue.sample) {
-      startCue(ctx, null, alertMs(cue.size ?? 1), { sample: cue.sample, level: cue.level, size: cue.size });
-      return;
-    }
+    if (cue.sample) return showSample(ctx, cue.sample);
     if (cue.introFor) introDone.add(cue.introFor);
-    if (ctx.state.speech && speaking === cue.introFor) void speak(ctx, epoch);
-    else void advance(ctx);
+    void advance(ctx);
+  };
+
+  /** A preview's alert, placed the way a real one on its level would be. */
+  const showSample = (ctx: ModuleContext<MediaModuleState>, sample: PaidMessage) => {
+    const where = placed(ctx.state.alertLevels, sample.tier);
+    startCue(ctx, null, alertMs(where.size), { sample, ...where });
+  };
+
+  /**
+   * Speech made already and held, through an intro or a clip she pressed.
+   * Its message's intro goes first if that has not played, and been cut
+   * short by her clip counts as not played.
+   */
+  const resume = (ctx: ModuleContext<MediaModuleState>) => {
+    const head = ctx.state.paid[0];
+    if (head && speaking === head.id && playIntro(ctx, head)) return;
+    void speak(ctx, epoch);
   };
 
   /** Play the speech that is ready. A failure shows the message silently, never drops it. */
@@ -345,31 +380,48 @@ export function createMedia(options: MediaOptions): MediaController {
   };
 
   /**
-   * Put the next thing on the lane, if it is free. Every path that frees it
-   * calls this. A paid message is shown whether or not it can be heard: speech
-   * off, no voice on this machine and a voice that failed all still put the
-   * name and the amount on her stream.
+   * Put the next thing on the lane, if it is free, and get its voice ready.
+   * Every path that frees the lane, and every path that finishes a voice,
+   * calls this. A paid message is shown whether or not it can be heard:
+   * speech off, no voice on this machine and a voice that failed all still
+   * put the name and the amount on her stream.
+   *
+   * A level's intro goes on first, at once. It needs neither Claude nor the
+   * voice, so both are worked on while it plays rather than before it, and
+   * the screen is never empty while a paid message waits on either.
    */
   const advance = async (ctx: ModuleContext<MediaModuleState>) => {
-    if (generation || ctx.state.speech || ctx.state.active) return;
+    if (generation) return;
+    const active = ctx.state.active;
+    // The head's own intro is the one thing its voice is made behind.
+    const behindIntro = Boolean(active?.introFor && !active.sample && active.introFor === ctx.state.paid[0]?.id);
+    if (active && !behindIntro) return;
+    if (ctx.state.speech) {
+      // The intro's ending comes back here and finds the lane free.
+      if (!behindIntro) resume(ctx);
+      return;
+    }
     const voiced = ctx.state.ttsEnabled && ready(ctx);
     if (!voiced) testWaiting = false;
-    const head = testWaiting ? null : ctx.state.paid[0];
-    if (!testWaiting && !head) return;
+    // A test phrase jumps the queue, but not an intro that is already on.
+    const test = testWaiting && !behindIntro;
+    const head = test ? null : ctx.state.paid[0];
+    if (!test && !head) return;
     if (head && held(ctx.state, head)) {
       ctx.setState({ ttsStatus: `${head.name}'s message is waiting for you to check` });
       return;
     }
-    testWaiting = false;
+    if (test) testWaiting = false;
+    const onIntro = behindIntro || Boolean(head && playIntro(ctx, head));
     if (head && (!voiced || voiceFailed.has(head.id))) {
-      if (playIntro(ctx, head)) return;
+      if (onIntro) return;
       const where = placed(ctx.state.alertLevels, head.tier);
       return startCue(ctx, null, alertMs(where.size), { paidId: head.id, ...where });
     }
     // Usually chosen while the one before was playing. When it is not, the
     // pick's own ending calls back in here.
     if (head && needsPick(ctx.state, head)) {
-      ctx.setState({ ttsStatus: "Choosing a voice…" });
+      if (!onIntro) ctx.setState({ ttsStatus: "Choosing a voice…" });
       pickAhead(ctx);
       return;
     }
@@ -383,7 +435,7 @@ export function createMedia(options: MediaOptions): MediaController {
       : microsoft ? "ಮನೆಯ ಸದಸ್ಯರೇ, ನಿಮ್ಮ ಬೆಂಬಲಕ್ಕೆ ಧನ್ಯವಾದಗಳು. ಮುಂದಿನ ಸವಾಲಿಗೆ ಸಿದ್ಧರಾಗಿ!"
         : "Thank you for supporting the stream!";
     const paidId = head?.id ?? null;
-    ctx.setState({ ttsStatus: "Preparing speech…" });
+    if (!onIntro) ctx.setState({ ttsStatus: "Preparing speech…" });
     try {
       const data = microsoft
         ? await cloudVoice(text, controller.signal, { key: ctx.state.speechKey, region: ctx.state.speechRegion }, style)
@@ -396,10 +448,9 @@ export function createMedia(options: MediaOptions): MediaController {
       ctx.setState({ speech: made.value });
       speaking = paidId;
       generation = null;
-      // Made first and held through the intro, so the voice starts the
-      // moment the intro ends instead of after a pause to synthesise it.
-      if (head && playIntro(ctx, head)) return;
-      await speak(ctx, started);
+      // Held while the intro, or a clip she pressed, is still on: whichever
+      // ends calls back into advance, which reads it then.
+      if (!ctx.state.active) resume(ctx);
     } catch (error) {
       if (started !== epoch) return;
       generation = null;
@@ -558,8 +609,11 @@ export function createMedia(options: MediaOptions): MediaController {
             ? ctx.state.speech
             : ctx.state.items.find((candidate) => candidate.id === input.args[0]);
           if (!item) return ctx.refuse("That clip is gone");
-          if (item.id !== ctx.state.speech?.id) interrupt(ctx);
-          const paidId = item.id === ctx.state.speech?.id ? speaking : null;
+          // Her clip goes over whatever is on, and the message under it keeps
+          // its turn and its voice: once the clip ends it is read again in
+          // full, its intro too if the clip cut that short.
+          if (item.id !== ctx.state.speech?.id) return startCue(ctx, item.id, item.durationMs);
+          const paidId = speaking;
           const message = paidId ? ctx.state.paid.find((candidate) => candidate.id === paidId) : undefined;
           if (!paidId) return startCue(ctx, item.id, item.durationMs);
           const where = placed(ctx.state.alertLevels, message?.tier);
@@ -604,8 +658,7 @@ export function createMedia(options: MediaOptions): MediaController {
         run(_input, ctx) {
           const cue = ctx.state.active;
           if (!cue?.introFor) return ctx.refuse("No intro is playing");
-          ctx.setState({ active: null });
-          afterIntro(ctx, cue);
+          endCue(ctx, cue);
         },
       },
       // Silent, and only on a free lane: a preview never pushes a real
@@ -629,10 +682,9 @@ export function createMedia(options: MediaOptions): MediaController {
             text: "This is how a paid message on this level looks on your stream.",
             tier,
           };
-          const where = { level, size: sizeOf(level, levels.length) };
           const clip = introOf(ctx.state, tier);
-          if (clip) startCue(ctx, clip.id, clip.durationMs, { sample, introFor: sample.id, ...where });
-          else startCue(ctx, null, alertMs(where.size), { sample, ...where });
+          if (clip) startCue(ctx, clip.id, clip.durationMs, { sample, introFor: sample.id, ...placed(levels, tier) });
+          else showSample(ctx, sample);
         },
       },
       // Her way off a preview that keeps whoever paid while she was placing
@@ -698,7 +750,7 @@ export function createMedia(options: MediaOptions): MediaController {
 
     teardown(ctx) {
       interrupt(ctx);
-      stopPicking();
+      forget();
       if (ctx.state.active) ctx.setState({ active: null });
       context = null;
     },
@@ -740,7 +792,7 @@ export function createMedia(options: MediaOptions): MediaController {
         active: state.active?.itemId === item.id ? null : state.active,
         alertLevels: state.alertLevels.map((level) => level.introId === item.id ? { from: level.from } : level),
       }));
-      if (cue?.itemId === item.id && cue.introFor) afterIntro(ctx, cue);
+      if (cue?.itemId === item.id) endCue(ctx, cue);
       else void advance(ctx);
       return { ok: true, value: undefined };
     },
