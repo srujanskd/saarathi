@@ -3,8 +3,11 @@ import {
   MAX_MEDIA_BYTES,
   MAX_MEDIA_ITEMS,
   MEDIA_ID,
+  SPEECH_MOODS,
+  SPEECH_VOICES,
   type MediaItem,
   type MediaState,
+  type SpeechVoiceId,
 } from "@saarathi/shared";
 import { Notice } from "../../core/Notice.js";
 import { addToDeck } from "../../core/addToDeck.js";
@@ -108,6 +111,7 @@ export function MediaCard({ connection, deck }: CardProps) {
           {state.paid.length === 1 ? "1 paid message" : `${state.paid.length} paid messages`} in line. Stop clears them.
         </p> : null}
         {state ? <SpeechSettings state={state} invoke={invoke} /> : null}
+        {state ? <VoicePicking state={state} invoke={invoke} /> : null}
       </div>
 
       {state?.active ? (
@@ -216,7 +220,9 @@ function Waiting({ state, invoke }: { state: MediaState; invoke: Invoker }) {
 function nowPlaying(state: MediaState): string {
   const message = state.active?.paidId ? state.paid.find((candidate) => candidate.id === state.active?.paidId) : undefined;
   if (message) {
-    return `Showing ${message.name}'s ${message.amount}${state.speech ? ", reading it aloud" : ""}${message.cut ? `. Message left out: ${message.cut}` : ""}`;
+    const sound = message.style
+      ? ` in the ${SPEECH_VOICES[message.style.voice].label} voice, ${SPEECH_MOODS[message.style.mood].label.toLowerCase()}` : "";
+    return `Showing ${message.name}'s ${message.amount}${state.speech ? `, reading it aloud${sound}` : ""}${message.cut ? `. Message left out: ${message.cut}` : ""}`;
   }
   if (state.speech) return "Playing the test voice";
   return `Playing ${state.items.find((item) => item.id === state.active?.itemId)?.label ?? "a clip"}`;
@@ -269,6 +275,41 @@ function SpeechSettings({ state, invoke }: { state: MediaState; invoke: Invoker 
       <button className="btn" type="button" disabled={invoke.working} onClick={() => { setDraft(null); setKey(""); }}>Discard changes</button>
       {state.hasSpeechKey ? <button className="btn" type="button" disabled={invoke.working}
         onClick={async () => { if (await invoke.run(`${MEDIA_ID}.forgetSpeechKey`)) setKey(""); }}>Forget Microsoft key</button> : null}
+    </details>
+  );
+}
+
+/**
+ * Claude choosing a voice per viewer and a mood per message. Its own fold,
+ * because it is a different decision from which engine reads: it works the
+ * same with the built-in voice and with Microsoft's.
+ */
+function VoicePicking({ state, invoke }: { state: MediaState; invoke: Invoker }) {
+  const voices = Object.keys(SPEECH_VOICES) as SpeechVoiceId[];
+  return (
+    <details className="fold">
+      <summary>Voices per viewer: {state.pickVoices ? "Claude picks" : "off"}</summary>
+      <p className="hint">Claude Haiku picks one of the voices below for each viewer from their name, and a mood for each
+        message. A viewer keeps their voice next time. Uses Claude Code on the computer running Saarathi and counts toward
+        that Claude plan; the sender, amount and message are sent to Anthropic. With the Kannada voice and the built-in
+        one, a mood changes speed and pitch only.</p>
+      <button className="btn" type="button" aria-pressed={state.pickVoices} disabled={invoke.working}
+        onClick={() => void invoke.run(`${MEDIA_ID}.pickVoices`, [state.pickVoices ? "off" : "on"])}>
+        Claude picks voices: {state.pickVoices ? "on" : "off"}
+      </button>
+      <p className="hint" role="status">{state.pickerStatus}</p>
+      {state.rememberedVoices > 0 ? <>
+        <p className="hint">Remembering voices for {state.rememberedVoices === 1 ? "1 viewer" : `${state.rememberedVoices} viewers`}.</p>
+        <button className="btn" type="button" disabled={invoke.working}
+          onClick={() => void invoke.run(`${MEDIA_ID}.forgetVoices`)}>Forget remembered voices</button>
+      </> : null}
+      <p className="hint">Hear each voice in OBS:</p>
+      <div className="media-voices">
+        {voices.map((voice) => (
+          <button key={voice} className="btn" type="button" disabled={invoke.working || !state.ttsEnabled}
+            onClick={() => void invoke.run(`${MEDIA_ID}.testVoice`, [voice])}>{SPEECH_VOICES[voice].label}</button>
+        ))}
+      </div>
     </details>
   );
 }

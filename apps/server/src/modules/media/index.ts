@@ -7,21 +7,32 @@ import {
   MEDIA_ID,
   PAID_ALERT_MS,
   MEDIA_TYPES,
+  SPEECH_VOICES,
   type GameModuleDef,
   type MediaCue,
   type MediaItem,
   type MediaState,
   type PaidMessage,
   type ModuleContext,
+  type SpeechStyle,
+  type SpeechVoiceId,
 } from "@saarathi/shared";
 import type { MediaFiles } from "./files.js";
 import { paidMessage, paidSpeech, type SpeechVoice } from "./speech.js";
 import { microsoftVoice, SpeechError, validSpeechRegion, type MicrosoftVoice } from "./microsoft-speech.js";
 import { inspectMedia } from "./inspect.js";
+import { PickerError, type VoicePicker } from "./voice-picker.js";
 
 const MAX_LABEL = 48;
 const MIN_DURATION_MS = 500;
-type MediaModuleState = MediaState & { speechKey: string };
+/**
+ * Remembered voices, oldest first, so a regular sounds the same every time.
+ * Server-only: it is a list of viewer ids nobody's page needs, and it would
+ * otherwise ride in every snapshot to every overlay.
+ */
+type MediaModuleState = MediaState & { speechKey: string; viewerVoices: [string, SpeechVoiceId][] };
+/** Enough regulars for a long while; past it the least recently picked is forgotten. */
+const MAX_REMEMBERED_VOICES = 500;
 
 export interface MediaUpload {
   label: unknown;
@@ -48,6 +59,8 @@ export interface MediaOptions {
   assetKey?: () => string;
   voice?: SpeechVoice;
   microsoftVoice?: MicrosoftVoice;
+  /** Absent where nothing can pick voices; the switch then refuses with a sentence. */
+  picker?: VoicePicker;
 }
 
 /** The media library and its one server-timed playback lane. */
@@ -64,6 +77,7 @@ export function createMedia(options: MediaOptions): MediaController {
   let speaking: string | null = null;
   // Test voice jumps the queue and is never persisted: it is not anybody's money.
   let testWaiting = false;
+  let testStyle: SpeechStyle | undefined;
 
   const clearSpeech = (ctx: ModuleContext<MediaModuleState>) => {
     const item = ctx.state.speech;
@@ -102,6 +116,41 @@ export function createMedia(options: MediaOptions): MediaController {
     }
     return options.voice ? "Ready. Paid messages play through the Media overlay in OBS."
       : "Built-in speech needs Windows or macOS on the server. You can also set up Microsoft speech below.";
+  };
+
+  const pickerOff = "Off. Every message is read in the voice above.";
+  const pickerOn = "On. Claude picks a voice for each viewer and a mood for each message.";
+
+  const remembered = (state: Readonly<MediaModuleState>, viewer: string | undefined) =>
+    viewer ? state.viewerVoices.find(([id]) => id === viewer)?.[1] : undefined;
+
+  const remember = (ctx: ModuleContext<MediaModuleState>, viewer: string, voice: SpeechVoiceId) => {
+    const kept = ctx.state.viewerVoices.filter(([id]) => id !== viewer);
+    const viewerVoices = [...kept, [viewer, voice] as [string, SpeechVoiceId]].slice(-MAX_REMEMBERED_VOICES);
+    ctx.setState({ viewerVoices, rememberedVoices: viewerVoices.length });
+  };
+
+  /**
+   * How this message should sound, or nothing for the default voice. Never
+   * throws: a picker that is missing, signed out or slow costs the message its
+   * style, never its turn.
+   */
+  const choose = async (ctx: ModuleContext<MediaModuleState>, message: PaidMessage, signal: AbortSignal): Promise<SpeechStyle | undefined> => {
+    const known = remembered(ctx.state, message.viewer);
+    // Nothing to read a mood from, and the voice is already settled.
+    if (known && !message.text) return { voice: known, mood: "neutral" };
+    try {
+      if (!options.picker) throw new PickerError("missing");
+      const picked = await options.picker.pick({ name: message.name, amount: message.amount, text: message.text }, signal);
+      if (signal.aborted) return undefined;
+      if (!known && message.viewer) remember(ctx, message.viewer, picked.voice);
+      ctx.setState({ pickerStatus: pickerOn });
+      return { voice: known ?? picked.voice, mood: picked.mood };
+    } catch (error) {
+      if (signal.aborted) return undefined;
+      ctx.setState({ pickerStatus: error instanceof PickerError ? error.message : "Claude did not answer, so the default voice was used." });
+      return known ? { voice: known, mood: "neutral" } : undefined;
+    }
   };
 
   const ready = (ctx: ModuleContext<MediaModuleState>) => ctx.state.speechProvider === "microsoft"
@@ -158,19 +207,28 @@ export function createMedia(options: MediaOptions): MediaController {
     }
     testWaiting = false;
     if (head && !voiced) return startCue(ctx, null, PAID_ALERT_MS, head.id);
+    const started = epoch;
+    const controller = new AbortController();
+    generation = controller;
+    let style = head ? head.style : testStyle;
+    testStyle = undefined;
+    if (head && !style && ctx.state.pickVoices) {
+      ctx.setState({ ttsStatus: "Choosing a voice…" });
+      style = await choose(ctx, head, controller.signal);
+      if (started !== epoch) return;
+      const chosen = style;
+      if (chosen) ctx.setState((state) => ({ paid: state.paid.map((message) => message.id === head.id ? { ...message, style: chosen } : message) }));
+    }
     const microsoft = ctx.state.speechProvider === "microsoft";
     const text = head ? paidSpeech(head, microsoft ? "kn" : "en")
       : microsoft ? "ಮನೆಯ ಸದಸ್ಯರೇ, ನಿಮ್ಮ ಬೆಂಬಲಕ್ಕೆ ಧನ್ಯವಾದಗಳು. ಮುಂದಿನ ಸವಾಲಿಗೆ ಸಿದ್ಧರಾಗಿ!"
         : "Thank you for supporting the stream!";
     const paidId = head?.id ?? null;
-    const started = epoch;
-    const controller = new AbortController();
-    generation = controller;
     ctx.setState({ ttsStatus: "Preparing speech…" });
     try {
       const data = microsoft
-        ? await cloudVoice(text, controller.signal, { key: ctx.state.speechKey, region: ctx.state.speechRegion })
-        : await options.voice!(text, controller.signal);
+        ? await cloudVoice(text, controller.signal, { key: ctx.state.speechKey, region: ctx.state.speechRegion }, style)
+        : await options.voice!(text, controller.signal, style);
       if (started !== epoch) return;
       const made = makeItem({ label: "Paid message", mime: "audio/wav", volume: 1, data },
         { id: `speech-${id()}`, assetKey: assetKey(), now: now() });
@@ -200,12 +258,13 @@ export function createMedia(options: MediaOptions): MediaController {
     title: "Media",
     overlay: true,
     initialState: { items: [], active: null, speech: null, ttsEnabled: true, paid: [], checkFirst: false, ttsStatus: voiceStatus(),
-      speechProvider: "system", speechRegion: "centralindia", speechKey: "", hasSpeechKey: false },
+      speechProvider: "system", speechRegion: "centralindia", speechKey: "", hasSpeechKey: false,
+      pickVoices: false, pickerStatus: pickerOff, viewerVoices: [], rememberedVoices: 0 },
     // Her library survives. Playback does not: a server restart stops the lane
     // rather than claiming a clip is still audible after the process died. The
     // paid queue survives too, and its head is read again from the start.
-    persist: ["items", "ttsEnabled", "paid", "checkFirst", "speechProvider", "speechRegion", "speechKey"],
-    serverOnly: ["speechKey"],
+    persist: ["items", "ttsEnabled", "paid", "checkFirst", "speechProvider", "speechRegion", "speechKey", "pickVoices", "viewerVoices"],
+    serverOnly: ["speechKey", "viewerVoices"],
 
     actions: {
       speechSettings: {
@@ -283,12 +342,35 @@ export function createMedia(options: MediaOptions): MediaController {
           void advance(ctx);
         },
       },
+      pickVoices: {
+        label: "Let Claude pick voices",
+        needsArgs: true,
+        run(input, ctx) {
+          const on = input.args[0];
+          if (on !== "on" && on !== "off") return ctx.refuse("Choose on or off");
+          if (on === "on" && !options.picker?.available()) {
+            return ctx.refuse("Claude Code is not installed on the computer running Saarathi");
+          }
+          // Messages already given a style keep it; only new ones change.
+          ctx.setState({ pickVoices: on === "on", pickerStatus: on === "on" ? pickerOn : pickerOff });
+        },
+      },
+      forgetVoices: {
+        label: "Forget remembered voices",
+        run(_input, ctx) {
+          if (ctx.state.viewerVoices.length === 0) return ctx.refuse("No voices are remembered");
+          ctx.setState({ viewerVoices: [], rememberedVoices: 0 });
+        },
+      },
       testVoice: {
         label: "Test voice",
-        run(_input, ctx) {
+        run(input, ctx) {
           if (!ready(ctx)) return ctx.refuse(voiceStatus(ctx.state));
           if (!ctx.state.ttsEnabled) return ctx.refuse("Turn paid-message speech on first");
           if (testWaiting) return ctx.refuse("Test voice is already waiting");
+          const voice = input.args[0];
+          if (voice !== undefined && !(voice in SPEECH_VOICES)) return ctx.refuse("Choose one of the voices");
+          testStyle = voice === undefined ? undefined : { voice: voice as SpeechVoiceId, mood: "neutral" };
           testWaiting = true;
           void advance(ctx);
         },
@@ -317,7 +399,8 @@ export function createMedia(options: MediaOptions): MediaController {
     },
 
     setup(ctx) {
-      ctx.setState({ hasSpeechKey: Boolean(ctx.state.speechKey), ttsStatus: voiceStatus(ctx.state) });
+      ctx.setState({ hasSpeechKey: Boolean(ctx.state.speechKey), ttsStatus: voiceStatus(ctx.state),
+        rememberedVoices: ctx.state.viewerVoices.length, pickerStatus: ctx.state.pickVoices ? pickerOn : pickerOff });
       ctx.on("paid-event", (event) => {
         if (ctx.state.paid.length >= MAX_PAID_QUEUE) {
           ctx.setState({ ttsStatus: "Paid message queue is full. New messages are being skipped." });

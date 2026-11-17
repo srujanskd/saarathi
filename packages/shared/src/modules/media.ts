@@ -53,6 +53,36 @@ export interface MediaCue {
   endsAt: number;
 }
 
+/**
+ * The voices a paid message can be read in, named for a character rather than
+ * a gender. Whatever picks one is guessing from a username, and it is told not
+ * to guess a gender: a wrong one is said out loud on her stream.
+ */
+export const SPEECH_VOICES = {
+  announcer: { label: "Announcer", description: "deep, slow and grand" },
+  buddy: { label: "Buddy", description: "friendly, relaxed and quick" },
+  warm: { label: "Warm", description: "gentle and kind" },
+  bright: { label: "Bright", description: "lively and upbeat" },
+} as const;
+export type SpeechVoiceId = keyof typeof SPEECH_VOICES;
+
+/**
+ * How one message is delivered, on top of the voice. Speed and pitch only:
+ * neither Kannada neural voice nor the built-in ones have real emotion styles.
+ */
+export const SPEECH_MOODS = {
+  neutral: { label: "Neutral" },
+  excited: { label: "Excited" },
+  calm: { label: "Calm" },
+  heartfelt: { label: "Heartfelt" },
+} as const;
+export type SpeechMood = keyof typeof SPEECH_MOODS;
+
+export interface SpeechStyle {
+  voice: SpeechVoiceId;
+  mood: SpeechMood;
+}
+
 /** One paid message, as it will be read: every field already bounded and cleaned. */
 export interface PaidMessage {
   id: string;
@@ -66,6 +96,14 @@ export interface PaidMessage {
   cut?: string;
   /** She let it through while checking messages first. */
   approved?: true;
+  /** The sender's platform id, which is what a remembered voice is keyed by. */
+  viewer?: string;
+  /**
+   * How it was chosen to sound. Saved with the message, so a read cut off by a
+   * clip or a restart sounds the same the second time. Absent means the
+   * default voice.
+   */
+  style?: SpeechStyle;
 }
 
 export interface MediaState {
@@ -89,4 +127,10 @@ export interface MediaState {
   speechProvider: "system" | "microsoft";
   speechRegion: string;
   hasSpeechKey: boolean;
+  /** Ask Claude Code on the server to pick each message's voice and mood. */
+  pickVoices: boolean;
+  /** What the voice picker last did, in a sentence. Not persisted. */
+  pickerStatus: string;
+  /** How many viewers have a remembered voice. The list itself stays on the server. */
+  rememberedVoices: number;
 }
