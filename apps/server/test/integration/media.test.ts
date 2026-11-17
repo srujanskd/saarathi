@@ -487,6 +487,28 @@ describe("how a paid alert looks", () => {
     } finally { await h.stop(); vi.useRealTimers(); }
   });
 
+  it("Stop on a preview ends only the preview and the paid message behind it still plays", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    const h = await harness({ modules: [createMedia({ files: fakeFiles() }).module] });
+    try {
+      expect(await h.kernel.invoke("media.tts", { args: ["off"] })).toEqual({ ok: true });
+      expect(await h.kernel.invoke("media.previewAlert", { args: [String(PAID_TIERS)] })).toEqual({ ok: true });
+      h.chat({ type: "superchat", author: "Ana", amount: "₹500.00", text: "Real" });
+      expect(stateOf(h.kernel.snapshot()).active?.sample).toBeDefined();
+
+      expect(await h.kernel.invoke("media.stop", { args: [] })).toEqual({ ok: true });
+      const after = stateOf(h.kernel.snapshot());
+      expect(after.paid.map((message) => message.name)).toEqual(["Ana"]);
+      expect(after.active).toMatchObject({ paidId: after.paid[0]!.id });
+      expect(after.active).not.toHaveProperty("sample");
+
+      // Pressed again, with a real one on screen, Stop is the full stop it always was.
+      expect(await h.kernel.invoke("media.stop", { args: [] })).toEqual({ ok: true });
+      expect(stateOf(h.kernel.snapshot())).toMatchObject({ active: null, paid: [] });
+    } finally { await h.stop(); vi.useRealTimers(); }
+  });
+
   it("drops a saved size this build has no look for", async () => {
     const store = new MemoryStore();
     store.write(MEDIA_ID, { paid: [{ id: "a", at: 1, name: "Ana", amount: "$5.00", text: "", tier: 99 },

@@ -124,7 +124,7 @@ export function MediaCard({ connection, deck }: CardProps) {
         <div className="media-live" data-testid="media-active">
           <span>{nowPlaying(state)}</span>
           <button className="tool" type="button" onClick={() => void invoke.run(`${MEDIA_ID}.stop`)}>
-            Stop all
+            {state.active.sample ? "End preview" : "Stop all"}
           </button>
         </div>
       ) : <p className="hint">Nothing is playing.</p>}

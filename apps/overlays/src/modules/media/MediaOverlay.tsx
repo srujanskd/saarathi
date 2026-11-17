@@ -69,8 +69,14 @@ function PaidAlert({ message, remainingMs, theme, position }: {
   position: AlertPosition;
 }) {
   const tier = message.tier ?? 1;
+  // An animation delay counts from when the animation started, which is this
+  // card's mount, so the exit is worked out once against the time left then.
+  // Recomputed on every render it shrinks while the clock it is measured from
+  // does not, and any patch -- another Super Chat queueing, a reconnect, her
+  // moving the alert -- would pull the fade forward or end it on the spot.
+  const [exitMs] = useState(() => Math.max(0, remainingMs - ALERT_FADE_MS));
   const style = {
-    "--alert-out": `${Math.max(0, remainingMs - ALERT_FADE_MS)}ms`,
+    "--alert-out": `${exitMs}ms`,
     "--tier": tier,
   } as CSSProperties;
   return (

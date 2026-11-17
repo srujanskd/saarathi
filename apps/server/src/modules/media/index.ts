@@ -534,6 +534,15 @@ export function createMedia(options: MediaOptions): MediaController {
       stop: {
         label: "Stop all media",
         run(_input, ctx) {
+          // A preview is the only thing on the lane she put there to look at,
+          // and Stop is the only way off it, so Stop ends just the preview.
+          // Clearing the queue too would throw away whoever paid while she
+          // was placing the alert. Pressed again, it stops everything.
+          if (ctx.state.active?.sample) {
+            ctx.setState({ active: null });
+            void advance(ctx);
+            return;
+          }
           if (!ctx.state.active && !generation && ctx.state.paid.length === 0 && !testWaiting) return ctx.refuse("Nothing is playing");
           cancelSpeech(ctx);
           ctx.setState({ active: null });

@@ -191,6 +191,34 @@ test("the biggest paid alert bursts on transform and opacity only, where she put
   await expect(alert).toHaveCount(0);
 });
 
+// The exit is a CSS delay counted from the card's mount. A patch mid-alert --
+// another Super Chat queueing, a reconnect, her moving it -- re-renders the
+// card, and must not move that delay, or the fade comes early or at once.
+test("a paid alert keeps its exit time when the state changes under it", async ({
+  page: overlay, pages, saarathi,
+}) => {
+  expect(await saarathi.invoke({ action: `${MEDIA_ID}.tts`, args: ["off"] })).toEqual({ ok: true });
+  await overlay.goto(overlayUrl(pages, saarathi, MEDIA_ID));
+  await saarathi.mockChat({ type: "superchat", author: "Ana", amount: "₹5,000.00", text: "Last set!", tier: 7 });
+  const alert = overlay.getByTestId("paid-alert");
+  await expect(alert).toContainText("Last set!");
+  const exitDelay = () => overlay.evaluate(() => document.getAnimations()
+    .find((animation) => (animation as CSSAnimation).animationName === "paid-alert-out")
+    ?.effect?.getTiming().delay);
+  const before = await exitDelay();
+  expect(before).toBeGreaterThan(0);
+
+  // Each of these patches the slice the card renders from.
+  await saarathi.mockChat({ type: "superchat", author: "Bo", amount: "₹100.00", text: "Next" });
+  expect(await saarathi.invoke({ action: `${MEDIA_ID}.alertPosition`, args: ["bottom"] })).toEqual({ ok: true });
+  await expect(overlay.locator(".paid-stage")).toHaveAttribute("data-position", "bottom");
+  expect(await exitDelay()).toBe(before);
+  await expect(alert).toContainText("Last set!");
+  await expect.poll(() => alert.evaluate((element) => getComputedStyle(element.parentElement!).opacity)).toBe("1");
+
+  expect(await saarathi.invoke({ action: `${MEDIA_ID}.stop`, args: [] })).toEqual({ ok: true });
+});
+
 function tone(): Buffer {
   const rate = 8_000;
   const samples = rate * 10;
