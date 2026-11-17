@@ -1,10 +1,9 @@
-import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { PaidEvent, PaidMessage, SpeechStyle } from "@saarathi/shared";
 import { scamIn, withoutLinks } from "../../core/screen.js";
 import { delivery, sapiRate, sayWordsPerMinute } from "./delivery.js";
+import { inTempDirectory, runChild } from "./child.js";
 
 /** No style means the machine's own default voice at its own speed. */
 export type SpeechVoice = (text: string, signal: AbortSignal, style?: SpeechStyle) => Promise<Buffer>;
@@ -28,7 +27,6 @@ export function paidMessage(event: PaidEvent, id: string): PaidMessage {
     amount: clean(event.amount.display, 24),
     text: scam ? "" : clean(withoutLinks(full, "(link)"), 180),
     ...(scam ? { cut: scam } : {}),
-    ...(event.author.id ? { viewer: event.author.id.slice(0, 128) } : {}),
   };
 }
 
@@ -48,7 +46,7 @@ $voice = New-Object System.Speech.Synthesis.SpeechSynthesizer
 try {
   if ($inputData.gender -eq 'Male') { $voice.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Male) }
   elseif ($inputData.gender -eq 'Female') { $voice.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::Female) }
-  $voice.Rate = [int]$inputData.rate
+  if ($null -ne $inputData.rate) { $voice.Rate = [int]$inputData.rate }
   $voice.SetOutputToWaveFile($inputData.path)
   $voice.Speak([string]$inputData.text)
 } finally { $voice.Dispose() }
@@ -56,34 +54,23 @@ try {
 
 export function systemVoice(platform: NodeJS.Platform): SpeechVoice | undefined {
   if (platform !== "win32" && platform !== "darwin") return undefined;
-  return async (text, signal, style) => {
+  const windows = platform === "win32";
+  return (text, signal, style) => {
+    // Unstyled leaves the machine's own voice and speed alone: no rate is sent at all.
     const sound = style ? delivery(style) : undefined;
-    const directory = await mkdtemp(join(tmpdir(), "saarathi-speech-"));
-    const path = join(directory, "speech.wav");
-    try {
-      const windows = platform === "win32";
-      await new Promise<void>((resolve, reject) => {
-        const child = spawn(windows ? "powershell.exe" : "/usr/bin/say", windows
-          ? ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(WINDOWS_SCRIPT, "utf16le").toString("base64")]
-          : ["-o", path, "--file-format=WAVE", "--data-format=LEI16@22050",
-            ...(sound ? ["-r", String(sayWordsPerMinute(sound.rate))] : [])],
-        { windowsHide: true, stdio: ["pipe", "ignore", "ignore"], signal, timeout: 30_000 });
-        let failure: Error | undefined;
-        child.on("error", (error) => { failure = error; });
-        // Wait for closed handles before removing the WAV, especially on Windows.
-        child.on("close", (code) => {
-          if (failure) reject(failure);
-          else if (code === 0) resolve();
-          else reject(new Error("Speech generation failed"));
-        });
-        child.stdin.on("error", () => undefined);
-        child.stdin.end(windows
-          ? JSON.stringify({ text, path, rate: sound ? sapiRate(sound.rate) : 0, ...(sound ? { gender: sound.gender } : {}) })
-          : text);
+    return inTempDirectory("saarathi-speech-", async (directory) => {
+      const path = join(directory, "speech.wav");
+      await runChild(windows ? "powershell.exe" : "/usr/bin/say", windows
+        ? ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(WINDOWS_SCRIPT, "utf16le").toString("base64")]
+        : ["-o", path, "--file-format=WAVE", "--data-format=LEI16@22050",
+          ...(sound ? ["-r", String(sayWordsPerMinute(sound.rate))] : [])], {
+        input: windows
+          ? JSON.stringify({ text, path, ...(sound ? { rate: sapiRate(sound.rate), gender: sound.gender } : {}) })
+          : text,
+        signal,
+        timeoutMs: 30_000,
       });
-      return await readFile(path);
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
+      return readFile(path);
+    });
   };
 }

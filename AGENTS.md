@@ -19,6 +19,12 @@ The person using this is not technical and is on Windows. If a feature needs a c
 var she has to set by hand, or a config file she has to edit, the feature is not done. It ships
 as a tray icon, an installer, and a web page with buttons on it.
 
+One standing exception, made deliberately: "Voices per viewer" runs Claude Code on her PC,
+which you install and sign in once from a terminal. It is optional and off by default, every
+failure falls back to the default voice, and every sentence it shows her says to ask whoever set
+Saarathi up, never to open anything. A second feature that needs a terminal step is a new
+decision, not this one again.
+
 That also means failures have to be legible. "No live stream found, retrying every 60s" is a
 useful status. A stack trace in a console she will never look at is not.
 

@@ -286,22 +286,32 @@ function SpeechSettings({ state, invoke }: { state: MediaState; invoke: Invoker 
  */
 function VoicePicking({ state, invoke }: { state: MediaState; invoke: Invoker }) {
   const voices = Object.keys(SPEECH_VOICES) as SpeechVoiceId[];
+  // Forgetting has no undo, so it takes a second tap, with a way back from the first.
+  const [confirming, setConfirming] = useState(false);
+  const viewers = state.rememberedVoices === 1 ? "1 viewer" : `${state.rememberedVoices} viewers`;
   return (
     <details className="fold">
       <summary>Voices per viewer: {state.pickVoices ? "Claude picks" : "off"}</summary>
       <p className="hint">Claude Haiku picks one of the voices below for each viewer from their name, and a mood for each
-        message. A viewer keeps their voice next time. Uses Claude Code on the computer running Saarathi and counts toward
-        that Claude plan; the sender, amount and message are sent to Anthropic. With the Kannada voice and the built-in
-        one, a mood changes speed and pitch only.</p>
+        message. A viewer keeps their voice next time. Uses Claude Code on the computer running Saarathi, set up there once by
+        whoever installed Saarathi, and counts toward that Claude plan; the sender, amount and message are sent to Anthropic. With Microsoft's Kannada voices each
+        one has its own voice, speed and pitch. With the built-in voice they differ in speed only (on Windows, also a
+        male or female installed voice), so on a Mac they sound much alike.</p>
       <button className="btn" type="button" aria-pressed={state.pickVoices} disabled={invoke.working}
         onClick={() => void invoke.run(`${MEDIA_ID}.pickVoices`, [state.pickVoices ? "off" : "on"])}>
         Claude picks voices: {state.pickVoices ? "on" : "off"}
       </button>
       <p className="hint" role="status">{state.pickerStatus}</p>
       {state.rememberedVoices > 0 ? <>
-        <p className="hint">Remembering voices for {state.rememberedVoices === 1 ? "1 viewer" : `${state.rememberedVoices} viewers`}.</p>
-        <button className="btn" type="button" disabled={invoke.working}
-          onClick={() => void invoke.run(`${MEDIA_ID}.forgetVoices`)}>Forget remembered voices</button>
+        <p className="hint">Remembering voices for {viewers}.</p>
+        {confirming ? <div className="media-voices">
+          <button className="btn" type="button" disabled={invoke.working} onClick={() => {
+            setConfirming(false);
+            void invoke.run(`${MEDIA_ID}.forgetVoices`, ["all"]);
+          }}>Forget all {viewers}</button>
+          <button className="btn" type="button" onClick={() => setConfirming(false)}>Keep them</button>
+        </div> : <button className="btn" type="button" disabled={invoke.working}
+          onClick={() => setConfirming(true)}>Forget remembered voices</button>}
       </> : null}
       <p className="hint">Hear each voice in OBS:</p>
       <div className="media-voices">

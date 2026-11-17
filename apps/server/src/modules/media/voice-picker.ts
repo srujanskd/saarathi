@@ -1,9 +1,7 @@
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, posix, win32 } from "node:path";
+import { posix, win32 } from "node:path";
 import { SPEECH_MOODS, SPEECH_VOICES, type SpeechMood, type SpeechStyle, type SpeechVoiceId } from "@saarathi/shared";
+import { inTempDirectory, runChild } from "./child.js";
 
 /** What the picker sees: the message as it will be read, already screened and bounded. */
 export interface PickInput {
@@ -18,11 +16,16 @@ export interface VoicePicker {
   pick(input: PickInput, signal: AbortSignal): Promise<SpeechStyle>;
 }
 
+/**
+ * Claude Code is the one setup step here that happens in a terminal, so it is
+ * whoever installed Saarathi who does it, once. These sentences send her to
+ * that person and never to a terminal of her own.
+ */
 export class PickerError extends Error {
   constructor(kind: "missing" | "unanswered") {
     super({
-      missing: "Claude Code was not found on this computer, so the default voice is being used.",
-      unanswered: "Claude did not answer, so the default voice was used. Open Claude Code on this computer once to check it is signed in.",
+      missing: "Claude Code is not set up on this computer, so the default voice is being used. Ask whoever set up Saarathi to install it.",
+      unanswered: "Claude did not answer, so the default voice was used. If this keeps happening, ask whoever set up Saarathi to check Claude Code is signed in on this computer.",
     }[kind]);
   }
 }
@@ -108,35 +111,21 @@ export function claudePicker(locate: () => string | undefined, timeoutMs = 20_00
       const path = locate();
       if (!path) throw new PickerError("missing");
       // An empty folder of its own, so nothing it could read is anything of hers.
-      const directory = await mkdtemp(join(tmpdir(), "saarathi-voice-"));
-      try {
-        const stdout = await new Promise<string>((resolve, reject) => {
-          // A nested Claude Code session refuses to start; this one is not nested in anything.
-          const { CLAUDECODE: _session, CLAUDE_CODE_ENTRYPOINT: _entry, ...env } = process.env;
-          const child = spawn(path, claudeArgs(), {
-            cwd: directory, env, windowsHide: true, stdio: ["pipe", "pipe", "ignore"], signal, timeout: timeoutMs,
+      return inTempDirectory("saarathi-voice-", async (directory) => {
+        // A nested Claude Code session refuses to start; this one is not nested in anything.
+        const { CLAUDECODE: _session, CLAUDE_CODE_ENTRYPOINT: _entry, ...env } = process.env;
+        let stdout: string;
+        try {
+          stdout = await runChild(path, claudeArgs(), {
+            input: pickPrompt(input), signal, timeoutMs, cwd: directory, env, maxOutput: MAX_OUTPUT,
           });
-          let out = "";
-          let failure: Error | undefined;
-          child.stdout.setEncoding("utf8");
-          child.stdout.on("data", (chunk: string) => {
-            out += chunk;
-            if (out.length > MAX_OUTPUT) child.kill();
-          });
-          child.on("error", (error) => { failure = error; });
-          child.on("close", (code) => {
-            if (failure || code !== 0 || out.length > MAX_OUTPUT) reject(new PickerError("unanswered"));
-            else resolve(out);
-          });
-          child.stdin.on("error", () => undefined);
-          child.stdin.end(pickPrompt(input));
-        });
+        } catch {
+          throw new PickerError("unanswered");
+        }
         const style = parsePick(stdout);
         if (!style) throw new PickerError("unanswered");
         return style;
-      } finally {
-        await rm(directory, { recursive: true, force: true });
-      }
+      });
     },
   };
 }

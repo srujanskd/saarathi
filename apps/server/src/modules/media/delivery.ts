@@ -27,6 +27,26 @@ const MOODS: Record<SpeechMood, { rate: number; pitch: number }> = {
   heartfelt: { rate: -12, pitch: -6 },
 };
 
+/**
+ * Own keys only: `in` would also say yes to "toString" and "__proto__", which
+ * every object inherits and none of these tables means.
+ */
+export function knownVoice(voice: unknown): voice is SpeechVoiceId {
+  return typeof voice === "string" && Object.hasOwn(VOICES, voice);
+}
+
+/**
+ * A saved style that still names a voice and a mood this build has, or
+ * nothing. State outlives releases: a voice renamed or dropped later must
+ * cost an old message its style, not crash the card or the read.
+ */
+export function knownStyle(style: unknown): SpeechStyle | undefined {
+  if (!style || typeof style !== "object") return undefined;
+  const { voice, mood } = style as { voice?: unknown; mood?: unknown };
+  return knownVoice(voice) && typeof mood === "string" && Object.hasOwn(MOODS, mood)
+    ? { voice, mood: mood as SpeechMood } : undefined;
+}
+
 export const DEFAULT_STYLE: SpeechStyle = { voice: "announcer", mood: "neutral" };
 
 export function delivery(style: SpeechStyle): Delivery {

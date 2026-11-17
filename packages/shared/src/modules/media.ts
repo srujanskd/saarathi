@@ -96,8 +96,6 @@ export interface PaidMessage {
   cut?: string;
   /** She let it through while checking messages first. */
   approved?: true;
-  /** The sender's platform id, which is what a remembered voice is keyed by. */
-  viewer?: string;
   /**
    * How it was chosen to sound. Saved with the message, so a read cut off by a
    * clip or a restart sounds the same the second time. Absent means the

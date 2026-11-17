@@ -7,7 +7,6 @@ import {
   MEDIA_ID,
   PAID_ALERT_MS,
   MEDIA_TYPES,
-  SPEECH_VOICES,
   type GameModuleDef,
   type MediaCue,
   type MediaItem,
@@ -22,17 +21,33 @@ import { paidMessage, paidSpeech, type SpeechVoice } from "./speech.js";
 import { microsoftVoice, SpeechError, validSpeechRegion, type MicrosoftVoice } from "./microsoft-speech.js";
 import { inspectMedia } from "./inspect.js";
 import { PickerError, type VoicePicker } from "./voice-picker.js";
+import { knownStyle, knownVoice } from "./delivery.js";
 
 const MAX_LABEL = 48;
 const MIN_DURATION_MS = 500;
 /**
- * Remembered voices, oldest first, so a regular sounds the same every time.
- * Server-only: it is a list of viewer ids nobody's page needs, and it would
- * otherwise ride in every snapshot to every overlay.
+ * Server-only, both of them: they are viewer ids nobody's page needs, and they
+ * would otherwise ride in every snapshot to every overlay, read-only OBS
+ * links included.
+ *
+ * `viewerVoices` is remembered voices, least recently heard first, so a regular
+ * sounds the same every time. `paidViewers` is who sent each waiting message,
+ * by message id, which is what a remembered voice is looked up by; it is kept
+ * because the queue survives a restart and the pick may come after one.
  */
-type MediaModuleState = MediaState & { speechKey: string; viewerVoices: [string, SpeechVoiceId][] };
-/** Enough regulars for a long while; past it the least recently picked is forgotten. */
+type MediaModuleState = MediaState & {
+  speechKey: string;
+  viewerVoices: [string, SpeechVoiceId][];
+  paidViewers: [string, string][];
+};
+/** Enough regulars for a long while; past it the one heard least recently is forgotten. */
 const MAX_REMEMBERED_VOICES = 500;
+/**
+ * After Claude fails, how long messages go by in the default voice before it
+ * is asked again. Without it a signed-out Claude Code costs every message in a
+ * raid its own timeout.
+ */
+const PICKER_PAUSE_MS = 5 * 60_000;
 
 export interface MediaUpload {
   label: unknown;
@@ -78,6 +93,16 @@ export function createMedia(options: MediaOptions): MediaController {
   // Test voice jumps the queue and is never persisted: it is not anybody's money.
   let testWaiting = false;
   let testStyle: SpeechStyle | undefined;
+  // The one message Claude is choosing for, off the lane so playback never waits behind it.
+  let picking: { id: string; controller: AbortController } | null = null;
+  // Messages whose pick ended without a style; they are read in the default voice.
+  const unpicked = new Set<string>();
+  let pickerPausedUntil = 0;
+
+  const stopPicking = () => {
+    picking?.controller.abort();
+    picking = null;
+  };
 
   const clearSpeech = (ctx: ModuleContext<MediaModuleState>) => {
     const item = ctx.state.speech;
@@ -104,8 +129,10 @@ export function createMedia(options: MediaOptions): MediaController {
   /** Her Stop: the one way the queue is meant to empty. */
   const cancelSpeech = (ctx: ModuleContext<MediaModuleState>) => {
     interrupt(ctx);
+    stopPicking();
+    unpicked.clear();
     testWaiting = false;
-    if (ctx.state.paid.length > 0) ctx.setState({ paid: [] });
+    if (ctx.state.paid.length > 0) ctx.setState({ paid: [], paidViewers: [] });
     ctx.setState({ ttsStatus: voiceStatus(ctx.state) });
   };
 
@@ -120,10 +147,15 @@ export function createMedia(options: MediaOptions): MediaController {
 
   const pickerOff = "Off. Every message is read in the voice above.";
   const pickerOn = "On. Claude picks a voice for each viewer and a mood for each message.";
+  const pickerRetry = "Saarathi will ask Claude again in five minutes, or switch this off and on to ask now.";
+
+  const viewerOf = (state: Readonly<MediaModuleState>, messageId: string) =>
+    state.paidViewers.find(([id]) => id === messageId)?.[1];
 
   const remembered = (state: Readonly<MediaModuleState>, viewer: string | undefined) =>
     viewer ? state.viewerVoices.find(([id]) => id === viewer)?.[1] : undefined;
 
+  /** Also how a returning viewer moves to the back, so the full list forgets whoever has been away longest. */
   const remember = (ctx: ModuleContext<MediaModuleState>, viewer: string, voice: SpeechVoiceId) => {
     const kept = ctx.state.viewerVoices.filter(([id]) => id !== viewer);
     const viewerVoices = [...kept, [viewer, voice] as [string, SpeechVoiceId]].slice(-MAX_REMEMBERED_VOICES);
@@ -136,21 +168,53 @@ export function createMedia(options: MediaOptions): MediaController {
    * style, never its turn.
    */
   const choose = async (ctx: ModuleContext<MediaModuleState>, message: PaidMessage, signal: AbortSignal): Promise<SpeechStyle | undefined> => {
-    const known = remembered(ctx.state, message.viewer);
+    const viewer = viewerOf(ctx.state, message.id);
+    const known = remembered(ctx.state, viewer);
+    if (viewer && known) remember(ctx, viewer, known);
+    const fallback = known ? { voice: known, mood: "neutral" as const } : undefined;
     // Nothing to read a mood from, and the voice is already settled.
-    if (known && !message.text) return { voice: known, mood: "neutral" };
+    if (known && !message.text) return fallback;
+    if (now() < pickerPausedUntil) return fallback;
     try {
       if (!options.picker) throw new PickerError("missing");
       const picked = await options.picker.pick({ name: message.name, amount: message.amount, text: message.text }, signal);
       if (signal.aborted) return undefined;
-      if (!known && message.viewer) remember(ctx, message.viewer, picked.voice);
+      if (!known && viewer) remember(ctx, viewer, picked.voice);
       ctx.setState({ pickerStatus: pickerOn });
       return { voice: known ?? picked.voice, mood: picked.mood };
     } catch (error) {
       if (signal.aborted) return undefined;
-      ctx.setState({ pickerStatus: error instanceof PickerError ? error.message : "Claude did not answer, so the default voice was used." });
-      return known ? { voice: known, mood: "neutral" } : undefined;
+      pickerPausedUntil = now() + PICKER_PAUSE_MS;
+      const why = error instanceof PickerError ? error.message : "Claude did not answer, so the default voice was used.";
+      ctx.setState({ pickerStatus: `${why} ${pickerRetry}` });
+      return fallback;
     }
+  };
+
+  /** Still waiting for Claude: switched on, not chosen yet, and not already given up on. */
+  const needsPick = (state: Readonly<MediaModuleState>, message: PaidMessage) =>
+    state.pickVoices && !message.style && !unpicked.has(message.id);
+
+  /**
+   * Choose voices ahead of the lane, one message at a time and in order, so
+   * Claude's answer overlaps whatever is playing instead of holding up the next
+   * alert. A message waiting for her check is skipped: its words go to
+   * Anthropic only once she has let them through.
+   */
+  const pickAhead = (ctx: ModuleContext<MediaModuleState>) => {
+    if (picking || !ctx.state.ttsEnabled || !ready(ctx)) return;
+    const next = ctx.state.paid.find((message) => needsPick(ctx.state, message) && !held(ctx.state, message));
+    if (!next) return;
+    const controller = new AbortController();
+    picking = { id: next.id, controller };
+    void choose(ctx, next, controller.signal).then((style) => {
+      if (picking?.controller !== controller) return;
+      picking = null;
+      if (style) ctx.setState((state) => ({ paid: state.paid.map((message) => message.id === next.id ? { ...message, style } : message) }));
+      else unpicked.add(next.id);
+      void advance(ctx);
+      pickAhead(ctx);
+    });
   };
 
   const ready = (ctx: ModuleContext<MediaModuleState>) => ctx.state.speechProvider === "microsoft"
@@ -169,7 +233,12 @@ export function createMedia(options: MediaOptions): MediaController {
   };
 
   const finished = (ctx: ModuleContext<MediaModuleState>, paidId: string | null) => {
-    if (paidId) ctx.setState((state) => ({ paid: state.paid.filter((message) => message.id !== paidId) }));
+    if (!paidId) return;
+    unpicked.delete(paidId);
+    ctx.setState((state) => ({
+      paid: state.paid.filter((message) => message.id !== paidId),
+      paidViewers: state.paidViewers.filter(([id]) => id !== paidId),
+    }));
   };
 
   /** The one way anything gets on the lane, and the one way it comes off. */
@@ -207,18 +276,18 @@ export function createMedia(options: MediaOptions): MediaController {
     }
     testWaiting = false;
     if (head && !voiced) return startCue(ctx, null, PAID_ALERT_MS, head.id);
+    // Usually chosen while the one before was playing. When it is not, the
+    // pick's own ending calls back in here.
+    if (head && needsPick(ctx.state, head)) {
+      ctx.setState({ ttsStatus: "Choosing a voice…" });
+      pickAhead(ctx);
+      return;
+    }
     const started = epoch;
     const controller = new AbortController();
     generation = controller;
-    let style = head ? head.style : testStyle;
+    const style = head ? head.style : testStyle;
     testStyle = undefined;
-    if (head && !style && ctx.state.pickVoices) {
-      ctx.setState({ ttsStatus: "Choosing a voice…" });
-      style = await choose(ctx, head, controller.signal);
-      if (started !== epoch) return;
-      const chosen = style;
-      if (chosen) ctx.setState((state) => ({ paid: state.paid.map((message) => message.id === head.id ? { ...message, style: chosen } : message) }));
-    }
     const microsoft = ctx.state.speechProvider === "microsoft";
     const text = head ? paidSpeech(head, microsoft ? "kn" : "en")
       : microsoft ? "ಮನೆಯ ಸದಸ್ಯರೇ, ನಿಮ್ಮ ಬೆಂಬಲಕ್ಕೆ ಧನ್ಯವಾದಗಳು. ಮುಂದಿನ ಸವಾಲಿಗೆ ಸಿದ್ಧರಾಗಿ!"
@@ -259,12 +328,13 @@ export function createMedia(options: MediaOptions): MediaController {
     overlay: true,
     initialState: { items: [], active: null, speech: null, ttsEnabled: true, paid: [], checkFirst: false, ttsStatus: voiceStatus(),
       speechProvider: "system", speechRegion: "centralindia", speechKey: "", hasSpeechKey: false,
-      pickVoices: false, pickerStatus: pickerOff, viewerVoices: [], rememberedVoices: 0 },
+      pickVoices: false, pickerStatus: pickerOff, viewerVoices: [], rememberedVoices: 0, paidViewers: [] },
     // Her library survives. Playback does not: a server restart stops the lane
     // rather than claiming a clip is still audible after the process died. The
     // paid queue survives too, and its head is read again from the start.
-    persist: ["items", "ttsEnabled", "paid", "checkFirst", "speechProvider", "speechRegion", "speechKey", "pickVoices", "viewerVoices"],
-    serverOnly: ["speechKey", "viewerVoices"],
+    persist: ["items", "ttsEnabled", "paid", "checkFirst", "speechProvider", "speechRegion", "speechKey", "pickVoices",
+      "viewerVoices", "paidViewers"],
+    serverOnly: ["speechKey", "viewerVoices", "paidViewers"],
 
     actions: {
       speechSettings: {
@@ -349,15 +419,29 @@ export function createMedia(options: MediaOptions): MediaController {
           const on = input.args[0];
           if (on !== "on" && on !== "off") return ctx.refuse("Choose on or off");
           if (on === "on" && !options.picker?.available()) {
-            return ctx.refuse("Claude Code is not installed on the computer running Saarathi");
+            return ctx.refuse("Claude Code is not set up on the computer running Saarathi. Ask whoever set up Saarathi to install it.");
           }
           // Messages already given a style keep it; only new ones change.
+          if (on === "on") {
+            // Switching on is also how she asks again after a failure.
+            pickerPausedUntil = 0;
+            unpicked.clear();
+          } else {
+            stopPicking();
+          }
           ctx.setState({ pickVoices: on === "on", pickerStatus: on === "on" ? pickerOn : pickerOff });
+          // A message waiting on Claude goes ahead in the default voice.
+          void advance(ctx);
+          pickAhead(ctx);
         },
       },
+      // Takes an argument so no deck button or hotkey can offer it: there is no
+      // undo, and her card asks twice before it sends this.
       forgetVoices: {
         label: "Forget remembered voices",
-        run(_input, ctx) {
+        needsArgs: true,
+        run(input, ctx) {
+          if (input.args[0] !== "all") return ctx.refuse("Confirm forgetting every remembered voice");
           if (ctx.state.viewerVoices.length === 0) return ctx.refuse("No voices are remembered");
           ctx.setState({ viewerVoices: [], rememberedVoices: 0 });
         },
@@ -369,8 +453,8 @@ export function createMedia(options: MediaOptions): MediaController {
           if (!ctx.state.ttsEnabled) return ctx.refuse("Turn paid-message speech on first");
           if (testWaiting) return ctx.refuse("Test voice is already waiting");
           const voice = input.args[0];
-          if (voice !== undefined && !(voice in SPEECH_VOICES)) return ctx.refuse("Choose one of the voices");
-          testStyle = voice === undefined ? undefined : { voice: voice as SpeechVoiceId, mood: "neutral" };
+          if (voice !== undefined && !knownVoice(voice)) return ctx.refuse("Choose one of the voices");
+          testStyle = voice === undefined ? undefined : { voice, mood: "neutral" };
           testWaiting = true;
           void advance(ctx);
         },
@@ -399,15 +483,28 @@ export function createMedia(options: MediaOptions): MediaController {
     },
 
     setup(ctx) {
-      ctx.setState({ hasSpeechKey: Boolean(ctx.state.speechKey), ttsStatus: voiceStatus(ctx.state),
-        rememberedVoices: ctx.state.viewerVoices.length, pickerStatus: ctx.state.pickVoices ? pickerOn : pickerOff });
+      // Saved by some earlier release: a voice or mood it no longer has is dropped, not trusted.
+      const paid = ctx.state.paid.map(({ style, ...message }) => {
+        const kept = knownStyle(style);
+        return kept ? { ...message, style: kept } : message;
+      });
+      const viewerVoices = ctx.state.viewerVoices.filter(([, voice]) => knownVoice(voice));
+      const paidViewers = ctx.state.paidViewers.filter(([messageId]) => paid.some((message) => message.id === messageId));
+      ctx.setState({ paid, viewerVoices, paidViewers, hasSpeechKey: Boolean(ctx.state.speechKey), ttsStatus: voiceStatus(ctx.state),
+        rememberedVoices: viewerVoices.length, pickerStatus: ctx.state.pickVoices ? pickerOn : pickerOff });
       ctx.on("paid-event", (event) => {
         if (ctx.state.paid.length >= MAX_PAID_QUEUE) {
           ctx.setState({ ttsStatus: "Paid message queue is full. New messages are being skipped." });
           return;
         }
-        ctx.setState((state) => ({ paid: [...state.paid, paidMessage(event, id())] }));
+        const message = paidMessage(event, id());
+        const viewer = event.author.id?.slice(0, 128);
+        ctx.setState((state) => ({
+          paid: [...state.paid, message],
+          ...(viewer ? { paidViewers: [...state.paidViewers, [message.id, viewer] as [string, string]] } : {}),
+        }));
         void advance(ctx);
+        pickAhead(ctx);
       });
       context = ctx;
       const present = ctx.state.items.filter((item) => options.files.exists(item));
@@ -418,6 +515,7 @@ export function createMedia(options: MediaOptions): MediaController {
 
     teardown(ctx) {
       interrupt(ctx);
+      stopPicking();
       if (ctx.state.active) ctx.setState({ active: null });
       context = null;
     },

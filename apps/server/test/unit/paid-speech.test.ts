@@ -16,7 +16,7 @@ describe("paid speech text", () => {
   });
 
   it("keeps the arrival time and the id it was given", () => {
-    expect(paid({ at: 42 })).toEqual({ id: "message", at: 42, name: "Ana", amount: "$5.00", text: "Keep going!", viewer: "ana" });
+    expect(paid({ at: 42 })).toEqual({ id: "message", at: 42, name: "Ana", amount: "$5.00", text: "Keep going!" });
   });
 
   it("never puts a link on her stream, in the message or in a name", () => {
