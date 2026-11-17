@@ -7,12 +7,13 @@ const answer = (over: Record<string, unknown> = {}) =>
   JSON.stringify({ type: "result", is_error: false, structured_output: { voice: "bright", mood: "excited" }, ...over });
 
 describe("finding Claude Code", () => {
+  // Literal paths: the platform under test, not the machine running the test, decides the separators.
   it("prefers the installer's location, then PATH", () => {
-    const home = join("/home", "her");
-    const installed = join(home, ".local", "bin", "claude");
-    expect(findClaude("darwin", { HOME: home, PATH: "/elsewhere" }, (path) => path === installed || path === join("/elsewhere", "claude"))).toBe(installed);
-    expect(findClaude("linux", { HOME: home, PATH: "/a:/elsewhere" }, (path) => path === join("/elsewhere", "claude"))).toBe(join("/elsewhere", "claude"));
-    expect(findClaude("linux", { HOME: home, PATH: "" }, () => false)).toBeUndefined();
+    const installed = "/home/her/.local/bin/claude";
+    expect(findClaude("darwin", { HOME: "/home/her", PATH: "/elsewhere" }, (path) => path === installed || path === "/elsewhere/claude")).toBe(installed);
+    expect(findClaude("linux", { HOME: "/home/her", PATH: "/a:/elsewhere" }, (path) => path === "/elsewhere/claude")).toBe("/elsewhere/claude");
+    expect(findClaude("linux", { HOME: "/home/her", PATH: "" }, () => false)).toBeUndefined();
+    expect(findClaude("win32", { USERPROFILE: "C:\\Users\\her", Path: "C:\\a;C:\\tools" }, (path) => path === "C:\\tools\\claude.exe")).toBe("C:\\tools\\claude.exe");
   });
 
   it("on Windows only accepts claude.exe, never a .cmd that would need a shell", () => {

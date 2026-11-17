@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join, posix, win32 } from "node:path";
 import { SPEECH_MOODS, SPEECH_VOICES, type SpeechMood, type SpeechStyle, type SpeechVoiceId } from "@saarathi/shared";
 
 /** What the picker sees: the message as it will be read, already screened and bounded. */
@@ -34,12 +34,14 @@ export class PickerError extends Error {
  */
 export function findClaude(platform: NodeJS.Platform, env: NodeJS.ProcessEnv, exists: (path: string) => boolean = existsSync): string | undefined {
   const windows = platform === "win32";
+  // The platform's own path rules, not the host's, so one function answers for both.
+  const paths = windows ? win32 : posix;
   const file = windows ? "claude.exe" : "claude";
   const home = windows ? env.USERPROFILE : env.HOME;
   const candidates = [
-    ...(home ? [join(home, ".local", "bin", file)] : []),
+    ...(home ? [paths.join(home, ".local", "bin", file)] : []),
     ...(windows ? [] : ["/opt/homebrew/bin/claude", "/usr/local/bin/claude"]),
-    ...(env.PATH ?? env.Path ?? "").split(windows ? ";" : delimiter).filter(Boolean).map((dir) => join(dir, file)),
+    ...(env.PATH ?? env.Path ?? "").split(paths.delimiter).filter(Boolean).map((dir) => paths.join(dir, file)),
   ];
   return candidates.find((path) => exists(path));
 }
